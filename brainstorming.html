@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cozy Focus Pet — Brainstorming</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.55; }
+    body { max-width: 48rem; margin: 3rem auto; padding: 0 1.5rem; }
+    h1, h2 { line-height: 1.2; }
+    li { margin: .35rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Cozy Focus Pet — brainstorming</h1>
+    <p>A small, local-first desktop companion for focus sessions and real breaks. A quiet dog or other pet stays visible while I work and changes state as the session progresses.</p>
+    <h2>Ideas to explore</h2>
+    <ul>
+      <li>A compact, click-through pet overlay that stays out of the way.</li>
+      <li>Customizable focus and break timers, including Pomodoro cycles.</li>
+      <li>Gentle cues to step away, followed by a cue when a break ends.</li>
+      <li>Distinguish keyboard/mouse inactivity from an intentional break; treat screen lock or sleep as stronger evidence of being away.</li>
+      <li>Optionally classify the foreground app using a user-controlled allowlist or distraction list. Activity alone cannot determine whether I am focused.</li>
+      <li>Keep data on the computer. Start with the least intrusive system signals and avoid capturing typed text or screen contents.</li>
+      <li>Make the pet pleasant to have around even when no timer is running.</li>
+    </ul>
+    <h2>Open questions</h2>
+    <ul>
+      <li>Target platform first: macOS only, or also Windows?</li>
+      <li>Should a break timer begin automatically when I step away, or only when I choose “Take break”?</li>
+      <li>How should the app notify me when a break ends if I am away from the computer?</li>
+      <li>What, if anything, should earn pet customization or progress?</li>
+    </ul>
+    <h2>References</h2>
+    <ul>
+      <li><a href="https://github.com/buildingjoshbetter/Clippy">Clippy</a> — MIT; macOS pet overlay, Pomodoro timer, idle behavior, and stretch reminders. Review its input-monitoring approach before reusing it.</li>
+      <li><a href="https://github.com/bangadam/OpenDesktopPets">OpenDesktopPets</a> — MIT; small, local macOS dog/cat overlay in Swift.</li>
+      <li><a href="https://github.com/hovancik/stretchly">Stretchly</a> — BSD-2-Clause; cross-platform break scheduling and idle-aware breaks.</li>
+      <li><a href="https://github.com/InsiderX-Pro/desktop-pet-engine">Desktop Pet Engine</a> — Apache-2.0; native macOS pet rendering and asset pipeline. Check the separate media restrictions.</li>
+    </ul>
+  </main>
+</body>
+</html>
