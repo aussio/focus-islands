@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "focusCreditsPerMinute": 1,
+  "maximumFocusMinutesPerSession": 25,
+  "minimumBreakMinutesForBonus": 3,
+  "breakBonus": 10,
+  "itemCosts": {
+    "plant": 35,
+    "cushion": 50,
+    "lamp": 75
+  }
+}

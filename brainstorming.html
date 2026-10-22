@@ -13,25 +13,19 @@
 </head>
 <body>
   <main>
-    <h1>Cozy Focus Pet — brainstorming</h1>
-    <p>A small, local-first desktop companion for focus sessions and real breaks. A quiet dog or other pet stays visible while I work and changes state as the session progresses.</p>
-    <h2>Ideas to explore</h2>
+    <h1>Cozy Focus Pet</h1>
+    <p>A personal, local-first macOS menu bar game: click the icon to open the game window, with no Dock icon.</p>
+    <h2>MVP</h2>
     <ul>
-      <li>A compact, click-through pet overlay that stays out of the way.</li>
-      <li>Customizable focus and break timers, including Pomodoro cycles.</li>
-      <li>Gentle cues to step away, followed by a cue when a break ends.</li>
-      <li>Distinguish keyboard/mouse inactivity from an intentional break; treat screen lock or sleep as stronger evidence of being away.</li>
-      <li>Optionally classify the foreground app using a user-controlled allowlist or distraction list. Activity alone cannot determine whether I am focused.</li>
-      <li>Keep data on the computer. Start with the least intrusive system signals and avoid capturing typed text or screen contents.</li>
-      <li>Make the pet pleasant to have around even when no timer is running.</li>
+      <li>Flexible work and break timers, with gentle, repeatable break reminders and snooze or skip controls.</li>
+      <li>Use recent input and screen lock to infer time away; allow manual break confirmation. Never record keystrokes or mouse movements.</li>
+      <li>A Chrome extension nudges or redirects visits to chosen distracting sites during work, with a deliberate bypass.</li>
+      <li>Work and actual breaks grow a pet, room, or garden; tune rewards and the art style later.</li>
     </ul>
-    <h2>Open questions</h2>
-    <ul>
-      <li>Target platform first: macOS only, or also Windows?</li>
-      <li>Should a break timer begin automatically when I step away, or only when I choose “Take break”?</li>
-      <li>How should the app notify me when a break ends if I am away from the computer?</li>
-      <li>What, if anything, should earn pet customization or progress?</li>
-    </ul>
+    <h2>Morning loop</h2>
+    <p>Optionally reflect on yesterday’s work and break lengths, enter today’s expected meetings, then see focus and break suggestions around them in a read-only calendar. The plan is guidance, not a rule. A task list is outside this MVP.</p>
+    <h2>History and feedback</h2>
+    <p>Keep an append-only local record of plans and revisions, timer and break events, reminders, aggregate activity signals, and reflections. Derive rewards and views from those facts so the rules can change later. Show a planned-versus-actual daily timeline and use patterns to suggest better block lengths.</p>
     <h2>References</h2>
     <ul>
       <li><a href="https://github.com/buildingjoshbetter/Clippy">Clippy</a> — MIT; macOS pet overlay, Pomodoro timer, idle behavior, and stretch reminders. Review its input-monitoring approach before reusing it.</li>
