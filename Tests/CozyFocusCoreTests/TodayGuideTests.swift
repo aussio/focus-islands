@@ -77,6 +77,27 @@ final class TodayGuideTests: XCTestCase {
         XCTAssertEqual(payload.targetSeconds, 42 * 60)
     }
 
+    func testRunningFocusCallsOutMeetingThatStartsBeforeTimerEnds() {
+        var timer = TimerEngine()
+        timer.startFocus(target: 20 * 60, at: TimerInstant(wall: date(18), monotonicSeconds: 0))
+        let meeting = PlannedMeeting(title: "Quick sync", start: date(25), end: date(40))
+        let result = guide(plan(meetings: [meeting]), at: 18, timer: timer.state)
+        XCTAssertEqual(result.situation, .runningFocus)
+        XCTAssertTrue(result.detail.contains("Quick sync starts in 7 minutes"), result.detail)
+        XCTAssertTrue(result.detail.contains("will not stop automatically"), result.detail)
+        XCTAssertEqual(timer.state.targetSeconds, 20 * 60)
+    }
+
+    func testBreakDuePromptDoesNotUseAfterDayPlanCopy() {
+        var timer = TimerEngine()
+        timer.startFocus(target: 20 * 60, at: TimerInstant(wall: date(230), monotonicSeconds: 0))
+        _ = timer.advance(to: TimerInstant(wall: date(250), monotonicSeconds: 20 * 60))
+        let result = guide(plan(), at: 250, timer: timer.state)
+        XCTAssertEqual(result.situation, .runningFocus)
+        XCTAssertEqual(result.title, "Time for a real break")
+        XCTAssertTrue(result.detail.contains("Start a break, snooze, or skip"), result.detail)
+    }
+
     func testDayBoundsAndMidnightNeverReuseYesterdaysPlan() {
         XCTAssertEqual(guide(nil, at: 20).situation, .noPlan)
         XCTAssertEqual(guide(plan(), at: -1).situation, .beforeDay)

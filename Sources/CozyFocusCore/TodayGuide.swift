@@ -41,7 +41,15 @@ public enum TodayGuide {
         }
         let boundary = blocks.first { $0.end > now }
         let context: String
-        if let plan, !isFocus, now >= plan.start, now < plan.end {
+        if isFocus && timer.isDue {
+            context = "Your focus block is complete. Start a break, snooze, or skip when you're ready."
+        } else if let plan, isFocus, now >= plan.start, now < plan.end,
+           let meeting = blocks.first(where: {
+               $0.kind == .meeting && $0.start > now &&
+               $0.start < now.addingTimeInterval(timer.remainingSeconds)
+           }) {
+            context = "\(meeting.title ?? "Your meeting") starts in \(minutes(meeting.start.timeIntervalSince(now))) minutes at \(time(meeting.start)). Your focus timer will not stop automatically."
+        } else if let plan, !isFocus, now >= plan.start, now < plan.end {
             context = nextFocusDescription(blocks: blocks, after: now.addingTimeInterval(timer.remainingSeconds))
         } else if let plan, let boundary, now >= plan.start, now < plan.end {
             context = "\(boundary.title ?? label(boundary.kind)) until \(time(boundary.end)). Your running timer keeps the length you started."

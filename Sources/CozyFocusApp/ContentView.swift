@@ -126,7 +126,7 @@ private struct TodayScheduleTracker: View {
         VStack(alignment: .leading, spacing: 14) {
             GeometryReader { geometry in
                 let gap = min(2, geometry.size.width / CGFloat(max(1, blocks.count * 4)))
-                ZStack(alignment: .leading) {
+                ZStack(alignment: .topLeading) {
                     HStack(spacing: gap) {
                         ForEach(blocks.indices, id: \.self) { index in
                             let block = blocks[index]
@@ -137,17 +137,21 @@ private struct TodayScheduleTracker: View {
                                     block.end.timeIntervalSince(block.start) / max(1, plan.end.timeIntervalSince(plan.start))))
                         }
                     }
+                    .frame(height: 22)
+                    .offset(y: 22)
                     Capsule().fill(CozyPalette.ink).frame(width: 3, height: 28)
-                        .offset(x: min(geometry.size.width - 3, geometry.size.width * progress))
+                        .offset(x: min(geometry.size.width - 3, geometry.size.width * progress), y: 18)
+                    Label("Now \(now.formatted(.dateTime.hour().minute()))", systemImage: "location.fill")
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .foregroundStyle(CozyPalette.green)
+                        .fixedSize()
+                        .offset(x: min(max(0, geometry.size.width * progress - 48), max(0, geometry.size.width - 104)))
                 }
             }
-            .frame(height: 22)
+            .frame(height: 48)
             .accessibilityLabel("Day progress, \(Int(progress * 100)) percent")
             HStack {
                 Text(plan.start.formatted(.dateTime.hour().minute()))
-                Spacer()
-                Label("Now \(now.formatted(.dateTime.hour().minute()))", systemImage: "location.fill")
-                    .foregroundStyle(CozyPalette.green)
                 Spacer()
                 Text(plan.end.formatted(.dateTime.hour().minute()))
             }
@@ -683,15 +687,13 @@ struct ContentView: View {
                     primaryButton(model.todayActionLabel(action), symbol: "cup.and.saucer.fill") { model.startTodayBreak() }
                         .accessibilityIdentifier("start-break")
                 } else {
-                    primaryButton("End focus", symbol: "checkmark") { model.endFocus() }
-                        .accessibilityIdentifier("end-focus")
+                    primaryButton(model.breakDue ? "Start break" : "Take a break", symbol: "cup.and.saucer.fill") { model.startBreak() }
+                        .accessibilityIdentifier("start-break")
                 }
                 if model.breakDue {
                     quietButton("Snooze") { model.snooze() }.accessibilityIdentifier("snooze-break")
-                    if guidance.breakAction != nil {
-                        quietButton("Skip") { model.skipBreak() }.accessibilityIdentifier("skip-break")
-                    }
-                } else if guidance.breakAction != nil {
+                    quietButton("Skip") { model.skipBreak() }.accessibilityIdentifier("skip-break")
+                } else {
                     quietButton("End focus") { model.endFocus() }.accessibilityIdentifier("end-focus")
                 }
             } else if model.phase == .rest {

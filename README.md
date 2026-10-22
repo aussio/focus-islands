@@ -30,7 +30,7 @@ scripts/dev-control.sh quit        # stop the development app
 
 The development launch is locked to **Testing** and uses `.build/dev-state/events.sqlite`, separate from Personal and from the normal app's Testing database. It does not bring the window forward. `scripts/run-dev.sh --reset` clears only the disposable development state; ordinary launches preserve it. The app-scoped control inbox accepts named actions such as `scenario morning`, `navigate plan`, `start-focus`, `advance 25`, and `start-break`. It cannot control other apps or send arbitrary input. Screenshots use ScreenCaptureKit to capture only the app's own window, without whole-computer control.
 
-Run `scripts/ui-smoke.sh` for an isolated focus, break, reward, reflection, timeline edit, interrupted-session recovery, activity, screenshot, and relaunch check. It resets development state and quits its app. Run `scripts/test.sh` for core tests or `scripts/build.sh` for a build without launching anything. The developer workflow is detailed in [AGENTS.md](AGENTS.md); current feature status is in [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md).
+Run `scripts/ui-smoke.sh` for an isolated focus, break, reward, reflection, timeline edit, interrupted-session recovery, activity, screenshot, and relaunch check. Run `scripts/today-smoke.sh` to check that Today follows plan edits, time changes, and the exact timer length chosen at Start. Both scripts reset development state and quit their app. Run `scripts/test.sh` for core tests or `scripts/build.sh` for a build without launching anything. The developer workflow is detailed in [AGENTS.md](AGENTS.md); current feature status is in [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md).
 
 ## Optional Chrome nudge
 
