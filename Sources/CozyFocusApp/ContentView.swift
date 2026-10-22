@@ -119,6 +119,8 @@ private struct MeetingDayEditor: View {
     @State private var title = ""
     @State private var preview: MeetingPlacement?
     @State private var activeDrag: MeetingDrag?
+    @State private var previousDragY: CGFloat = 0
+    @State private var returningDrag = false
     @State private var titleSaveWork: DispatchWorkItem?
 
     private let pointsPerMinute: CGFloat = 1.2
@@ -263,9 +265,8 @@ private struct MeetingDayEditor: View {
                 .background(selectedID == meeting.id ? CozyPalette.green.opacity(0.35) : CozyPalette.paleGreen,
                             in: RoundedRectangle(cornerRadius: 7))
                 .contentShape(Rectangle())
-                .onTapGesture { select(meeting) }
-                .gesture(meetingGesture(meeting, originY: CGFloat(minute) * pointsPerMinute,
-                                        height: max(18, CGFloat(duration) * pointsPerMinute)))
+                .highPriorityGesture(meetingGesture(meeting, originY: CGFloat(minute) * pointsPerMinute,
+                                                    height: max(18, CGFloat(duration) * pointsPerMinute)))
                 .contextMenu {
                     Button("Delete meeting", role: .destructive) {
                         if selectedID == meeting.id {
@@ -303,21 +304,34 @@ private struct MeetingDayEditor: View {
     }
 
     private func meetingGesture(_ meeting: MeetingRow, originY: CGFloat, height: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 1, coordinateSpace: .named("meetingGrid"))
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("meetingGrid"))
             .onChanged { value in updateMeetingDrag(meeting, originY: originY, height: height, value: value) }
             .onEnded { value in
+                if value.translation == .zero {
+                    preview = nil
+                    activeDrag = nil
+                    returningDrag = false
+                    select(meeting)
+                    return
+                }
                 updateMeetingDrag(meeting, originY: originY, height: height, value: value)
                 if let preview, preview.id == meeting.id {
-                    persistTitle()
-                    let currentTitle = model.meetings.first(where: { $0.id == meeting.id })?.title ?? meeting.title
-                    if model.upsertMeeting(id: meeting.id, title: currentTitle,
-                                           start: date(for: preview.start), end: date(for: preview.end)) {
-                        selectedID = meeting.id
-                        title = currentTitle
+                    let start = date(for: preview.start)
+                    let end = date(for: preview.end)
+                    if start != meeting.start || end != meeting.start.addingTimeInterval(TimeInterval(meeting.duration * 60)) {
+                        persistTitle()
+                        let currentTitle = model.meetings.first(where: { $0.id == meeting.id })?.title ?? meeting.title
+                        if model.upsertMeeting(id: meeting.id, title: currentTitle, start: start, end: end) {
+                            selectedID = meeting.id
+                            title = currentTitle
+                        }
+                    } else {
+                        select(meeting)
                     }
                 }
                 preview = nil
                 activeDrag = nil
+                returningDrag = false
             }
     }
 
@@ -332,6 +346,8 @@ private struct MeetingDayEditor: View {
     private func updateMeetingDrag(_ meeting: MeetingRow, originY: CGFloat, height: CGFloat,
                                    value: DragGesture.Value) {
         if activeDrag == nil {
+            previousDragY = 0
+            returningDrag = false
             let start = min(slotCount - minimumSlots, max(0, Int((meeting.start.timeIntervalSince(model.dayStart) / TimeInterval(slotMinutes * 60)).rounded())))
             let length = min(slotCount, max(minimumSlots, Int((Double(meeting.duration) / Double(slotMinutes)).rounded())))
             let end = min(slotCount, start + length)
@@ -345,10 +361,15 @@ private struct MeetingDayEditor: View {
                 activeDrag = .move(id: meeting.id, start: start, length: end - start)
             }
         }
-        // Step to the next quarter-hour as soon as the pointer moves into it.
-        // Rounding to the nearest slot made short adjustments feel unresponsive.
-        let delta = Int((value.translation.height / (CGFloat(slotMinutes) * pointsPerMinute))
-            .rounded(.awayFromZero))
+        let dragY = value.translation.height
+        if previousDragY != 0 && (abs(dragY) < abs(previousDragY) || dragY * previousDragY < 0) {
+            returningDrag = true
+        }
+        previousDragY = dragY
+        // The first movement takes a step immediately. Once the pointer turns back,
+        // center the original slot so returning to the original time is possible.
+        let rounding: FloatingPointRoundingRule = returningDrag ? .toNearestOrAwayFromZero : .awayFromZero
+        let delta = Int((dragY / (CGFloat(slotMinutes) * pointsPerMinute)).rounded(rounding))
         switch activeDrag {
         case .move(let id, let start, let length) where id == meeting.id:
             let newStart = min(max(0, start + delta), slotCount - length)
