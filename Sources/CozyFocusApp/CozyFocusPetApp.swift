@@ -275,6 +275,19 @@ struct CozyFocusPetApp: App {
                                       end: start.addingTimeInterval(TimeInterval(duration * 60))) else {
                 throw DevControlError.invalidValue
             }
+        case "today-suggestion": model.startTodaySuggestion()
+        case "today-break": model.startTodayBreak()
+        case "day-time":
+            guard let text = value as? String, let minutes = Int(text),
+                  (0...1439).contains(minutes), model.phase == .idle else { throw DevControlError.invalidValue }
+            model.setDevelopmentDayMinute(minutes)
+        case "set-rhythm":
+            guard let text = value as? String else { throw DevControlError.invalidValue }
+            let parts = text.split(separator: ":")
+            guard parts.count == 2, let focus = Int(parts[0]), let rest = Int(parts[1]),
+                  (5...120).contains(focus), (2...60).contains(rest) else { throw DevControlError.invalidValue }
+            model.focusLength = focus
+            model.breakLength = rest
         case "start-focus": model.startFocus()
         case "end-focus": model.endFocus()
         case "start-break": model.startBreak()
@@ -371,6 +384,14 @@ struct CozyFocusPetApp: App {
             "profile": model.profile.rawValue,
             "phase": model.phase == .idle ? "idle" : model.phase == .focus ? "focus" : "break",
             "countdown": model.timeString,
+            "currentWallTime": model.currentWallTime.timeIntervalSince1970,
+            "todaySituation": model.todayGuidance.situation.rawValue,
+            "todayTitle": model.todayGuidance.title,
+            "todayProposedSeconds": model.todayProposedSeconds,
+            "timerTargetSeconds": model.timerTargetSeconds,
+            "plannedWindows": model.plannedTimeline.map {
+                ["kind": $0.kind.rawValue, "start": $0.start.timeIntervalSince1970, "end": $0.end.timeIntervalSince1970] as [String: Any]
+            },
             "breakDue": model.breakDue,
             "suspended": model.isSuspended,
             "coins": model.coins,

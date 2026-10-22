@@ -112,6 +112,98 @@ private struct SuggestedDayCalendar: View {
     }
 }
 
+private struct TodayScheduleTracker: View {
+    let plan: DayPlan
+    let blocks: [PlanBlock]
+    let now: Date
+
+    private var progress: Double {
+        min(1, max(0, now.timeIntervalSince(plan.start) / max(1, plan.end.timeIntervalSince(plan.start))))
+    }
+    private var upcoming: [PlanBlock] { blocks.filter { $0.end > now } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            GeometryReader { geometry in
+                let gap = min(2, geometry.size.width / CGFloat(max(1, blocks.count * 4)))
+                ZStack(alignment: .leading) {
+                    HStack(spacing: gap) {
+                        ForEach(blocks.indices, id: \.self) { index in
+                            let block = blocks[index]
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(fill(block.kind))
+                                .opacity(block.end <= now ? 0.3 : 1)
+                                .frame(width: max(0, (geometry.size.width - CGFloat(max(0, blocks.count - 1)) * gap) *
+                                    block.end.timeIntervalSince(block.start) / max(1, plan.end.timeIntervalSince(plan.start))))
+                        }
+                    }
+                    Capsule().fill(CozyPalette.ink).frame(width: 3, height: 28)
+                        .offset(x: min(geometry.size.width - 3, geometry.size.width * progress))
+                }
+            }
+            .frame(height: 22)
+            .accessibilityLabel("Day progress, \(Int(progress * 100)) percent")
+            HStack {
+                Text(plan.start.formatted(.dateTime.hour().minute()))
+                Spacer()
+                Label("Now \(now.formatted(.dateTime.hour().minute()))", systemImage: "location.fill")
+                    .foregroundStyle(CozyPalette.green)
+                Spacer()
+                Text(plan.end.formatted(.dateTime.hour().minute()))
+            }
+            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .foregroundStyle(CozyPalette.muted)
+            if upcoming.isEmpty {
+                Text("Your planned blocks are complete. Take the rest of the day at your own pace.")
+                    .font(.system(size: 12)).foregroundStyle(CozyPalette.muted)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(upcoming.prefix(4).enumerated()), id: \.offset) { index, block in
+                        HStack(spacing: 12) {
+                            RoundedRectangle(cornerRadius: 3).fill(fill(block.kind)).frame(width: 5, height: 32)
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(block.title ?? label(block.kind)).fontWeight(.semibold)
+                                    if block.start <= now {
+                                        Text("NOW").font(.system(size: 9, weight: .bold)).foregroundStyle(CozyPalette.green)
+                                    }
+                                }
+                                Text("\(block.start.formatted(.dateTime.hour().minute())) to \(block.end.formatted(.dateTime.hour().minute()))")
+                                    .font(.system(size: 11)).foregroundStyle(CozyPalette.muted)
+                            }
+                            Spacer()
+                            Text("\(max(1, Int(ceil(block.end.timeIntervalSince(max(now, block.start)) / 60)))) min\(block.start <= now ? " left" : "")")
+                                .font(.system(size: 11, weight: .medium)).foregroundStyle(CozyPalette.muted)
+                        }
+                        .font(.system(size: 12))
+                        .padding(.vertical, 8)
+                        if index < min(4, upcoming.count) - 1 { Divider().opacity(0.5) }
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("today-live-schedule")
+    }
+
+    private func fill(_ kind: PlanBlockKind) -> AnyShapeStyle {
+        switch kind {
+        case .focus: AnyShapeStyle(CozyPalette.focusBlock)
+        case .break: AnyShapeStyle(CozyPalette.breakRainbow)
+        case .meeting: AnyShapeStyle(CozyPalette.meetingBlock)
+        case .free: AnyShapeStyle(CozyPalette.sidebar.opacity(0.6))
+        }
+    }
+
+    private func label(_ kind: PlanBlockKind) -> String {
+        switch kind {
+        case .focus: "Focus time"
+        case .break: "A real break"
+        case .meeting: "Meeting"
+        case .free: "Open time"
+        }
+    }
+}
+
 private struct MeetingDayEditor: View {
     @ObservedObject var model: AppModel
     @Environment(\.dismiss) private var dismiss
@@ -524,95 +616,104 @@ struct ContentView: View {
     }
 
     private var todayPage: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            pageHeader("A gentler workday", subtitle: Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-            HStack(alignment: .top, spacing: 18) {
-                Card {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            Text(model.phaseLabel.uppercased())
+        let guidance = model.todayGuidance
+        return VStack(alignment: .leading, spacing: 18) {
+            pageHeader("Your next good step", subtitle: model.currentWallTime.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+            Card {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .center, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label(model.phase == .idle ? "RIGHT NOW" : model.phaseLabel.uppercased(), systemImage: model.phaseSymbol)
                                 .font(.system(size: 11, weight: .bold))
-                                .tracking(1.5)
+                                .tracking(1.2)
                                 .foregroundStyle(CozyPalette.green)
-                            Spacer()
-                            Image(systemName: model.phaseSymbol)
-                                .foregroundStyle(CozyPalette.green)
-                        }
-                        Text(model.timeString)
-                            .font(.system(size: 58, weight: .medium, design: .rounded).monospacedDigit())
-                            .contentTransition(.numericText())
-                            .accessibilityIdentifier("timer-countdown")
-                        Text(model.phaseMessage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(CozyPalette.muted)
-                            .frame(height: 34, alignment: .topLeading)
-                        HStack(spacing: 8) {
-                            if model.phase == .idle {
-                                primaryButton("Start focus", symbol: "play.fill") { model.startFocus() }
-                                    .accessibilityIdentifier("start-focus")
-                            } else if model.phase == .focus {
-                                if model.breakDue {
-                                    primaryButton("Start break", symbol: "cup.and.saucer.fill") { model.startBreak() }
-                                        .accessibilityIdentifier("start-break")
-                                    quietButton("Snooze") { model.snooze() }
-                                        .accessibilityIdentifier("snooze-break")
-                                    quietButton("Skip") { model.skipBreak() }
-                                        .accessibilityIdentifier("skip-break")
-                                } else {
-                                    primaryButton("Take a break", symbol: "cup.and.saucer.fill") { model.startBreak() }
-                                        .accessibilityIdentifier("start-break")
-                                    quietButton("End focus") { model.endFocus() }
-                                        .accessibilityIdentifier("end-focus")
-                                }
-                            } else {
-                                primaryButton("Finish break", symbol: "checkmark") { model.finishBreak() }
-                                    .accessibilityIdentifier("finish-break")
+                            Text(guidance.title)
+                                .font(.system(size: 27, weight: .semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("today-guidance")
+                            if model.phase != .idle {
+                                Text(model.timeString)
+                                    .font(.system(size: 43, weight: .medium, design: .rounded).monospacedDigit())
+                                    .contentTransition(.numericText())
+                                    .accessibilityIdentifier("timer-countdown")
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        VStack(spacing: 1) {
+                            petImage.resizable().scaledToFit().frame(width: 95, height: 95)
+                                .accessibilityLabel("Your red panda companion")
+                            Text(model.phase == .rest ? "Rest together" : "Here with you")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(CozyPalette.muted)
+                        }
                     }
+                    Text(guidance.detail)
+                        .font(.system(size: 13))
+                        .foregroundStyle(CozyPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    todayActions(guidance)
                 }
-                .frame(maxWidth: 340)
-                Card {
-                    VStack(alignment: .center, spacing: 2) {
-                        petImage
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 188)
-                            .accessibilityLabel("A smiling red panda pet")
-                        Text(model.petMessage)
-                            .font(.system(size: 14, weight: .semibold))
-                            .multilineTextAlignment(.center)
-                        Text("\(model.coins) acorns earned")
-                            .font(.system(size: 12))
-                            .foregroundStyle(CozyPalette.muted)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .frame(maxWidth: 270)
             }
-            HStack(spacing: 18) {
+            if let plan = model.todayPlan {
                 Card {
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionTitle("Today at a glance", symbol: "sun.max")
-                        metricRow("Focus", value: "\(model.focusMinutesToday) min")
-                        metricRow("Breaks", value: "\(model.breakMinutesToday) min")
-                        metricRow("Meetings", value: "\(model.meetings.count)")
-                    }
-                }
-                Card {
-                    VStack(alignment: .leading, spacing: 10) {
-                        sectionTitle("A little nudge", symbol: "sparkle")
-                        Text(model.nudgeMessage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(CozyPalette.muted)
-                        Spacer(minLength: 2)
-                        Button("Shape today’s plan →") { model.page = .plan }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(CozyPalette.green)
-                            .font(.system(size: 12, weight: .semibold))
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            sectionTitle("Your day, as it unfolds", symbol: "calendar")
+                            Spacer()
+                            Button("Edit plan") { model.page = .plan }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(CozyPalette.green)
+                        }
+                        TodayScheduleTracker(plan: plan, blocks: model.plannedTimeline, now: model.currentWallTime)
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func todayActions(_ guidance: TodayGuidance) -> some View {
+        HStack(spacing: 8) {
+            if model.phase == .idle, let action = guidance.action {
+                primaryButton(model.todayActionLabel(action), symbol: todayActionSymbol(action)) { model.startTodaySuggestion() }
+                    .accessibilityIdentifier(todayActionIdentifier(action))
+            } else if model.phase == .focus {
+                if let action = guidance.breakAction {
+                    primaryButton(model.todayActionLabel(action), symbol: "cup.and.saucer.fill") { model.startTodayBreak() }
+                        .accessibilityIdentifier("start-break")
+                } else {
+                    primaryButton("End focus", symbol: "checkmark") { model.endFocus() }
+                        .accessibilityIdentifier("end-focus")
+                }
+                if model.breakDue {
+                    quietButton("Snooze") { model.snooze() }.accessibilityIdentifier("snooze-break")
+                    if guidance.breakAction != nil {
+                        quietButton("Skip") { model.skipBreak() }.accessibilityIdentifier("skip-break")
+                    }
+                } else if guidance.breakAction != nil {
+                    quietButton("End focus") { model.endFocus() }.accessibilityIdentifier("end-focus")
+                }
+            } else if model.phase == .rest {
+                primaryButton("Finish break", symbol: "checkmark") { model.finishBreak() }
+                    .accessibilityIdentifier("finish-break")
+            }
+        }
+    }
+
+    private func todayActionSymbol(_ action: TodayGuidance.Action) -> String {
+        switch action {
+        case .focus: "play.fill"
+        case .rest: "cup.and.saucer.fill"
+        case .editPlan: "calendar"
+        }
+    }
+
+    private func todayActionIdentifier(_ action: TodayGuidance.Action) -> String {
+        switch action {
+        case .focus: "start-focus"
+        case .rest: "start-break"
+        case .editPlan: "today-edit-plan"
         }
     }
 
@@ -715,10 +816,6 @@ struct ContentView: View {
                             .foregroundStyle(.red)
                     }
                 }
-                .onChange(of: model.dayStart) { _, _ in model.savePlan() }
-                .onChange(of: model.dayEnd) { _, _ in model.savePlan() }
-                .onChange(of: model.focusLength) { _, _ in model.savePlan() }
-                .onChange(of: model.breakLength) { _, _ in model.savePlan() }
             }
             Button { model.showingMeetingEditor = true } label: {
                 Card {

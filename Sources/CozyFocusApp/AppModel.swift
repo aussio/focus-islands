@@ -62,13 +62,14 @@ final class AppModel: ObservableObject {
     @Published var page: AppPage = .today
     @Published private(set) var profile: DataProfile = .personal
     @Published var displaySeconds: TimeInterval = 0
-    @Published var focusLength = 25
-    @Published var breakLength = 5
+    @Published var focusLength = 25 { didSet { planInputsChanged() } }
+    @Published var breakLength = 5 { didSet { planInputsChanged() } }
     @Published var notificationsEnabled = true
     @Published var previewFocusCredits = BalancePolicy.current.focusCreditsPerMinute
     @Published var previewBreakBonus = BalancePolicy.current.breakBonus
-    @Published var dayStart: Date
-    @Published var dayEnd: Date
+    @Published var dayStart: Date { didSet { planInputsChanged() } }
+    @Published var dayEnd: Date { didSet { planInputsChanged() } }
+    @Published private(set) var currentWallTime = Date()
     @Published var meetingDraft = ""
     @Published var meetingTime: Date = .now
     @Published var meetingDuration = 30
@@ -109,10 +110,68 @@ final class AppModel: ObservableObject {
     private let isDevelopmentMode: Bool
     private var latestPlanEventID: UUID?
     private var currentPlan: DayPlan?
+    private var isLoadingPlan = false
     private var persistedPlan: DayPlan?
     private var pendingPlan: DayPlan?
     private var pendingPlanWork: DispatchWorkItem?
     private let defaults = UserDefaults.standard
+
+    var todayPlan: DayPlan? {
+        currentPlan.flatMap { Calendar.current.isDate($0.day, inSameDayAs: currentWallTime) ? $0 : nil }
+    }
+    var todayGuidance: TodayGuidance { guidance(at: currentWallTime) }
+    var timerTargetSeconds: TimeInterval { timer.state.targetSeconds }
+    var todayProposedSeconds: TimeInterval {
+        switch todayGuidance.action {
+        case .focus(let end), .rest(let end): max(0, end.timeIntervalSince(currentWallTime))
+        default: 0
+        }
+    }
+
+    func setDevelopmentDayMinute(_ minute: Int) {
+        guard isDevelopmentMode, phase == .idle else { return }
+        let date = dayStart.addingTimeInterval(TimeInterval(minute * 60))
+        wallClockOffset += date.timeIntervalSince(now().wall)
+        tick()
+    }
+
+    private func guidance(at date: Date) -> TodayGuidance {
+        TodayGuide.guidance(plan: currentPlan, blocks: plannedTimeline, at: date, timer: timer.state)
+    }
+
+    func todayActionLabel(_ action: TodayGuidance.Action) -> String {
+        switch action {
+        case .editPlan: return "Shape today's plan"
+        case .focus(let end): return "Focus for \(max(1, Int(ceil(end.timeIntervalSince(currentWallTime) / 60)))) min"
+        case .rest(let end): return "Take a \(max(1, Int(ceil(end.timeIntervalSince(currentWallTime) / 60)))) min break"
+        }
+    }
+
+    func startTodaySuggestion() {
+        let instant = now()
+        synchronizeDay(at: instant.wall)
+        currentWallTime = instant.wall
+        guard phase == .idle, let action = guidance(at: instant.wall).action else { return }
+        switch action {
+        case .editPlan: page = .plan
+        case .focus(let end): startFocus(target: end.timeIntervalSince(instant.wall), at: instant)
+        case .rest(let end): startBreak(target: end.timeIntervalSince(instant.wall), at: instant)
+        }
+    }
+
+    func startTodayBreak() {
+        let instant = now()
+        synchronizeDay(at: instant.wall)
+        currentWallTime = instant.wall
+        if case .rest(let end) = guidance(at: instant.wall).breakAction {
+            startBreak(target: end.timeIntervalSince(instant.wall), at: instant)
+        }
+    }
+
+    private func planInputsChanged() {
+        guard store != nil, !isLoadingPlan else { return }
+        _ = savePlan()
+    }
 
     var canSwitchProfiles: Bool { !isDevelopmentMode }
     var planSavePending: Bool { pendingPlan != nil }
@@ -150,25 +209,6 @@ final class AppModel: ObservableObject {
         guard phase != .idle else { return String(format: "%02d:00", focusLength) }
         let seconds = Int(max(0, displaySeconds).rounded(.up))
         return String(format: "%02d:%02d", seconds / 60, seconds % 60)
-    }
-    var phaseMessage: String {
-        switch phase {
-        case .idle: "Your companion is here when you’re ready."
-        case .focus: breakDue ? "You’ve done enough for this round. A break is waiting." : "One thing at a time. Your break is on its way."
-        case .rest: "Step away if you can. Your timer will be here."
-        }
-    }
-    var petMessage: String {
-        switch phase {
-        case .idle: "A little company for today"
-        case .focus: "Your companion is cheering you on"
-        case .rest: "Rest is part of growing"
-        }
-    }
-    var nudgeMessage: String {
-        if breakDue { return "A few minutes away from the screen can make the next block feel easier." }
-        if phase == .rest { return "You can confirm this break when you return." }
-        return "You can change your plan at any time. Every real break counts."
     }
 
     init() {
@@ -219,6 +259,8 @@ final class AppModel: ObservableObject {
 
     func tick() {
         let instant = now()
+        synchronizeDay(at: instant.wall)
+        currentWallTime = instant.wall
         if let previous = lastTickInstant, phase != .idle, suspendedReasons.isEmpty, !timer.state.isSleeping {
             let monotonicGap = instant.monotonicSeconds - previous.monotonicSeconds
             let wallGap = instant.wall.timeIntervalSince(previous.wall)
@@ -266,10 +308,15 @@ final class AppModel: ObservableObject {
     }
 
     func startFocus() {
+        startFocus(target: TimeInterval(focusLength * 60), at: now())
+    }
+
+    private func startFocus(target: TimeInterval, at instant: TimerInstant) {
+        guard target > 0 else { return }
         suspendedReasons.removeAll()
-        let instant = now()
-        let id = timer.startFocus(target: TimeInterval(focusLength * 60), at: instant)
-        _ = append(.focusStarted, payload: SessionPayload(sessionID: id, targetSeconds: TimeInterval(focusLength * 60)), at: instant.wall)
+        currentWallTime = instant.wall
+        let id = timer.startFocus(target: target, at: instant)
+        _ = append(.focusStarted, payload: SessionPayload(sessionID: id, targetSeconds: timer.state.targetSeconds), at: instant.wall)
         breakDue = false
         displaySeconds = timer.state.remainingSeconds
         publishFocusStatus()
@@ -287,11 +334,16 @@ final class AppModel: ObservableObject {
     }
 
     func startBreak() {
+        startBreak(target: TimeInterval(breakLength * 60), at: now())
+    }
+
+    private func startBreak(target: TimeInterval, at instant: TimerInstant) {
+        guard target > 0 else { return }
         if phase == .focus { endFocus() }
         suspendedReasons.removeAll()
-        let instant = now()
-        let id = timer.startBreak(target: TimeInterval(breakLength * 60), at: instant)
-        _ = append(.breakStarted, payload: SessionPayload(sessionID: id, targetSeconds: TimeInterval(breakLength * 60)), at: instant.wall)
+        currentWallTime = instant.wall
+        let id = timer.startBreak(target: target, at: instant)
+        _ = append(.breakStarted, payload: SessionPayload(sessionID: id, targetSeconds: timer.state.targetSeconds), at: instant.wall)
         breakDue = false
         displaySeconds = timer.state.remainingSeconds
         publishFocusStatus()
@@ -514,6 +566,9 @@ final class AppModel: ObservableObject {
     }
 
     private func resetForProfile() {
+        isLoadingPlan = true
+        defer { isLoadingPlan = false }
+        currentWallTime = Date()
         timer = TimerEngine()
         clockOffset = 0
         wallClockOffset = 0
@@ -736,7 +791,27 @@ final class AppModel: ObservableObject {
         _ = append(.rewardGranted, payload: reward, at: date, source: .system, uniqueKey: RewardEngine.uniqueGrantKey(reason: reason, sourceID: id, policyVersion: reward.policyVersion))
     }
 
+    private func synchronizeDay(at date: Date) {
+        guard !Calendar.current.isDate(currentWallTime, inSameDayAs: date) else { return }
+        _ = flushPendingPlan()
+        isLoadingPlan = true
+        currentWallTime = date
+        currentPlan = nil
+        persistedPlan = nil
+        latestPlanEventID = nil
+        meetings = []
+        suggestions = []
+        plannedTimeline = []
+        let day = Calendar.current.startOfDay(for: date)
+        dayStart = Calendar.current.date(byAdding: .hour, value: 9, to: day) ?? day
+        dayEnd = Calendar.current.date(byAdding: .hour, value: 17, to: day) ?? day
+        isLoadingPlan = false
+        reloadFromStore()
+    }
+
     private func reloadFromStore() {
+        isLoadingPlan = true
+        defer { isLoadingPlan = false }
         guard let events = try? store?.allEvents() else { return }
         let today = now().wall
         let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today) ?? today
@@ -773,8 +848,7 @@ final class AppModel: ObservableObject {
         yesterdayTimeline = prior.actual.sorted { $0.start < $1.start }
         yesterdayFocusMinutes = Int(prior.focusSeconds / 60)
         yesterdayBreakMinutes = Int(prior.breakSeconds / 60)
-        plannedTimeline = projection.suggestions
-        if let pendingPlan { plannedTimeline = DayPlanner.suggest(pendingPlan) }
+        plannedTimeline = todayPlan.map { DayPlanner.suggest($0) } ?? []
         actualTimeline = projection.actual.sorted { $0.start < $1.start }
         focusMinutesToday = Int(projection.focusSeconds / 60)
         breakMinutesToday = Int(projection.breakSeconds / 60)
