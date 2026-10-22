@@ -47,6 +47,124 @@ final class CoreTests: XCTestCase {
         for pair in zip(blocks, blocks.dropFirst()) { XCTAssertEqual(pair.0.end, pair.1.start) }
     }
 
+    func testMeetingCountsTowardWorkBeforeNextBreak() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = PlannedMeeting(title: "Check-in", start: start.addingTimeInterval(30 * 60), end: start.addingTimeInterval(60 * 60))
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(135 * 60), meetings: [meeting], focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .meeting, .break, .focus])
+        XCTAssertEqual(blocks[0].end, meeting.start)
+        XCTAssertEqual(blocks[2].start, meeting.end)
+        XCTAssertEqual(blocks[2].end.timeIntervalSince(blocks[2].start), 15 * 60)
+    }
+
+    func testLongMeetingHasBreaksAtBothEdgesWhenTimeAllows() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = PlannedMeeting(title: "Workshop", start: start.addingTimeInterval(60 * 60), end: start.addingTimeInterval(180 * 60))
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(255 * 60), meetings: [meeting], focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .break, .meeting, .break, .focus])
+        XCTAssertEqual(blocks[1].end, meeting.start)
+        XCTAssertEqual(blocks[3].start, meeting.end)
+        XCTAssertEqual(blocks.first?.start, start)
+        XCTAssertEqual(blocks.last?.end, plan.end)
+    }
+
+    func testPlannerAbsorbsShortFocusBeforeLongMeeting() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let meeting = PlannedMeeting(title: "Planning", start: start.addingTimeInterval(160 * 60), end: start.addingTimeInterval(295 * 60))
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(370 * 60), meetings: [meeting], focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(Array(blocks.prefix(5)).map(\.kind), [.focus, .break, .focus, .break, .meeting])
+        XCTAssertEqual(Array(blocks.prefix(4)).map { $0.end.timeIntervalSince($0.start) }, [3_900, 900, 3_900, 900])
+        XCTAssertEqual(blocks[3].end, meeting.start)
+        XCTAssertEqual(blocks[5].kind, .break)
+        XCTAssertEqual(blocks[5].start, meeting.end)
+    }
+
+    func testPlannerTreatsNearbyMeetingsAsOneLongWorkBlock() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = PlannedMeeting(title: "Review", start: start.addingTimeInterval(160 * 60), end: start.addingTimeInterval(190 * 60))
+        let second = PlannedMeeting(title: "Workshop", start: start.addingTimeInterval(200 * 60), end: start.addingTimeInterval(295 * 60))
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(370 * 60), meetings: [first, second], focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(Array(blocks.prefix(5)).map(\.kind), [.focus, .break, .focus, .break, .meeting])
+        XCTAssertEqual(blocks[3].end, first.start)
+        XCTAssertEqual(blocks.filter { $0.start >= first.end && $0.end <= second.start }.map(\.kind), [.free])
+    }
+
+    func testPlannerAvoidsTinyFocusInDayWithTwoMeetings() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let checkIn = PlannedMeeting(title: "Team check-in", start: start.addingTimeInterval(90 * 60), end: start.addingTimeInterval(120 * 60))
+        let review = PlannedMeeting(title: "Review", start: start.addingTimeInterval(195 * 60), end: start.addingTimeInterval(255 * 60))
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(480 * 60), meetings: [checkIn, review], focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.first?.start, plan.start)
+        XCTAssertEqual(blocks.last?.end, plan.end)
+        XCTAssertTrue(zip(blocks, blocks.dropFirst()).allSatisfy { $0.end == $1.start })
+        XCTAssertEqual(blocks.filter { $0.kind == .meeting }.map(\.title), ["Team check-in", "Review"])
+        let focusLengths = blocks.filter { $0.kind == .focus }.map { $0.end.timeIntervalSince($0.start) / 60 }
+        XCTAssertTrue(focusLengths.allSatisfy { (30...65).contains($0) }, "Focus blocks: \(focusLengths)")
+    }
+
+    func testPlannerSupportsFiveMinuteFocusGoal() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(35 * 60), focusMinutes: 5, breakMinutes: 5)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertTrue(blocks.contains { $0.kind == .focus })
+        XCTAssertTrue(blocks.filter { $0.kind == .focus }.allSatisfy { $0.end.timeIntervalSince($0.start) == 5 * 60 })
+    }
+
+    func testPlannerUsesNewDurationsWithoutLongWorkOrBreakBlocks() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(4 * 60 * 60), focusMinutes: 50, breakMinutes: 10)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.first?.start, start)
+        XCTAssertEqual(blocks.last?.end, plan.end)
+        XCTAssertTrue(zip(blocks, blocks.dropFirst()).allSatisfy { $0.end == $1.start })
+        XCTAssertTrue(blocks.filter { $0.kind == .focus }.allSatisfy { $0.end.timeIntervalSince($0.start) <= 55 * 60 })
+        XCTAssertTrue(blocks.filter { $0.kind == .break }.allSatisfy { $0.end.timeIntervalSince($0.start) == 10 * 60 })
+        XCTAssertFalse(blocks.filter { $0.kind == .break }.isEmpty)
+    }
+
+    func testPlannerBalancesFocusToFillDayWithoutStrandedTime() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(145 * 60), focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .break, .focus])
+        XCTAssertEqual(blocks.map { $0.end.timeIntervalSince($0.start) }, [3_900.0, 900.0, 3_900.0])
+        XCTAssertEqual(blocks.first?.start, start)
+        XCTAssertEqual(blocks.last?.end, plan.end)
+    }
+
+    func testPlannerBalancesShortFinalFocusAcrossOpenDay() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(90 * 60), focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .break, .focus])
+        XCTAssertTrue(blocks.filter { $0.kind == .focus }.allSatisfy {
+            (30 * 60...65 * 60).contains($0.end.timeIntervalSince($0.start))
+        })
+    }
+
+    func testPlannerLeavesTooShortRemainderFreeInsteadOfOverrunningFocus() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(70 * 60), focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .free])
+        XCTAssertEqual(blocks[0].end.timeIntervalSince(start), 65 * 60)
+        XCTAssertEqual(blocks.last?.end, plan.end)
+    }
+
+    func testPlannerDoesNotSuggestTinyFocusAtDayEnd() {
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(155 * 60), focusMinutes: 60, breakMinutes: 15)
+        let blocks = DayPlanner.suggest(plan)
+        XCTAssertEqual(blocks.map(\.kind), [.focus, .break, .focus, .free])
+        XCTAssertEqual(blocks.last?.end, plan.end)
+        XCTAssertTrue(blocks.filter { $0.kind == .focus }.allSatisfy { $0.end.timeIntervalSince($0.start) <= 65 * 60 })
+    }
+
     func testLegacyPlanWithTasksStillDecodes() throws {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let plan = DayPlan(day: start, start: start, end: start.addingTimeInterval(3_600))

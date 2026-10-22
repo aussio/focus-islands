@@ -403,6 +403,12 @@ struct ContentView: View {
     @FocusState private var focusedSidebarPage: AppPage?
     @FocusState private var reflectionFieldFocused: Bool
 
+    private var breakLengthStep: Binding<Int> {
+        Binding(get: { model.breakLength }, set: { minutes in
+            model.breakLength = min(60, max(5, Int((Double(minutes) / 5).rounded()) * 5))
+        })
+    }
+
     private var petImage: Image {
         if let url = Bundle.main.url(forResource: "red-panda", withExtension: "png"),
            let image = NSImage(contentsOf: url) {
@@ -682,7 +688,7 @@ struct ContentView: View {
                     }
                     HStack {
                         Stepper("Focus · \(model.focusLength) min", value: $model.focusLength, in: 5...120, step: 5)
-                        Stepper("Break · \(model.breakLength) min", value: $model.breakLength, in: 2...60, step: 1)
+                        Stepper("Break · \(model.breakLength) min", value: breakLengthStep, in: 5...60, step: 5)
                     }
                     .font(.system(size: 12))
                     Text(model.planSavePending ? "Saving changes…" : "Changes save automatically.")
@@ -889,12 +895,14 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     sectionTitle("Focus & breaks", symbol: "slider.horizontal.3")
                     Stepper("Focus length · \(model.focusLength) minutes", value: $model.focusLength, in: 5...120, step: 5)
-                    Stepper("Break length · \(model.breakLength) minutes", value: $model.breakLength, in: 2...60, step: 1)
+                    Stepper("Break length · \(model.breakLength) minutes", value: breakLengthStep, in: 5...60, step: 5)
                     Toggle("Gentle notifications", isOn: $model.notificationsEnabled)
                     Button("Save preferences") { model.savePreferences() }
                         .buttonStyle(.borderedProminent)
                         .tint(CozyPalette.green)
                 }
+                .onChange(of: model.focusLength) { _, _ in model.savePlan() }
+                .onChange(of: model.breakLength) { _, _ in model.savePlan() }
             }
             Card {
                 VStack(alignment: .leading, spacing: 12) {

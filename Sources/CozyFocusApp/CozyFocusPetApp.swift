@@ -275,6 +275,17 @@ struct CozyFocusPetApp: App {
                                       end: start.addingTimeInterval(TimeInterval(duration * 60))) else {
                 throw DevControlError.invalidValue
             }
+        case "rhythm":
+            guard let text = value as? String else { throw DevControlError.invalidValue }
+            let parts = text.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, let focus = Int(parts[0]), let rest = Int(parts[1]),
+                  (5...120).contains(focus), focus.isMultiple(of: 5),
+                  (5...60).contains(rest), rest.isMultiple(of: 5) else {
+                throw DevControlError.invalidValue
+            }
+            model.focusLength = focus
+            model.breakLength = rest
+            guard model.savePlan() else { throw DevControlError.invalidValue }
         case "start-focus": model.startFocus()
         case "end-focus": model.endFocus()
         case "start-break": model.startBreak()
@@ -376,6 +387,8 @@ struct CozyFocusPetApp: App {
             "coins": model.coins,
             "focusMinutesToday": model.focusMinutesToday,
             "breakMinutesToday": model.breakMinutesToday,
+            "focusLength": model.focusLength,
+            "breakLength": model.breakLength,
             "meetings": model.meetings.map(\.title),
             "meetingWindows": model.meetings.map { ["title": $0.title, "start": $0.start.timeIntervalSince1970, "duration": Double($0.duration)] },
             "meetingEditorOpen": model.showingMeetingEditor,
