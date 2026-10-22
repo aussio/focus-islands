@@ -10,17 +10,14 @@ enum CozyPalette {
     static let paleGreen = Color(red: 0.87, green: 0.92, blue: 0.83)
     static let focusBlock = Color(red: 0.68, green: 0.83, blue: 0.65)
     static let meetingBlock = Color(red: 0.19, green: 0.36, blue: 0.26)
-    static let breakRainbow = LinearGradient(
+    static let breakShimmer = LinearGradient(
         colors: [
-            Color(red: 0.97, green: 0.80, blue: 0.81),
-            Color(red: 0.99, green: 0.87, blue: 0.72),
-            Color(red: 0.97, green: 0.94, blue: 0.73),
-            Color(red: 0.79, green: 0.90, blue: 0.79),
-            Color(red: 0.79, green: 0.87, blue: 0.94),
-            Color(red: 0.89, green: 0.82, blue: 0.93)
+            Color(red: 1.0, green: 0.78, blue: 0.78),
+            Color(red: 1.0, green: 0.94, blue: 0.72),
+            Color(red: 0.85, green: 0.78, blue: 0.96)
         ],
-        startPoint: .leading,
-        endPoint: .trailing
+        startPoint: .top,
+        endPoint: .bottom
     )
     static let peach = Color(red: 0.98, green: 0.87, blue: 0.77)
     static let card = Color(red: 1.0, green: 0.99, blue: 0.96)

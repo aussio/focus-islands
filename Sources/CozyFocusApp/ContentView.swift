@@ -87,7 +87,7 @@ private struct SuggestedDayCalendar: View {
     private func blockView(_ block: SuggestedRow, duration: Int) -> some View {
         let fill: AnyShapeStyle = switch block.kind {
         case "Focus": AnyShapeStyle(CozyPalette.focusBlock)
-        case "Break": AnyShapeStyle(CozyPalette.breakRainbow)
+        case "Break": AnyShapeStyle(CozyPalette.breakShimmer)
         case "Meeting": AnyShapeStyle(CozyPalette.meetingBlock)
         default: AnyShapeStyle(CozyPalette.sidebar.opacity(0.45))
         }
@@ -104,7 +104,7 @@ private struct SuggestedDayCalendar: View {
         .padding(.horizontal, 9)
         .padding(.vertical, duration <= 15 ? 1 : 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(fill, in: RoundedRectangle(cornerRadius: 7))
+        .background(fill, in: Rectangle())
         .clipped()
         .allowsHitTesting(false)
         .accessibilityElement(children: .ignore)
@@ -125,19 +125,19 @@ private struct TodayScheduleTracker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             GeometryReader { geometry in
-                let gap = min(2, geometry.size.width / CGFloat(max(1, blocks.count * 4)))
                 ZStack(alignment: .topLeading) {
-                    HStack(spacing: gap) {
+                    HStack(spacing: 0) {
                         ForEach(blocks.indices, id: \.self) { index in
                             let block = blocks[index]
-                            RoundedRectangle(cornerRadius: 4)
+                            Rectangle()
                                 .fill(fill(block.kind))
                                 .opacity(block.end <= now ? 0.3 : 1)
-                                .frame(width: max(0, (geometry.size.width - CGFloat(max(0, blocks.count - 1)) * gap) *
+                                .frame(width: max(0, geometry.size.width *
                                     block.end.timeIntervalSince(block.start) / max(1, plan.end.timeIntervalSince(plan.start))))
                         }
                     }
                     .frame(height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
                     .offset(y: 22)
                     Capsule().fill(CozyPalette.ink).frame(width: 3, height: 28)
                         .offset(x: min(geometry.size.width - 3, geometry.size.width * progress), y: 18)
@@ -192,7 +192,7 @@ private struct TodayScheduleTracker: View {
     private func fill(_ kind: PlanBlockKind) -> AnyShapeStyle {
         switch kind {
         case .focus: AnyShapeStyle(CozyPalette.focusBlock)
-        case .break: AnyShapeStyle(CozyPalette.breakRainbow)
+        case .break: AnyShapeStyle(CozyPalette.breakShimmer)
         case .meeting: AnyShapeStyle(CozyPalette.meetingBlock)
         case .free: AnyShapeStyle(CozyPalette.sidebar.opacity(0.6))
         }
