@@ -143,6 +143,11 @@ with sqlite3.connect(root / ".build/dev-state/events.sqlite") as database:
     plan_events = [(event_id, json.loads(payload)) for event_id, kind, payload in database.execute("SELECT id, kind, payload FROM events ORDER BY seq") if kind in ("dayPlan", "dayPlanRevised")]
 assert len(plan_events) == 2, "Nearby meeting adjustments did not coalesce into one revision"
 assert plan_events[-1][1]["revisesEventID"] == plan_events[-2][0], "Plan revision lost its parent"
+before_rhythm = command("status")["status"]
+after_rhythm = command("rhythm", "60:15")["status"]
+assert after_rhythm["focusLength"] == 60 and after_rhythm["breakLength"] == 15
+assert after_rhythm["suggestionMinutes"] != before_rhythm["suggestionMinutes"], "Rhythm change did not recalculate the timeline"
+assert "Meeting" in after_rhythm["suggestions"]
 assert not command("status")["status"]["appActive"], "Meeting editor activated the app"
 command("quit")
 print("PASS isolated Testing profile, timeline edits, meeting editor, reflection, recovery, activity suspensions, screenshots, purchase, and quit")

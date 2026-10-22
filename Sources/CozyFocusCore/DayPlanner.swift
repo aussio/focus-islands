@@ -107,58 +107,149 @@ public enum DayPlanner {
            blocks.last?.end == plan.end,
            blocks.allSatisfy({ $0.end > $0.start }),
            zip(blocks, blocks.dropFirst()).allSatisfy({ $0.0.end == $0.1.start }),
-           fixedMeetings(in: blocks) == fixedMeetings(in: suggest(DayPlan(
-               day: plan.day, start: plan.start, end: plan.end, meetings: plan.meetings,
-               focusMinutes: plan.focusMinutes, breakMinutes: plan.breakMinutes
-           ))) {
+           fixedMeetings(in: blocks) == fixedMeetings(in: plan) {
             return blocks
         }
-        let meetings = plan.meetings
-            .filter { $0.end > $0.start && $0.end > plan.start && $0.start < plan.end }
-            .sorted { $0.start < $1.start }
-        var result: [PlanBlock] = []
-        var cursor = plan.start
-        for meeting in meetings {
-            let meetingStart = max(meeting.start, plan.start)
-            let meetingEnd = min(meeting.end, plan.end)
-            if meetingStart > cursor {
-                result += fillGap(start: cursor, end: meetingStart, focusMinutes: plan.focusMinutes, breakMinutes: plan.breakMinutes, minimumFocusMinutes: minimumFocusMinutes)
-            }
-            if meetingEnd > cursor {
-                result.append(PlanBlock(kind: .meeting, start: max(cursor, meetingStart), end: meetingEnd, title: meeting.title))
-                cursor = meetingEnd
-            }
-        }
-        if cursor < plan.end {
-            result += fillGap(start: cursor, end: plan.end, focusMinutes: plan.focusMinutes, breakMinutes: plan.breakMinutes, minimumFocusMinutes: minimumFocusMinutes)
-        }
-        return result
+        return optimize(plan, minimumFocusMinutes: minimumFocusMinutes)
     }
 
     private static func fixedMeetings(in blocks: [PlanBlock]) -> [PlanBlock] {
         blocks.filter { $0.kind == .meeting }
     }
 
-    private static func fillGap(start: Date, end: Date, focusMinutes: Int, breakMinutes: Int, minimumFocusMinutes: Int) -> [PlanBlock] {
-        let focus = TimeInterval(max(1, focusMinutes) * 60)
-        let rest = TimeInterval(max(1, breakMinutes) * 60)
-        let minimum = TimeInterval(max(1, minimumFocusMinutes) * 60)
-        var blocks: [PlanBlock] = []
-        var cursor = start
-        while end.timeIntervalSince(cursor) >= minimum {
-            let focusEnd = min(end, cursor.addingTimeInterval(focus))
-            blocks.append(PlanBlock(kind: .focus, start: cursor, end: focusEnd))
-            cursor = focusEnd
-            let remaining = end.timeIntervalSince(cursor)
-            // Do not suggest a break at the very end of the workday or meeting gap.
-            if remaining >= rest + minimum {
-                let breakEnd = cursor.addingTimeInterval(rest)
-                blocks.append(PlanBlock(kind: .break, start: cursor, end: breakEnd))
-                cursor = breakEnd
-            } else { break }
+    private static func fixedMeetings(in plan: DayPlan) -> [PlanBlock] {
+        let clipped = plan.meetings
+            .filter { $0.end > $0.start && $0.end > plan.start && $0.start < plan.end }
+            .sorted { $0.start < $1.start }
+        var meetings: [PlanBlock] = []
+        var cursor = plan.start
+        for meeting in clipped {
+            let start = max(plan.start, meeting.start, cursor)
+            let end = min(plan.end, meeting.end)
+            if end > start {
+                meetings.append(PlanBlock(kind: .meeting, start: start, end: end, title: meeting.title))
+                cursor = end
+            }
         }
-        if cursor < end { blocks.append(PlanBlock(kind: .free, start: cursor, end: end)) }
-        return blocks
+        return meetings
+    }
+
+    private struct State: Hashable {
+        let work: Int
+        let last: PlanBlockKind
+        let focused: Bool
+    }
+
+    private struct Path {
+        let cost: Double
+        let previousTime: Int
+        let previousState: State?
+        let block: PlanBlock?
+    }
+
+    private static func ordered(_ lhs: State, _ rhs: State) -> Bool {
+        if lhs.work != rhs.work { return lhs.work < rhs.work }
+        if lhs.last != rhs.last { return lhs.last.rawValue < rhs.last.rawValue }
+        return !lhs.focused && rhs.focused
+    }
+
+    private static func optimize(_ plan: DayPlan, minimumFocusMinutes: Int) -> [PlanBlock] {
+        let goal = max(1, plan.focusMinutes)
+        let maximum = goal + min(5, Int(Double(goal) * 0.1))
+        let minimum = min(maximum, max(minimumFocusMinutes, goal / 2))
+        let rest = max(1, plan.breakMinutes)
+        let meetings = fixedMeetings(in: plan)
+        var times = Set<Date>([plan.start, plan.end])
+        var tick = plan.start.addingTimeInterval(60)
+        while tick < plan.end {
+            times.insert(tick)
+            tick = tick.addingTimeInterval(60)
+        }
+        for meeting in meetings {
+            times.insert(meeting.start)
+            times.insert(meeting.end)
+        }
+        let grid = times.sorted()
+        let positions = Dictionary(uniqueKeysWithValues: grid.enumerated().map { ($0.element, $0.offset) })
+        let starts = Dictionary(uniqueKeysWithValues: meetings.map { (positions[$0.start]!, $0) })
+        var nextMeeting = Array(repeating: grid.count - 1, count: grid.count)
+        var next = grid.count - 1
+        for index in grid.indices.reversed() {
+            if starts[index] != nil { next = index }
+            nextMeeting[index] = next
+        }
+        var paths = Array(repeating: [State: Path](), count: grid.count)
+        let initial = State(work: 0, last: .free, focused: false)
+        paths[0][initial] = Path(cost: 0, previousTime: 0, previousState: nil, block: nil)
+        let workCap = max(2 * goal, 180)
+        func put(_ time: Int, _ state: State, _ cost: Double, _ from: Int, _ previous: State, _ block: PlanBlock) {
+            if let existing = paths[time][state], existing.cost <= cost { return }
+            paths[time][state] = Path(cost: cost, previousTime: from, previousState: previous, block: block)
+        }
+        for index in grid.indices.dropLast() {
+            for (state, path) in paths[index].sorted(by: { ordered($0.key, $1.key) }) {
+                if let meeting = starts[index] {
+                    let endIndex = positions[meeting.end]!
+                    let duration = Int(meeting.end.timeIntervalSince(meeting.start) / 60)
+                    put(endIndex, State(work: min(workCap, state.work + duration), last: .meeting, focused: false), path.cost,
+                        index, state, meeting)
+                    continue
+                }
+                let limit = nextMeeting[index] == index ? grid.count - 1 : nextMeeting[index]
+                if index + 1 <= limit {
+                    let duration = grid[index + 1].timeIntervalSince(grid[index]) / 60
+                    let freeCost = 3 * duration + (state.last == .free && index != 0 ? 0 : 12)
+                    put(index + 1, State(work: state.work, last: .free, focused: false), path.cost + freeCost,
+                        index, state, PlanBlock(kind: .free, start: grid[index], end: grid[index + 1]))
+                }
+                if !state.focused {
+                    for endIndex in (index + 1)..<grid.count {
+                        if endIndex > limit { break }
+                        let duration = grid[endIndex].timeIntervalSince(grid[index]) / 60
+                        if duration > Double(maximum) { break }
+                        if duration < Double(minimum) { continue }
+                        let deviation = Double(goal) - duration
+                        let overload = max(0, Double(state.work) + duration - Double(goal + 15))
+                        let offFiveMinutes = duration.truncatingRemainder(dividingBy: 5) == 0 ? 0.0 : 1.5
+                        let afterFree = state.last == .free && index > 0 ? 15.0 : 0.0
+                        let cost = 8 + 0.03 * deviation * deviation + 0.015 * overload * overload + offFiveMinutes + afterFree
+                        put(endIndex, State(work: min(workCap, state.work + Int(duration)), last: .focus, focused: true), path.cost + cost,
+                            index, state, PlanBlock(kind: .focus, start: grid[index], end: grid[endIndex]))
+                    }
+                }
+                if state.work > 0 && state.last != .break {
+                    let end = grid[index].addingTimeInterval(TimeInterval(rest * 60))
+                    if let endIndex = positions[end], endIndex <= limit, endIndex < grid.count - 1 {
+                        let deviation = Double(state.work - goal)
+                        let cost = 6 + (deviation < 0 ? 0.002 : 0.025) * deviation * deviation
+                            + (state.last == .free ? 20 : 0)
+                        put(endIndex, State(work: 0, last: .break, focused: false), path.cost + cost,
+                            index, state, PlanBlock(kind: .break, start: grid[index], end: end))
+                    }
+                }
+            }
+        }
+        guard let (finalState, _) = paths[grid.count - 1]
+            .filter({ $0.key.work > 0 })
+            .min(by: {
+                if $0.value.cost != $1.value.cost { return $0.value.cost < $1.value.cost }
+                return ordered($0.key, $1.key)
+            }) else {
+            return [PlanBlock(kind: .free, start: plan.start, end: plan.end)]
+        }
+        var blocks: [PlanBlock] = []
+        var time = grid.count - 1
+        var state = finalState
+        while let path = paths[time][state], let block = path.block, let previousState = path.previousState {
+            if block.kind == .free && blocks.last?.kind == .free && blocks.last?.start == block.end {
+                blocks[blocks.count - 1].start = block.start
+            } else {
+                blocks.append(block)
+            }
+            time = path.previousTime
+            state = previousState
+        }
+        return blocks.reversed()
     }
 }
 

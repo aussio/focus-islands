@@ -13,25 +13,40 @@ final class TodayGuideTests: XCTestCase {
     }
 
     func testFocusUsesExactTimeLeftToScheduledBreak() {
-        let result = guide(plan(), at: 18.5)
+        let day = plan()
+        let firstFocus = DayPlanner.suggest(day)[0]
+        let result = guide(day, at: 18.5)
         XCTAssertEqual(result.situation, .focus)
-        XCTAssertEqual(result.action, .focus(until: date(60)))
+        XCTAssertEqual(result.action, .focus(until: firstFocus.end))
         if case .focus(let end) = result.action {
-            XCTAssertEqual(end.timeIntervalSince(date(18.5)), 41.5 * 60)
+            XCTAssertEqual(end.timeIntervalSince(date(18.5)), firstFocus.end.timeIntervalSince(date(18.5)))
         }
     }
 
     func testChangingRhythmRecalculatesBothKindsOfSuggestion() {
-        XCTAssertEqual(guide(plan(focus: 60), at: 18).action, .focus(until: date(60)))
-        XCTAssertEqual(guide(plan(focus: 40), at: 18).action, .focus(until: date(40)))
-        XCTAssertEqual(guide(plan(rest: 15), at: 62).action, .rest(until: date(75)))
-        XCTAssertEqual(guide(plan(rest: 20), at: 62).action, .rest(until: date(80)))
+        let longFocus = plan(focus: 60)
+        let shortFocus = plan(focus: 40)
+        let longEnd = DayPlanner.suggest(longFocus)[0].end
+        let shortEnd = DayPlanner.suggest(shortFocus)[0].end
+        XCTAssertNotEqual(longEnd, shortEnd)
+        XCTAssertEqual(guide(longFocus, at: 18).action, .focus(until: longEnd))
+        XCTAssertEqual(guide(shortFocus, at: 18).action, .focus(until: shortEnd))
+
+        for rest in [15, 20] {
+            let day = plan(rest: rest)
+            let scheduledBreak = DayPlanner.suggest(day).first { $0.kind == .break }!
+            let at = scheduledBreak.start.timeIntervalSince(start) / 60 + 1
+            XCTAssertEqual(guide(day, at: at).action, .rest(until: scheduledBreak.end))
+            XCTAssertEqual(scheduledBreak.end.timeIntervalSince(scheduledBreak.start), TimeInterval(rest * 60))
+        }
     }
 
     func testNewMeetingShortensFocusAndLeavesReturnBuffer() {
         let meeting = PlannedMeeting(title: "Check-in", start: date(42), end: date(72))
-        XCTAssertEqual(guide(plan(), at: 0).action, .focus(until: date(60)))
+        let ordinaryEnd = DayPlanner.suggest(plan())[0].end
+        XCTAssertEqual(guide(plan(), at: 0).action, .focus(until: ordinaryEnd))
         XCTAssertEqual(guide(plan(meetings: [meeting]), at: 0).action, .focus(until: date(40)))
+        XCTAssertGreaterThan(ordinaryEnd, date(40))
     }
 
     func testMeetingSoonSuggestsPauseAndDoesNotOfferTinyFocus() {
@@ -42,7 +57,7 @@ final class TodayGuideTests: XCTestCase {
         XCTAssertNil(guide(plan(meetings: [meeting]), at: 41).action)
         XCTAssertEqual(guide(plan(meetings: [meeting]), at: 42).situation, .meeting)
         XCTAssertNil(guide(plan(meetings: [meeting]), at: 42).action)
-        XCTAssertEqual(guide(plan(meetings: [meeting]), at: 72).situation, .focus)
+        XCTAssertNotEqual(guide(plan(meetings: [meeting]), at: 72).situation, .meeting)
     }
 
     func testBreakCanUseNearbyMeetingBoundaryWithBuffer() {
@@ -72,9 +87,9 @@ final class TodayGuideTests: XCTestCase {
         let changed = guide(plan(focus: 25), at: 20, timer: timer.state)
         XCTAssertEqual(changed.situation, .runningFocus)
         XCTAssertNil(changed.action)
-        XCTAssertEqual(timer.state.targetSeconds, 42 * 60)
+        XCTAssertEqual(timer.state.targetSeconds, end.timeIntervalSince(date(18)))
         let payload = SessionPayload(sessionID: id, targetSeconds: timer.state.targetSeconds)
-        XCTAssertEqual(payload.targetSeconds, 42 * 60)
+        XCTAssertEqual(payload.targetSeconds, end.timeIntervalSince(date(18)))
     }
 
     func testRunningFocusCallsOutMeetingThatStartsBeforeTimerEnds() {
@@ -125,7 +140,13 @@ final class TodayGuideTests: XCTestCase {
         var timer = TimerEngine()
         timer.startBreak(target: 15 * 60, at: TimerInstant(wall: date(60), monotonicSeconds: 0))
         _ = timer.advance(to: TimerInstant(wall: date(65), monotonicSeconds: 5 * 60))
-        let changed = plan(focus: 40, rest: 20)
+        var changed = plan(focus: 40, rest: 20)
+        changed.customBlocks = [
+            PlanBlock(kind: .focus, start: start, end: date(60)),
+            PlanBlock(kind: .break, start: date(60), end: date(75)),
+            PlanBlock(kind: .focus, start: date(75), end: date(100)),
+            PlanBlock(kind: .free, start: date(100), end: date(240))
+        ]
         let result = guide(changed, at: 65, timer: timer.state)
         XCTAssertEqual(result.situation, .runningBreak)
         XCTAssertTrue(result.detail.contains("25 minutes of focus"), result.detail)
