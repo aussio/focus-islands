@@ -7,7 +7,7 @@ const files = [
   'electron/main.js', 'electron/preload.js', 'electron/core/index.js',
   'electron/renderer/index.html', 'electron/renderer/app.js', 'electron/renderer/app-source.js',
   'electron/renderer/state.js', 'scripts/build-renderer.js',
-  'electron/renderer/styles.css', 'electron/renderer/red-panda.png',
+  'electron/renderer/styles.css',
   'scripts/package-app.js',
 ];
 for (const file of files) {
@@ -17,4 +17,4 @@ for (const file of files.filter(file => file.endsWith('.js'))) {
   const result = spawnSync(process.execPath, ['--check', path.join(root, file)], { stdio: 'inherit' });
   if (result.status !== 0) process.exit(result.status || 1);
 }
-console.log('Electron source and assets are present.');
+console.log('Electron source files are present.');

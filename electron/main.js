@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { createCore } = require('./core');
+const { createActivityDetector } = require('./activity');
 
 const development = process.env.COZY_FOCUS_DEV === '1';
 const support = path.join(os.homedir(), 'Library', 'Application Support', 'CozyFocusPet');
@@ -47,6 +48,11 @@ let lastBreakCompleteSequence = 0;
 let publicationEpoch = 0;
 let publicationNumber = 0;
 let controlProcessing = false;
+const activity = createActivityDetector();
+let screenLocked = false;
+let systemSuspended = false;
+let activityOverrideUntil = 0;
+let activityOverrideSeconds = 0;
 
 app.setName('Cozy Focus Pet');
 const userDataPath = development ? path.join(devState, 'electron-user-data') : path.join(support, 'electron-user-data');
@@ -61,6 +67,7 @@ function appStatus() {
   const { events: _events, ...state } = core.status();
   return {
     ...state,
+    activity: activity.status(),
     appActive: Boolean(window?.isFocused()),
     dockIconActive: app.dock?.isVisible() ?? false,
     publicationEpoch, publicationNumber,
@@ -73,7 +80,7 @@ function publish() {
   publicationNumber++;
   const state = appStatus();
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
-  if (tray) tray.setTitle(state.phase === 'idle' ? '' : ` ${state.countdown || ''}`);
+  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.countdown || ''}`}`);
   if (state.breakDue && state.reminderSequence > lastReminderSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
     const prompt = new Notification({ title: 'Time for a real break', body: 'Pause when you are ready.', actions: [
       { type: 'button', text: 'Start break' }, { type: 'button', text: 'Snooze 5 min' }, { type: 'button', text: 'Skip' },
@@ -131,8 +138,8 @@ function showWindow() {
 }
 
 function makeTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'red-panda.png')).resize({ width: 18, height: 18 });
-  tray = new Tray(icon);
+  tray = new Tray(nativeImage.createEmpty());
+  tray.setTitle('😊');
   tray.setToolTip('Cozy Focus Pet');
   tray.on('click', () => window.isVisible() ? window.hide() : showWindow());
   tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate([
@@ -199,6 +206,13 @@ async function processControl() {
         result = { ok: true, screenshot, renderedPage, status: appStatus() };
       } else if (request.action === 'status') {
         result = { ok: true, status: appStatus() };
+      } else if (request.action === 'activity-sample') {
+        const seconds = Number(request.value);
+        if (!Number.isFinite(seconds) || seconds < 0 || seconds > 3600) throw new Error('Invalid idle seconds');
+        activityOverrideSeconds = seconds;
+        activityOverrideUntil = Date.now() + 15000;
+        activity.observe(seconds);
+        result = { ok: true, status: publish() };
       } else if (request.action === 'events') {
         result = { ok: true, events: core.status().events, status: appStatus() };
       } else if (typeof request.action === 'string' && request.action.startsWith('ui-')) {
@@ -264,6 +278,7 @@ async function processControl() {
 app.whenReady().then(() => {
   app.dock?.hide();
   core = createCore({ dbPath, statusPath, profile: initialProfile, development });
+  activity.observe(powerMonitor.getSystemIdleTime());
   window = new BrowserWindow({
     width: 980, height: 700, minWidth: 790, minHeight: 590, show: false,
     title: 'Cozy Focus Pet', backgroundColor: '#f4eee4',
@@ -281,13 +296,16 @@ app.whenReady().then(() => {
     if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
     return execute(name, value);
   });
-  powerMonitor.on('suspend', () => execute('sleep'));
-  powerMonitor.on('resume', () => execute('wake'));
-  powerMonitor.on('lock-screen', () => execute('lock'));
-  powerMonitor.on('unlock-screen', () => execute('unlock'));
+  powerMonitor.on('suspend', () => { systemSuspended = true; activity.setUnavailable(true); execute('sleep'); });
+  powerMonitor.on('resume', () => { systemSuspended = false; activity.setUnavailable(screenLocked); execute('wake'); });
+  powerMonitor.on('lock-screen', () => { screenLocked = true; activity.setUnavailable(true); execute('lock'); });
+  powerMonitor.on('unlock-screen', () => { screenLocked = false; activity.setUnavailable(systemSuspended); execute('unlock'); });
   setInterval(() => {
     try {
-      core.action('tick', powerMonitor.getSystemIdleTime());
+      const idleSeconds = development && Date.now() < activityOverrideUntil
+        ? activityOverrideSeconds : powerMonitor.getSystemIdleTime();
+      activity.observe(idleSeconds);
+      core.action('tick', idleSeconds);
       publish();
     } catch (error) { console.error('Timer tick failed; retrying next tick:', error); }
     if (!controlProcessing) {

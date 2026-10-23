@@ -36,7 +36,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   let store = openStore(dbPath);
   let timer, currentPlan = null, plannedBlocks = [], latestPlanEventID = null, page = 'today', message = '', clockOffset = 0, wallOffset = 0;
   let lastCheckpoint = 0, lastTick = null, awayStartedAt = null, suspended = new Set();
-  let focusLength = 25, breakLength = 5, defaultFocusLength = 25, defaultBreakLength = 5;
+  let focusLength = 60, breakLength = 10, defaultFocusLength = 60, defaultBreakLength = 10;
   let notificationsEnabled = true, savedReflection = '';
   let previewFocusCredits = 1, previewBreakBonus = 10;
   let reminderSequence = 0, breakCompleteSequence = 0;
@@ -100,8 +100,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       let legacy = {};
       try { if (existsSync(preferencesPath)) legacy = JSON.parse(readFileSync(preferencesPath, 'utf8')); } catch { /* Use local defaults. */ }
       const legacyFocus = Number(legacy.focusMinutes), legacyBreak = Number(legacy.breakMinutes);
-      prefs = store.saveSettings({ focusMinutes: Number.isInteger(legacyFocus) && legacyFocus >= 5 && legacyFocus <= 120 ? legacyFocus : 25,
-        breakMinutes: Number.isInteger(legacyBreak) && legacyBreak >= 5 && legacyBreak <= 60 ? legacyBreak : 5,
+      prefs = store.saveSettings({ focusMinutes: Number.isInteger(legacyFocus) && legacyFocus >= 5 && legacyFocus <= 120 ? legacyFocus : 60,
+        breakMinutes: Number.isInteger(legacyBreak) && legacyBreak >= 5 && legacyBreak <= 60 ? legacyBreak : 10,
         notificationsEnabled: legacy.notificationsEnabled ?? true });
     }
     defaultFocusLength = prefs.focusMinutes; defaultBreakLength = prefs.breakMinutes;

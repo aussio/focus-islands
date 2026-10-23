@@ -9,6 +9,8 @@ const draftFields = new Set(['settings-focus', 'settings-break', 'notifications'
 const planFields = new Set(['day-start', 'day-end', 'focus-length', 'break-length']);
 const planDraftTimers = new Map();
 let planSaveInFlight = false;
+const activityMeterSetting = 'cozy-focus-show-activity-meter';
+const showActivityMeter = () => localStorage.getItem(activityMeterSetting) === 'true';
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const date = value => value ? new Date(typeof value === 'number' && value < 1e12 ? value * 1000 : value) : new Date();
 const mins = (start, end) => Math.max(0, Math.round((date(end) - date(start)) / 60000));
@@ -38,7 +40,7 @@ function acceptStatus(next, previous) {
   const status = next.status, before = previous.status;
   if (status === before) return;
   const changing = new Set(['countdown', 'displaySeconds', 'currentWallTime', 'currentWallTimeISO',
-    'todayProposedSeconds', 'timer', 'events', 'appActive', 'reminderSequence', 'breakCompleteSequence',
+    'todayProposedSeconds', 'timer', 'events', 'appActive', 'activity', 'reminderSequence', 'breakCompleteSequence',
     'publicationEpoch', 'publicationNumber']);
   if (state().page !== 'today') {
     for (const key of ['guidance', 'todayGuidance', 'todaySituation', 'todayTitle']) changing.add(key);
@@ -51,6 +53,35 @@ function acceptStatus(next, previous) {
     const timer = document.getElementById('timer-countdown');
     if (timer) timer.textContent = countdown(status.countdown ?? status.displaySeconds);
   } else render();
+  updatePresenceDisplay();
+}
+function presenceEmoji() {
+  return '<div class="presence-emoji" role="img" aria-label="Happy: recent computer activity">😊</div>';
+}
+function activityMeter() {
+  if (!showActivityMeter()) return '';
+  return '<div class="activity-meter"><span class="activity-meter-label">Checking activity…</span><div class="activity-meter-track" role="progressbar" aria-label="Time until away" aria-valuemin="0"><span class="activity-meter-fill"></span></div></div>';
+}
+function updatePresenceDisplay() {
+  const activity = state().status.activity || {};
+  const away = activity.state === 'inactive';
+  document.querySelectorAll('.presence-emoji').forEach(node => {
+    node.textContent = away ? '😴' : '😊';
+    node.setAttribute('aria-label', away ? 'Sleeping: likely away from the computer' : 'Happy: recent computer activity');
+  });
+  const threshold = activity.inactiveAfterSeconds || 5;
+  const elapsed = activity.idleSeconds;
+  const progress = elapsed === null || elapsed === undefined ? (away ? 1 : 0) : Math.min(1, Math.max(0, elapsed / threshold));
+  const label = activity.state === 'unknown' ? 'Activity unavailable'
+    : away ? (elapsed === null || elapsed === undefined ? 'Away' : `Away · ${elapsed}s idle`)
+      : `Away in ${Math.max(0, threshold - (elapsed || 0))}s`;
+  document.querySelectorAll('.activity-meter').forEach(node => {
+    node.querySelector('.activity-meter-label').textContent = label;
+    node.querySelector('.activity-meter-fill').style.width = `${progress * 100}%`;
+    const track = node.querySelector('.activity-meter-track');
+    track.setAttribute('aria-valuemax', String(threshold));
+    track.setAttribute('aria-valuenow', String(Math.min(threshold, elapsed || 0)));
+  });
 }
 function navigation() {
   const s = state().status;
@@ -106,7 +137,7 @@ function dayPath(s) {
 function today() {
   const s = state().status, g = guidance();
   const phase = s.phase === 'focus' ? 'Focusing' : s.phase === 'break' ? 'Taking a break' : 'Ready when you are';
-  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div><div class="today-acorns" aria-label="${html(s.balance ?? 0)} acorns available"><span>✦</span> ${html(s.balance ?? 0)} <small>acorns</small></div></header><section class="today-stage"><div class="today-stage-copy"><div class="today-phase"><span class="phase-dot ${html(s.phase)}"></span>${html(phase)}</div><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div></div><div class="today-companion"><div class="companion-sun"></div><img src="red-panda.png" alt="Your red panda companion"><span>${s.phase === 'break' ? 'A little rest together' : s.phase === 'focus' ? 'One step at a time' : 'Here with you'}</span></div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.focusMinutesToday || 0)}</b> min focused</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div><div class="today-acorns" aria-label="${html(s.balance ?? 0)} acorns available"><span>✦</span> ${html(s.balance ?? 0)} <small>acorns</small></div></header><section class="today-stage"><div class="today-stage-copy"><div class="today-phase"><span class="phase-dot ${html(s.phase)}"></span>${html(phase)}</div><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}<span class="companion-caption">${s.phase === 'break' ? 'A little rest together' : s.phase === 'focus' ? 'One step at a time' : 'Here with you'}</span></div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.focusMinutesToday || 0)}</b> min focused</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -132,7 +163,7 @@ function selectedPlan() {
   const date = new Date(year, month - 1, day);
   const defaults = { dayKey: key, start: new Date(year, month - 1, day, 9).toISOString(),
     end: new Date(year, month - 1, day, 17).toISOString(), meetings: [],
-    focusMinutes: s.defaultFocusLength || 25, breakMinutes: s.defaultBreakLength || 5 };
+    focusMinutes: s.defaultFocusLength || 60, breakMinutes: s.defaultBreakLength || 10 };
   const plan = state().planDrafts[key] || record.current || defaults;
   const ended = state().planDay === 'today' && record.current &&
     new Date(s.currentWallTimeISO || Date.now()) >= new Date(record.current.end);
@@ -169,11 +200,14 @@ function room() {
   const s = state().status, balance = s.balance ?? 0, unlocked = s.unlockedItems || [];
   const has = id => unlocked.includes(id);
   const shop = (s.shopItems || []).map(item => `<div class="shop-row"><span class="icon">${item.id === 'plant' ? '❧' : item.id === 'lamp' ? '♧' : '◉'}</span><span class="name">${html(item.name)}</span>${has(item.id) ? '<span class="muted">Unlocked</span>' : `<button class="button" data-action="purchase" data-value="${html(item.id)}" id="purchase-${html(item.id)}" ${balance < item.cost ? 'disabled' : ''}>${item.cost} acorns</button>`}</div>`).join('');
-  return `${header('Your little room', 'Show up, rest, and make it your own.')}${card(`<div class="room-card"><div class="room-stage">${has('cushion') ? '<span class="decoration cushion" aria-label="Soft cushion">●</span>' : ''}${has('plant') ? '<span class="decoration plant" aria-label="Window plant">❧</span>' : ''}<img src="red-panda.png" alt="Your red panda companion">${has('lamp') ? '<span class="decoration lamp" aria-label="Reading lamp">♧</span>' : ''}</div><h2>A cozy corner for your companion</h2><span class="muted">${balance} acorns to spend</span></div>`)}${card(`${section('Little comforts')}${shop}`)}`;
+  return `${header('Your little room', 'Show up, rest, and make it your own.')}${card(`<div class="room-card"><div class="room-stage">${has('cushion') ? '<span class="decoration cushion" aria-label="Soft cushion">●</span>' : ''}${has('plant') ? '<span class="decoration plant" aria-label="Window plant">❧</span>' : ''}${presenceEmoji()}${has('lamp') ? '<span class="decoration lamp" aria-label="Reading lamp">♧</span>' : ''}</div><h2>A cozy corner for your companion</h2><span class="muted">${balance} acorns to spend</span>${activityMeter()}</div>`)}${card(`${section('Little comforts')}${shop}`)}`;
+}
+function debugSettings() {
+  return card(`${section('Debug')}<label class="check-field"><input type="checkbox" id="show-activity-meter" ${showActivityMeter() ? 'checked' : ''}> Show activity countdown</label><p class="small-note">Show the five-second idle countdown on Today and Room. This only changes the display.</p>`);
 }
 function settings() {
   const s = state().status, preview = s.rebalancePreview;
-  return `${header('Make it yours', 'A few gentle defaults.')}${card(`${section('Focus & breaks')}<div class="inline-fields"><label class="field"><span>Default focus · minutes</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 25}"></label><label class="field"><span>Default break · minutes</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 5}"></label></div><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Gentle notifications</label>${actionButton('Save preferences', 'save-preferences', undefined, true)}`)}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
+  return `${header('Make it yours', 'A few gentle defaults.')}${card(`${section('Focus & breaks')}<div class="inline-fields"><label class="field"><span>Default focus · minutes</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Default break · minutes</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Gentle notifications</label>${actionButton('Save preferences', 'save-preferences', undefined, true)}`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
 }
 function meetingDialog() {
   const view = selectedPlan(), meetings = view.plan.meetings || [], meeting = meetings.find(x => x.id === state().selectedMeeting);
@@ -189,6 +223,7 @@ function render() {
   const scroll = content.scrollTop;
   content.innerHTML = `<div class="page">${view()}</div>`;
   content.scrollTop = scroll;
+  updatePresenceDisplay();
   if (state().meetingEditor) meetingDialog();
   else document.getElementById('dialog-root').innerHTML = '';
 }
@@ -384,6 +419,7 @@ document.addEventListener('click', event => {
   dispatch(name, value);
 });
 document.addEventListener('change', event => {
+  if (event.target.id === 'show-activity-meter') localStorage.setItem(activityMeterSetting, String(event.target.checked));
   if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'data-profile') dispatch('switch-profile', event.target.value);
   if (['preview-focus', 'preview-break'].includes(event.target.id)) {

@@ -1,6 +1,6 @@
 # Cozy Focus Pet
 
-A local macOS menu bar companion for planning a flexible day, focusing, and taking real breaks. The plan is a guide. Append-only events keep what happened, and a red panda room rewards a balanced rhythm.
+A local macOS menu bar companion for planning a flexible day, focusing, and taking real breaks. The plan is a guide. Append-only events keep what happened, and a simple emoji companion reflects computer activity.
 
 ## Thesis / Purpose
 
@@ -9,6 +9,12 @@ Cozy Focus Pet should help one person make a realistic plan, protect time for re
 A day may be planned the previous evening or that morning: enter expected meetings and intended start and finish times, then see suggested focus and break blocks. The actual day begins with the first focus session, on time or not. Meetings can be added or cancelled; focus and breaks can start early, run late, or be skipped. The day can end simply because activity stops or the user turns to tomorrow's plan. The original plan, later deliberate revisions, and actual activity should remain distinct so a future view can show how expectations and work patterns change over time.
 
 The companion is local-first and useful without a browser extension. It records aggregate activity and confirmed breaks, never keystrokes, mouse movements, or browsing history. An optional Chrome nudge can redirect chosen distracting sites during focus, with a deliberate bypass. A pet, room, or garden can make healthy rhythms pleasant to revisit; the reward rules and art can evolve without rewriting the recorded facts. A task list is outside the current scope.
+
+## Computer activity signal
+
+The menu bar app samples macOS system idle time once per second. Recent mouse or keyboard use shows 😊; after 5 seconds without input, or while the Mac is locked or asleep, it shows 😴. The emoji changes back when input resumes. Settings → Debug can show a countdown and progress bar on Today and Room; it is off by default and does not change detection. This short timeout makes the behavior easy to try. It is a local, temporary presence signal: the app does not capture keys, pointer coordinates, or individual input events, and it does not save these samples to SQLite. Being at the computer is not proof of working, and being away is not a confirmed break. The signal is available for future automatic session and break behavior; the manual buttons remain available.
+
+New plans default to 9 am–5 pm, with 60-minute focus windows and 10-minute breaks. Existing plans and saved preferences keep their values.
 
 ## Run Personal
 
@@ -40,6 +46,21 @@ The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev
 For parallel agent runs in one checkout, set a distinct `COZY_FOCUS_INSTANCE` for each agent and use it for every launch, control, and smoke command. For example, `COZY_FOCUS_INSTANCE=agent-a scripts/run-dev.sh --reset` and `COZY_FOCUS_INSTANCE=agent-a scripts/dev-control.sh status` use `.build/dev-instances/agent-a/`. A reset or quit for one instance leaves the others running.
 
 The Testing control inbox also supports `ui-click`, `ui-fill`, `ui-read`, and `ui-drag` on selectors inside the app window. For example, `scripts/dev-control.sh ui-click '#nav-plan'` navigates through the actual renderer. `scripts/dev-control.sh events` reads the committed event ledger. `scripts/ui-smoke.sh` uses app-window controls for plan editing, meeting drag, and a room purchase without activating the window.
+
+### Future art experiments with Sunburst
+
+Install the [OpenAI CLI](https://developers.openai.com/api/reference/cli) with `brew install openai/tools/openai`. This Sunburst command uses separately billed API credits, not a ChatGPT Pro subscription. The API key is stored in the macOS Keychain item `cozy-focus-openai`; never put it in the repo. From the project folder, generate a candidate PNG with [GPT Image 2.5 Sunburst](https://developers.openai.com/api/docs/guides/image-generation):
+
+```bash
+mkdir -p .build/dragon-art
+OPENAI_API_KEY="$(security find-generic-password -a "$USER" -s cozy-focus-openai -w)" \
+  openai images generate --model gpt-image-2.5-sunburst \
+  --prompt "A cute green dragon, high-density pixel art sprite, transparent background" \
+  --background transparent --output-format png --quality high \
+  --output-dir .build/dragon-art --name dragon-candidate
+```
+
+Generated candidates stay in ignored `.build/dragon-art/` until reviewed. The app currently uses emoji and bundles no generated artwork.
 
 The Electron main process owns SQLite, timers, and the menu bar. The renderer is in `electron/renderer/` and reaches the main process through named preload actions. The core is in `electron/core/`. The reward values are versioned in `electron/core/index.js`.
 

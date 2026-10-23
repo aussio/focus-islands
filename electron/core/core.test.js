@@ -23,6 +23,10 @@ test('a fresh day opens on Today without starting a session or requiring a plan'
   assert.equal(status.phase, 'idle');
   assert.equal(status.plan, null);
   assert.equal(status.guidance.situation, 'noPlan');
+  assert.equal(new Date(status.dayStart).getHours(), 9);
+  assert.equal(new Date(status.dayEnd).getHours(), 17);
+  assert.equal(status.defaultFocusLength, 60);
+  assert.equal(status.defaultBreakLength, 10);
   core.close();
 });
 
@@ -136,10 +140,10 @@ test('profile settings import once into SQLite and do not change an existing day
 
 test('focus and confirmed break grant once and persist after restart', () => {
   const { dbPath, statusPath, core } = temporaryCore();
-  core.action('start-focus'); core.action('advance', 25);
+  core.action('start-focus'); core.action('advance', 60);
   assert.equal(core.status().breakDue, true);
   core.action('start-break');
-  core.action('advance', 5); core.action('finish-break');
+  core.action('advance', 10); core.action('finish-break');
   assert.equal(core.status().balance, 35);
   assert.deepEqual(core.status().unlockedItems, []);
   assert.equal(core.action('purchase', 'plant').balance, 0);
@@ -270,10 +274,10 @@ test('export and backup include committed events', async () => {
   const exportedData = JSON.parse(require('node:fs').readFileSync(exported, 'utf8'));
   assert.deepEqual(exportedData.events.map(event => event.kind), ['dayPlan', 'focusStarted']);
   assert.equal(exportedData.events[0].payload.provenance, 'generated-default');
-  assert.equal(exportedData.settings.focusMinutes, 25);
+  assert.equal(exportedData.settings.focusMinutes, 60);
   const copy = openStore(backedUp);
   assert.equal(copy.allEvents().length, 2);
-  assert.equal(copy.getSettings().focusMinutes, 25);
+  assert.equal(copy.getSettings().focusMinutes, 60);
   copy.close(); core.close();
 });
 
@@ -289,12 +293,12 @@ test('simulation actions are unavailable outside development', () => {
 test('snoozed focus prompts and completed breaks produce distinct signals', () => {
   const { core } = temporaryCore();
   core.action('start-focus');
-  assert.equal(core.action('advance', 25).reminderSequence, 1);
+  assert.equal(core.action('advance', 60).reminderSequence, 1);
   core.action('snooze-break');
   assert.equal(core.action('advance', 4).reminderSequence, 1);
   assert.equal(core.action('advance', 1).reminderSequence, 2);
   core.action('start-break');
-  assert.equal(core.action('advance', 5).breakCompleteSequence, 1);
+  assert.equal(core.action('advance', 10).breakCompleteSequence, 1);
   core.close();
 });
 

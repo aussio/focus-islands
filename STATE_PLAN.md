@@ -27,6 +27,7 @@ New baseline events record whether they came from an explicit plan action or a g
 | --- | --- | --- | --- |
 | SQLite database for the active profile | Fact events, baseline and revised plans, and one current settings row | Yes | Durable authority. Personal and Testing use separate databases. |
 | Electron main process | Command handling, timer clock, event replay, plan and actual projections, live forecast, notification decisions | Through SQLite | The only process that interprets and commits domain changes. |
+| Main-process activity detector | Current active, inactive, or unknown computer presence from macOS idle time and lock/sleep state | No | A temporary estimate for the UI and future automation; it is not a session or a confirmed break. |
 | Zustand vanilla store in the renderer | Latest main-process snapshot, navigation, pending commands, errors, and unsaved form drafts | No | The single interface used by views and UI actions. It is a read model and command gateway, not a second durable record. |
 | Chrome phase lease | Short-lived focus/break signal for the extension | Temporary file | A disposable publication of main-process state; it cannot change the database. |
 

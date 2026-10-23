@@ -27,9 +27,19 @@ def status(action="status", value=None):
 
 initial = status()
 assert initial["todaySituation"] == "noPlan"
+assert initial["defaultFocusLength"] == 60 and initial["defaultBreakLength"] == 10
+assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
+status("ui-click", "#nav-settings")
+status("ui-click", "#show-activity-meter")
+status("ui-click", "#nav-today")
+assert call("ui-read", ".activity-meter")["ui"]["found"]
+status("ui-click", "#nav-settings")
+status("ui-click", "#show-activity-meter")
+status("ui-click", "#nav-today")
+assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
 status("ui-click", "#today-edit-plan")
 status("ui-click", "#nav-plan")
-assert call("ui-read", "#focus-length")["ui"]["value"] == "25"
+assert call("ui-read", "#focus-length")["ui"]["value"] == "60"
 status("ui-fill", {"selector": "#day-start", "text": "09:00"})
 assert not status()["dayPlans"][initial["todayKey"]].get("baseline")
 status("ui-fill", {"selector": "#day-end", "text": "17:00"})
@@ -44,7 +54,7 @@ status("ui-fill", {"selector": "#focus-length", "text": "35"})
 time.sleep(0.9)
 tomorrow = status()
 assert tomorrow["dayPlans"][tomorrow["tomorrowKey"]]["current"]["focusMinutes"] == 35
-assert tomorrow["dayPlans"][tomorrow["todayKey"]]["baseline"]["focusMinutes"] == 25
+assert tomorrow["dayPlans"][tomorrow["todayKey"]]["baseline"]["focusMinutes"] == 60
 status("ui-click", {"selector": '[data-plan-day="today"]'})
 status("ui-click", "#open-meetings")
 dragged = status("ui-drag", {"selector": "#meeting-calendar .calendar-inner", "fromY": 90, "toY": 126})
@@ -62,13 +72,13 @@ print("Today screenshot:", today_image["screenshot"])
 status("start-focus")
 stability = call("input-stability")
 assert stability["ok"] and stability["preserved"] and stability["afterBlur"] and stability["saved"] and stability["status"]["phase"] == "focus" and not stability["status"]["appActive"]
-due = status("advance", 25)
+due = status("advance", 60)
 assert due["phase"] == "focus" and due["breakDue"]
 status("start-break")
-status("advance", 5)
+status("advance", 10)
 finished = status("finish-break")
 assert finished["phase"] == "idle"
-assert finished["focusMinutesToday"] == 25 and finished["breakMinutesToday"] == 5
+assert finished["focusMinutesToday"] == 60 and finished["breakMinutesToday"] == 10
 status("ui-click", "#nav-room")
 room = status("ui-click", "#purchase-plant")
 assert "plant" in room["unlockedItems"]
@@ -79,7 +89,7 @@ for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("
     print(f"{page} screenshot:", image["screenshot"])
 subprocess.run([str(root / "scripts/run-dev.sh")], check=True, capture_output=True, text=True)
 restored = status()
-assert restored["focusMinutesToday"] == 25 and restored["breakMinutesToday"] == 5
+assert restored["focusMinutesToday"] == 60 and restored["breakMinutesToday"] == 10
 assert restored["savedReflection"] == "A pause helped yesterday."
 assert "plant" in restored["unlockedItems"]
 assert restored["dayPlans"][restored["todayKey"]]["current"]["meetings"]
