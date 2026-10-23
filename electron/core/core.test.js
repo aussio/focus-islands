@@ -7,7 +7,83 @@ const { DatabaseSync } = require('node:sqlite');
 const { createCore } = require('./index');
 const { openStore } = require('./store');
 const { Timer } = require('./timer');
-const { project, suggest } = require('./planning');
+const { project, suggest, forecast } = require('./planning');
+
+test('forecast keeps short interrupted focus in the same work rhythm', () => {
+  const at = (hour, minute) => new Date(2026, 9, 23, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(12, 0), focusMinutes: 60, breakMinutes: 10, meetings: [] };
+  const actual = [
+    { kind: 'focus', start: at(9, 0), end: at(9, 2), observedSeconds: 120 },
+    { kind: 'focus', start: at(9, 5), end: at(9, 8), observedSeconds: 180 },
+  ];
+  const blocks = forecast(plan, actual, { phase: 'idle' }, at(9, 10));
+  const upcoming = blocks.filter(item => item.forecast);
+  assert.equal(upcoming[0].kind, 'focus');
+  assert.equal(upcoming[0].start, at(9, 10));
+  assert.equal(upcoming[0].end, at(10, 5));
+  assert.equal(upcoming[1].kind, 'break');
+});
+
+test('forecast honors a snoozed due break and a skipped break', () => {
+  const at = (hour, minute) => new Date(2026, 9, 23, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(12, 0), focusMinutes: 60, breakMinutes: 10, meetings: [] };
+  const timer = { phase: 'focus', sessionID: 'focus-1', startedAt: at(9, 0),
+    observedSegmentStartedAt: at(9, 0), targetSeconds: 3600, elapsedSeconds: 3600, isDue: true };
+  const snoozed = forecast(plan, [], timer, at(10, 0), [{ kind: 'breakSnoozed', occurredAt: at(10, 0), payload: { sessionID: 'focus-1', minutes: 5 } }]);
+  assert.equal(snoozed.find(item => item.active).end, at(10, 5));
+  assert.equal(snoozed.find(item => item.forecast).start, at(10, 5));
+  const actual = [{ kind: 'focus', start: at(9, 0), end: at(10, 0), observedSeconds: 3600 }];
+  const skipped = forecast(plan, actual, { phase: 'idle' }, at(10, 0),
+    [{ kind: 'breakSkipped', occurredAt: at(10, 0), payload: { sessionID: 'focus-1' } }]);
+  assert.equal(skipped.find(item => item.forecast).kind, 'focus');
+  const idleSnoozed = forecast(plan, actual, { phase: 'idle' }, at(10, 0),
+    [{ kind: 'breakSnoozed', occurredAt: at(10, 0), payload: { scope: 'forecast', minutes: 5 } }]);
+  assert.equal(idleSnoozed.find(item => item.forecast).kind, 'focus');
+  assert.equal(idleSnoozed.find(item => item.forecast).end, at(10, 5));
+  assert.equal(idleSnoozed.filter(item => item.forecast)[1].kind, 'break');
+});
+
+test('forecast presents one continuous break before consecutive meetings', () => {
+  const at = (hour, minute) => new Date(2026, 9, 23, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(17, 0), focusMinutes: 60, breakMinutes: 10,
+    meetings: [['12:45', '13:00'], ['13:00', '14:00'], ['14:00', '15:00']].map(([start, end]) => ({
+      start: at(...start.split(':').map(Number)), end: at(...end.split(':').map(Number)), title: 'Meeting',
+    })) };
+  const actual = [{ kind: 'focus', start: at(11, 20), end: at(12, 20), observedSeconds: 3600 }];
+  const blocks = forecast(plan, actual, { phase: 'idle' }, at(12, 30));
+  const future = blocks.filter(item => item.forecast);
+  assert.deepEqual(future.slice(0, 4).map(item => [item.kind, item.start, item.end]), [
+    ['break', at(12, 30), at(12, 45)],
+    ['meeting', at(12, 45), at(13, 0)],
+    ['meeting', at(13, 0), at(14, 0)],
+    ['meeting', at(14, 0), at(15, 0)],
+  ]);
+});
+
+test('a past meeting contributes to break pacing while untracked gaps do not', () => {
+  const at = (hour, minute) => new Date(2026, 9, 21, hour, minute).toISOString();
+  const base = { start: at(9, 0), end: at(17, 0), focusMinutes: 60, breakMinutes: 10 };
+  const actual = [
+    { kind: 'focus', start: at(9, 0), end: at(10, 0), observedSeconds: 3600 },
+    { kind: 'break', start: at(10, 0), end: at(10, 10), confirmed: true, observedSeconds: 600 },
+    { kind: 'focus', start: at(12, 20), end: at(12, 55), observedSeconds: 2100 },
+  ];
+  const withoutMeeting = forecast({ ...base, meetings: [] }, actual, { phase: 'idle' }, at(13, 20));
+  assert.equal(withoutMeeting.find(item => item.forecast).kind, 'focus');
+  const withMeeting = forecast({ ...base, meetings: [{ start: at(13, 0), end: at(13, 15), title: 'Sync' }] }, actual, { phase: 'idle' }, at(13, 20));
+  assert.equal(withMeeting.find(item => item.forecast).kind, 'break');
+});
+
+test('a long break before a short meeting leads into focus afterward', () => {
+  const at = (hour, minute) => new Date(2026, 9, 20, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(17, 0), focusMinutes: 60, breakMinutes: 10,
+    meetings: [{ start: at(14, 0), end: at(14, 30), title: '1:1' }] };
+  const actual = [{ kind: 'focus', start: at(12, 5), end: at(12, 55), observedSeconds: 3000 }];
+  const future = forecast(plan, actual, { phase: 'idle' }, at(13, 35)).filter(item => item.forecast);
+  assert.deepEqual(future.slice(0, 3).map(item => item.kind), ['break', 'meeting', 'focus']);
+  assert.equal(future[0].end, at(14, 0));
+  assert.equal(future[2].start, at(14, 30));
+});
 
 function temporaryCore() {
   const directory = mkdtempSync(join(tmpdir(), 'cozy-core-test-'));
@@ -295,6 +371,37 @@ test('snoozed focus prompts and completed breaks produce distinct signals', () =
   assert.equal(core.action('advance', 1).reminderSequence, 2);
   core.action('start-break');
   assert.equal(core.action('advance', 5).breakCompleteSequence, 1);
+  core.close();
+});
+
+test('a deliberate longer break keeps its own target and changes the live forecast', () => {
+  const { core } = temporaryCore();
+  const real = new Date(), morning = new Date(real.getFullYear(), real.getMonth(), real.getDate(), 9);
+  core.action('wall-jump', (morning.getTime() - real.getTime()) / 60000);
+  core.action('save-plan', { start: morning.toISOString(), end: new Date(morning.getTime() + 4 * 3600000).toISOString(), focusMinutes: 60, breakMinutes: 10 });
+  core.action('start-focus');
+  core.action('advance', 60);
+  const snoozed = core.action('snooze-break');
+  assert.ok(Math.abs(Date.parse(snoozed.forecastTimeline.find(item => item.active).end) -
+    Date.parse(snoozed.currentWallTimeISO) - 5 * 60000) < 1000);
+  const resting = core.action('start-long-break');
+  assert.equal(resting.timerTargetSeconds, 20 * 60);
+  assert.equal(resting.forecastTimeline.find(item => item.active).kind, 'break');
+  core.close();
+});
+
+test('an idle forecast break can be snoozed without changing the plan', () => {
+  const { core } = temporaryCore();
+  const real = new Date(), morning = new Date(real.getFullYear(), real.getMonth(), real.getDate(), 9);
+  core.action('wall-jump', (morning.getTime() - real.getTime()) / 60000);
+  core.action('save-plan', { start: morning.toISOString(), end: new Date(morning.getTime() + 4 * 3600000).toISOString(), focusMinutes: 60, breakMinutes: 10 });
+  core.action('start-focus'); core.action('advance', 60);
+  const stopped = core.action('end-focus');
+  assert.equal(stopped.guidance.situation, 'rest');
+  const snoozed = core.action('snooze-break');
+  assert.equal(snoozed.guidance.situation, 'focus');
+  assert.equal(snoozed.forecastTimeline.find(item => item.snoozed).kind, 'focus');
+  assert.equal(snoozed.dayPlans[snoozed.todayKey].revisionCount, 0);
   core.close();
 });
 

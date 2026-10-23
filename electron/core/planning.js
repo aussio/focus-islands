@@ -78,7 +78,7 @@ function suggest(plan, minimumFocusMinutes = 10) {
         put(endIndex, { work: Math.min(workCap, state.work + Math.trunc(duration)), last: 'focus', focused: true }, path.cost + cost, i, priorKey,
           { kind: 'focus', start: iso(grid[i]), end: iso(grid[endIndex]) });
       }
-      if (state.work > 0 && state.last !== 'break') {
+      if (state.work >= Math.max(1, Math.round(goal * .75)) && state.last !== 'break') {
         const end = grid[i] + rest * 60000, endIndex = positions.get(end);
         if (endIndex != null && endIndex <= limit && endIndex < grid.length - 1) {
           const deviation = state.work - goal;
@@ -192,7 +192,7 @@ function project(events, day, includeSuggestions = true) {
     breakSeconds: actual.filter(item => item.kind === 'break' && item.confirmed).reduce((total, item) => total + item.observedSeconds, 0), awaySeconds };
 }
 
-function forecast(plan, actual, timer, now) {
+function forecast(plan, actual, timer, now, events = []) {
   if (!plan) return [];
   const start = ms(plan.start), end = ms(plan.end), present = Math.max(start, Math.min(ms(now), end));
   const blocks = actual.filter(item => ms(item.end) > start && ms(item.start) < end).map(item => ({
@@ -205,15 +205,67 @@ function forecast(plan, actual, timer, now) {
     if (expectedEnd > activeStart) blocks.push({ kind: timer.phase, start: iso(activeStart), end: iso(expectedEnd), active: true });
     next = Math.max(next, expectedEnd);
   }
-  const lastActual = actual.filter(item => ms(item.end) <= present).at(-1);
-  if (((timer.phase === 'focus' && !timer.isSleeping) || (timer.phase === 'idle' && lastActual?.kind === 'focus')) && next < end) {
+  const latestSnooze = events.filter(item => item.kind === 'breakSnoozed' && item.payload?.sessionID === timer.sessionID)
+    .sort((a, b) => ms(b.occurredAt) - ms(a.occurredAt))[0];
+  if (timer.phase === 'focus' && timer.isDue && !timer.isSleeping && latestSnooze) {
+    const snoozedUntil = Math.min(end, ms(latestSnooze.occurredAt) + (latestSnooze.payload.minutes || 5) * 60000);
+    if (snoozedUntil > next) {
+      const active = blocks.find(item => item.active && item.kind === 'focus');
+      if (active) active.end = iso(snoozedUntil);
+      else blocks.push({ kind: 'focus', start: iso(present), end: iso(snoozedUntil), active: true });
+      next = snoozedUntil;
+    }
+  }
+  const completed = actual.filter(item => ms(item.end) <= present).sort((a, b) => ms(a.end) - ms(b.end));
+  const lastRestEnd = Math.max(start, ...completed.filter(item => item.kind === 'break' && item.confirmed).map(item => ms(item.end)));
+  const workSpans = [
+    ...completed.filter(item => item.kind === 'focus').map(item => [Math.max(lastRestEnd, ms(item.start)), Math.min(present, ms(item.end))]),
+    ...fixedMeetings(plan).map(item => [Math.max(lastRestEnd, ms(item.start)), Math.min(present, ms(item.end))]),
+  ].filter(([from, until]) => until > from).sort((a, b) => a[0] - b[0]);
+  let workedMinutes = 0, workEnd = 0;
+  for (const [from, until] of workSpans) {
+    workedMinutes += Math.max(0, until - Math.max(from, workEnd)) / 60000;
+    workEnd = Math.max(workEnd, until);
+  }
+  const lastFocusEnd = Math.max(0, ...completed.filter(item => item.kind === 'focus').map(item => ms(item.end)));
+  const recentWork = workEnd > 0 && present - workEnd <= Math.max(30, 2 * plan.breakMinutes) * 60000;
+  const skipped = events.some(item => item.kind === 'breakSkipped' && ms(item.occurredAt) >= Math.max(lastFocusEnd, lastRestEnd) && ms(item.occurredAt) <= present);
+  const activeFocus = timer.phase === 'focus' && !timer.isSleeping;
+  const idleSnooze = timer.phase === 'idle' ? events.filter(item => item.kind === 'breakSnoozed' && item.payload?.scope === 'forecast' && ms(item.occurredAt) >= lastFocusEnd && ms(item.occurredAt) <= present)
+    .sort((a, b) => ms(b.occurredAt) - ms(a.occurredAt))[0] : null;
+  const snoozedUntil = idleSnooze ? ms(idleSnooze.occurredAt) + (idleSnooze.payload.minutes || 5) * 60000 : 0;
+  const nextMeetingStart = (plan.meetings || []).map(item => ms(item.start)).filter(time => time > next).sort((a, b) => a - b)[0] ?? end;
+  if (snoozedUntil > next && next < end) {
+    const focusEnd = Math.min(end, nextMeetingStart, snoozedUntil);
+    if (focusEnd > next) blocks.push({ kind: 'focus', start: iso(next), end: iso(focusEnd), forecast: true, snoozed: true });
+    next = focusEnd;
+  }
+  const needsRest = activeFocus || (timer.phase === 'idle' && (snoozedUntil > present || (recentWork && !skipped && workedMinutes >= plan.focusMinutes * .75)));
+  if (needsRest && next < end) {
     const nextMeeting = (plan.meetings || []).map(item => ms(item.start)).filter(time => time >= next).sort((a, b) => a - b)[0] ?? end;
     const breakEnd = Math.min(end, nextMeeting, next + Math.max(1, plan.breakMinutes) * 60000);
     if (breakEnd > next) blocks.push({ kind: 'break', start: iso(next), end: iso(breakEnd), forecast: true });
     next = breakEnd;
+  } else if (timer.phase === 'idle' && recentWork && workedMinutes > 0 && !skipped && next < end) {
+    const nextMeeting = (plan.meetings || []).map(item => ms(item.start)).filter(time => time > next).sort((a, b) => a - b)[0] ?? end;
+    const remaining = Math.max(1, Math.round(plan.focusMinutes - workedMinutes));
+    const focusEnd = Math.min(end, nextMeeting, next + remaining * 60000);
+    if (focusEnd - next >= 10 * 60000) {
+      blocks.push({ kind: 'focus', start: iso(next), end: iso(focusEnd), forecast: true });
+      next = focusEnd;
+      const breakEnd = Math.min(end, nextMeeting, next + Math.max(1, plan.breakMinutes) * 60000);
+      if (breakEnd > next) blocks.push({ kind: 'break', start: iso(next), end: iso(breakEnd), forecast: true });
+      next = breakEnd;
+    }
   }
   if (next < end) blocks.push(...suggest({ ...plan, start: iso(next), customBlocks: null }).map(item => ({ ...item, forecast: true })));
-  return blocks.sort((a, b) => ms(a.start) - ms(b.start));
+  return blocks.sort((a, b) => ms(a.start) - ms(b.start)).reduce((timeline, block) => {
+    const previous = timeline.at(-1);
+    if (previous?.kind === 'break' && block.kind === 'break' && previous.forecast && block.forecast && ms(previous.end) === ms(block.start)) {
+      previous.end = block.end;
+    } else timeline.push(block);
+    return timeline;
+  }, []);
 }
 
 module.exports = { suggest, editBlock, project, forecast, fixedMeetings, validBlocks, sameDay, ms, iso };

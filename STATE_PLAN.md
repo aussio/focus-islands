@@ -32,7 +32,7 @@ New baseline events record whether they came from an explicit plan action or a g
 
 The renderer must not open SQLite, calculate rewards, or independently revise the schedule. Main-process tray, power, and notification handlers use the same command path as renderer actions. Zustand's `persist` middleware is not used: reloading the window gets a fresh authoritative snapshot from the main process.
 
-Planned timelines contain focus, breaks, and meetings. A short gap that cannot fit a focus block is a break. Recorded away time is an actual-day interval named `away`; it is not a planned block.
+Planned timelines contain focus, breaks, and meetings. A short gap that cannot fit a focus block is a break. Elapsed time without a recorded focus, break, or away interval is untracked; it earns no work or break credit. Recorded away time is an actual-day interval named `away`; it is not a planned block.
 
 ## What SQLite stores
 
@@ -58,6 +58,8 @@ At window startup, subscribe to published snapshots before requesting the initia
 ## Recalculation rules
 
 The main process calculates a live forecast from current intent, actual intervals, the active session, and the clock. It keeps completed intervals fixed, respects upcoming meetings, and schedules only the remaining day. It recalculates after a plan revision, meeting change, session start or end, break confirmation, away/return transition, or day rollover. While a session runs, it can refresh the forecast at a minute boundary if the remaining schedule changed. A one-second countdown update does not rerun the planner. Each published forecast identifies the input revision it used; a slow calculation cannot replace a newer one.
+
+Several short stopped focus sessions can add up toward the day's chosen focus length. Stopping one early does not automatically turn the next suggestion into a break. Elapsed scheduled meetings count toward break pacing, but are not recorded as attended work. Once focus plus those meetings reach 75% of the chosen focus length and a work interval ended within the last 30 minutes (or twice the chosen break length, if longer), the forecast suggests a break. A deliberate skip clears that suggestion; a five-minute snooze moves a due break in the forecast and, for a running timer, its next reminder. Starting a longer break is an explicit 20-minute choice, or the day's break length if that is longer. These actions change the forecast through facts and the active timer, without revising the day plan.
 
 Today and Plan display the same forecast from the same snapshot. The actual timeline and baseline plan remain separately available for comparison. A running session can appear as observed progress, but it is not a completed actual interval until the corresponding fact is committed.
 

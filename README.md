@@ -37,6 +37,8 @@ scripts/dev-control.sh quit
 
 The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. `scripts/ui-smoke.sh` resets Testing and checks the focus, break, reward, purchase, reflection, screenshot, and relaunch loop. `scripts/today-smoke.sh` checks day guidance and timer targets. Screenshots come from the app's own Electron window.
 
+Use [development-tools/forecast](development-tools/forecast/README.md) to render a manually supplied day plan and history as a local HTML forecast preview. The tool contains no bundled scenario data and does not open a profile database.
+
 For parallel agent runs in one checkout, set a distinct `COZY_FOCUS_INSTANCE` for each agent and use it for every launch, control, and smoke command. For example, `COZY_FOCUS_INSTANCE=agent-a scripts/run-dev.sh --reset` and `COZY_FOCUS_INSTANCE=agent-a scripts/dev-control.sh status` use `.build/dev-instances/agent-a/`. A reset or quit for one instance leaves the others running.
 
 The Testing control inbox also supports `ui-click`, `ui-fill`, `ui-read`, and `ui-drag` on selectors inside the app window. For example, `scripts/dev-control.sh ui-click '#nav-plan'` navigates through the actual renderer. `scripts/dev-control.sh events` reads the committed event ledger. `scripts/ui-smoke.sh` uses app-window controls for plan editing, meeting drag, and a room purchase without activating the window.
