@@ -1,7 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-control_dir="${COZY_FOCUS_CONTROL_DIR:-$repo_root/.build/dev-state/control}"
+instance="${COZY_FOCUS_INSTANCE:-default}"
+if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid COZY_FOCUS_INSTANCE." >&2; exit 2; fi
+if [[ "$instance" == default ]]; then state="$repo_root/.build/dev-state"
+else state="$repo_root/.build/dev-instances/$instance"; fi
+control_dir="$state/control"
 if [[ ! -d "$control_dir" ]]; then
   printf 'No development control inbox. Start the app with scripts/run-dev.sh first.\n' >&2
   exit 1
@@ -17,6 +21,11 @@ from pathlib import Path
 directory = Path(sys.argv[1])
 action = sys.argv[2]
 value = sys.argv[3]
+if value.startswith(("{", "[")):
+    try:
+        value = json.loads(value)
+    except json.JSONDecodeError:
+        pass
 if not action:
     raise SystemExit("Usage: scripts/dev-control.sh ACTION [VALUE]")
 request_id = str(uuid.uuid4())

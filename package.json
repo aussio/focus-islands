@@ -1,0 +1,25 @@
+{
+  "name": "cozy-focus-pet",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "description": "A local-first macOS focus and break companion",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "npm run check:source && node scripts/package-app.js",
+    "check:source": "node scripts/build-renderer.js && node scripts/check-electron.js",
+    "test": "node --test electron/core/*.test.js",
+    "check": "npm run check:source && npm test"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.0.0",
+    "esbuild": "0.28.2"
+  },
+  "dependencies": {
+    "zustand": "5.0.15"
+  }
+}

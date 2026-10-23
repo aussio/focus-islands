@@ -43,7 +43,11 @@ PY
 
 if [[ "${1:-}" == "--live" ]]; then
   live_control="$repo_root/scripts/dev-control.sh"
-  export COZY_FOCUS_STATUS_FILE="$repo_root/.build/dev-state/focus-status.json"
+  instance="${COZY_FOCUS_INSTANCE:-default}"
+  if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid COZY_FOCUS_INSTANCE." >&2; exit 2; fi
+  if [[ "$instance" == default ]]; then state="$repo_root/.build/dev-state"
+  else state="$repo_root/.build/dev-instances/$instance"; fi
+  export COZY_FOCUS_STATUS_FILE="$state/focus-status.json"
 else
   export COZY_FOCUS_STATUS_FILE="$tmp_dir/focus-status.json"
 fi
