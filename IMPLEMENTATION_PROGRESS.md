@@ -2,6 +2,10 @@
 
 The MVP is **in progress**. This file tracks the [product plan](IMPLEMENTATION_PLAN.md), current gaps, and known handoff issues.
 
+## Known data-loss risk: midnight plan rollover
+
+**Fix this in the Electron rewrite.** If saving a pending plan fails at midnight, `AppModel.synchronizeDay` moves to the new day without preserving the old plan in the visible editor. A later plan edit can replace the unsaved prior-day plan in `pendingPlan`, losing those changes. An independent code review found this path in `AppModel.swift`; the failed-save case has not been reproduced in a running app. The normal `today-smoke.sh` midnight check passed, but it does not inject a storage failure.
+
 ## Known performance issue: schedule calculation blocks the app
 
 **This is a handoff priority for the planned Electron rewrite.** The suggested-day algorithm is expensive in the current Debug build. The app previously ran it on the main thread after timer event writes, so starting focus or a break took about 4 seconds and ending one took about 10 seconds in one isolated Testing sequence. Later commands exceeded the 15-second control timeout, and the Testing process was no longer running when checked. The reason it exited is unconfirmed. A main-thread sample traced the delay through `AppModel.refreshSummary`, `DayProjection.project`, and `DayPlanner.optimize`.
