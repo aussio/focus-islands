@@ -136,7 +136,7 @@ final class AppModel: ObservableObject {
     }
 
     private func guidance(at date: Date) -> TodayGuidance {
-        TodayGuide.guidance(plan: currentPlan, blocks: plannedTimeline, at: date, timer: timer.state)
+        TodayGuide.guidance(plan: currentPlan, blocks: plannedTimeline, actual: actualTimeline, at: date, timer: timer.state)
     }
 
     func todayActionLabel(_ action: TodayGuidance.Action) -> String {

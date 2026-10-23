@@ -8,8 +8,43 @@ final class TodayGuideTests: XCTestCase {
     private func plan(focus: Int = 60, rest: Int = 15, meetings: [PlannedMeeting] = []) -> DayPlan {
         DayPlan(day: start, start: start, end: date(240), meetings: meetings, focusMinutes: focus, breakMinutes: rest)
     }
-    private func guide(_ plan: DayPlan?, at minutes: Double, timer: TimerState = TimerState()) -> TodayGuidance {
-        TodayGuide.guidance(plan: plan, blocks: plan.map { DayPlanner.suggest($0) } ?? [], at: date(minutes), timer: timer)
+    private func guide(_ plan: DayPlan?, at minutes: Double, timer: TimerState = TimerState(), actual: [ActualInterval] = []) -> TodayGuidance {
+        TodayGuide.guidance(plan: plan, blocks: plan.map { DayPlanner.suggest($0) } ?? [], actual: actual, at: date(minutes), timer: timer)
+    }
+
+    func testCompletedFocusRecommendsBreakFromActualEnd() {
+        let work = ActualInterval(kind: .focus, start: date(0), end: date(40), confirmed: false, observedSeconds: 40 * 60)
+        let result = guide(plan(), at: 40, actual: [work])
+        XCTAssertEqual(result.situation, .rest)
+        XCTAssertEqual(result.action, .rest(until: date(55)))
+        XCTAssertTrue(result.detail.contains("completed focus"), result.detail)
+    }
+
+    func testCompletedFocusStopsOverridingScheduleAfterRestWindow() {
+        let work = ActualInterval(kind: .focus, start: date(0), end: date(40), confirmed: false, observedSeconds: 40 * 60)
+        let withActual = guide(plan(), at: 56, actual: [work])
+        let scheduled = guide(plan(), at: 56)
+        XCTAssertEqual(withActual.situation, scheduled.situation)
+        XCTAssertEqual(withActual.action, scheduled.action)
+    }
+
+    func testCompletedBreakRecommendsFocusUntilMeetingBuffer() {
+        let meeting = PlannedMeeting(title: "Check-in", start: date(100), end: date(130))
+        let rest = ActualInterval(kind: .break, start: date(50), end: date(65), confirmed: true, observedSeconds: 15 * 60)
+        let result = guide(plan(meetings: [meeting]), at: 65, actual: [rest])
+        XCTAssertEqual(result.situation, .focus)
+        XCTAssertEqual(result.action, .focus(until: date(98)))
+        XCTAssertTrue(result.detail.contains("completed break"), result.detail)
+
+        XCTAssertEqual(guide(plan(meetings: [meeting]), at: 80, actual: [rest]).action, .focus(until: date(98)))
+    }
+
+    func testActualFocusRecommendationYieldsToNearbyMeetingBoundary() {
+        let meeting = PlannedMeeting(title: "Check-in", start: date(58), end: date(88))
+        let work = ActualInterval(kind: .focus, start: date(0), end: date(50), confirmed: false, observedSeconds: 50 * 60)
+        let result = guide(plan(meetings: [meeting]), at: 50, actual: [work])
+        XCTAssertEqual(result.situation, .meetingSoon)
+        XCTAssertEqual(result.action, .rest(until: date(56)))
     }
 
     func testFocusUsesExactTimeLeftToScheduledBreak() {

@@ -115,12 +115,17 @@ private struct SuggestedDayCalendar: View {
 private struct TodayScheduleTracker: View {
     let plan: DayPlan
     let blocks: [PlanBlock]
+    let actual: [ActualInterval]
     let now: Date
 
     private var progress: Double {
         min(1, max(0, now.timeIntervalSince(plan.start) / max(1, plan.end.timeIntervalSince(plan.start))))
     }
     private var upcoming: [PlanBlock] { blocks.filter { $0.end > now } }
+    private var completed: [ActualInterval] {
+        actual.filter { ($0.kind == .focus || $0.kind == .break) && $0.end <= now }
+            .sorted { $0.end > $1.end }.prefix(3).reversed()
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -184,6 +189,27 @@ private struct TodayScheduleTracker: View {
                         if index < min(4, upcoming.count) - 1 { Divider().opacity(0.5) }
                     }
                 }
+            }
+            if !completed.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Completed today")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(CozyPalette.muted)
+                    ForEach(Array(completed.enumerated()), id: \.offset) { _, interval in
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(fill(interval.kind))
+                                .frame(width: 5, height: 24)
+                            Text(label(interval.kind)).fontWeight(.medium)
+                            Spacer()
+                            Text("\(interval.start.formatted(.dateTime.hour().minute())) to \(interval.end.formatted(.dateTime.hour().minute()))")
+                                .font(.system(size: 11).monospacedDigit())
+                                .foregroundStyle(CozyPalette.muted)
+                        }
+                        .font(.system(size: 12))
+                    }
+                }
+                .padding(.top, 4)
             }
         }
         .accessibilityIdentifier("today-live-schedule")
@@ -675,7 +701,8 @@ struct ContentView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(CozyPalette.green)
                         }
-                        TodayScheduleTracker(plan: plan, blocks: model.plannedTimeline, now: model.currentWallTime)
+                        TodayScheduleTracker(plan: plan, blocks: model.plannedTimeline,
+                                             actual: model.actualTimeline, now: model.currentWallTime)
                     }
                 }
             }

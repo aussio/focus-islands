@@ -24,12 +24,14 @@ public enum TodayGuide {
     public static let minimumFocus: TimeInterval = 10 * 60
 
     public static func guidance(
-        plan: DayPlan?, blocks: [PlanBlock], at now: Date,
+        plan: DayPlan?, blocks: [PlanBlock], actual: [ActualInterval] = [], at now: Date,
         timer: TimerState = TimerState(), calendar: Calendar = .current
     ) -> TodayGuidance {
         let plan = plan.flatMap { calendar.isDate($0.day, inSameDayAs: now) ? $0 : nil }
         let scheduled = scheduleGuidance(plan: plan, blocks: blocks, at: now)
-        guard timer.phase != .idle else { return scheduled }
+        guard timer.phase != .idle else {
+            return actualGuidance(plan: plan, blocks: blocks, actual: actual, at: now) ?? scheduled
+        }
         let isFocus = timer.phase == .focus
         let title: String
         if timer.isSleeping {
@@ -107,6 +109,48 @@ public enum TodayGuide {
             return TodayGuidance(situation: .free, title: "A short pause fits here",
                                  detail: "There's a little time before the next block. Step away or get ready for what's coming.",
                                  action: proposedBreak(plan: plan, blocks: blocks, at: now))
+        }
+    }
+
+    private static func actualGuidance(
+        plan: DayPlan?, blocks: [PlanBlock], actual: [ActualInterval], at now: Date
+    ) -> TodayGuidance? {
+        guard let plan, now >= plan.start, now < plan.end,
+              !blocks.contains(where: { $0.kind == .meeting && $0.start <= now && now < $0.end }),
+              let latest = actual
+                .filter({ ($0.kind == .focus || $0.kind == .break) && $0.end <= now && $0.end >= plan.start })
+                .max(by: { $0.end < $1.end }) else { return nil }
+
+        let nextMeeting = blocks.first { $0.kind == .meeting && $0.start > now }
+        if let nextMeeting, nextMeeting.start.timeIntervalSince(now) < minimumFocus + meetingBuffer {
+            return nil
+        }
+
+        switch latest.kind {
+        case .focus:
+            guard case .rest(let end)? = proposedBreak(plan: plan, blocks: blocks, at: latest.end),
+                  end.timeIntervalSince(now) >= 60 else { return nil }
+            return TodayGuidance(
+                situation: .rest,
+                title: "Rest after your focus session",
+                detail: "Your completed focus session ended at \(time(latest.end)). Take a break until \(time(end)).",
+                action: .rest(until: end)
+            )
+        case .break:
+            let end = min(
+                plan.end,
+                latest.end.addingTimeInterval(TimeInterval(max(1, plan.focusMinutes) * 60)),
+                nextMeeting?.start.addingTimeInterval(-meetingBuffer) ?? plan.end
+            )
+            guard end.timeIntervalSince(now) >= minimumFocus else { return nil }
+            return TodayGuidance(
+                situation: .focus,
+                title: "Focus after your break",
+                detail: "Your completed break ended at \(time(latest.end)). Focus until \(time(end)) to leave room for your next meeting or the end of your plan.",
+                action: .focus(until: end)
+            )
+        default:
+            return nil
         }
     }
 
