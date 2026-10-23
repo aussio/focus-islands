@@ -10,6 +10,7 @@ export const appStore = createStore((set, get) => ({
   reflectionDraft: null,
   rewardDraft: null,
   planDrafts: {},
+  planBounds: {},
   dirtyInputs: new Set(),
   drag: null,
   error: null,
@@ -20,6 +21,7 @@ export const appStore = createStore((set, get) => ({
   setPage: page => set({ page }),
   selectPlanDay: planDay => set({ planDay }),
   savePlanDraft: (dayKey, draft) => set(state => ({ planDrafts: { ...state.planDrafts, [dayKey]: draft } })),
+  savePlanBounds: (dayKey, bounds) => set(state => ({ planBounds: { ...state.planBounds, [dayKey]: bounds } })),
   clearPlanDraft: dayKey => set(state => {
     const planDrafts = { ...state.planDrafts };
     delete planDrafts[dayKey];
@@ -36,7 +38,7 @@ export const appStore = createStore((set, get) => ({
         (snapshot.publicationEpoch === previous.publicationEpoch && snapshot.publicationNumber <= previous.publicationNumber))) return false;
     const profileChanged = previous.profile && previous.profile !== snapshot.profile;
     set({ status: snapshot, page: snapshot.page || get().page,
-      ...(profileChanged ? { planDay: 'today', planDrafts: {}, dirtyInputs: new Set(), reflectionDraft: null, rewardDraft: null } : {}) });
+      ...(profileChanged ? { planDay: 'today', planDrafts: {}, planBounds: {}, dirtyInputs: new Set(), reflectionDraft: null, rewardDraft: null } : {}) });
     return true;
   },
   async refresh() { get().receive(await window.cozy.status()); },

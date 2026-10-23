@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 root = Path(os.environ["REPO_ROOT"])
@@ -25,26 +26,38 @@ def status(action="status", value=None):
     return state
 
 initial = status()
+assert initial["todaySituation"] == "noPlan"
+status("ui-click", "#today-edit-plan")
 status("ui-click", "#nav-plan")
 assert call("ui-read", "#focus-length")["ui"]["value"] == "25"
-planned = status("ui-click", "#save-plan")
+status("ui-fill", {"selector": "#day-start", "text": "09:00"})
+assert not status()["dayPlans"][initial["todayKey"]].get("baseline")
+status("ui-fill", {"selector": "#day-end", "text": "17:00"})
+time.sleep(0.9)
+planned = status()
 assert planned["plannedTimeline"]
+assert all(block["kind"] != "free" for block in planned["plannedTimeline"] + planned["forecastTimeline"])
 status("ui-click", {"selector": '[data-plan-day="tomorrow"]'})
+status("ui-fill", {"selector": "#day-start", "text": "09:00"})
+status("ui-fill", {"selector": "#day-end", "text": "17:00"})
 status("ui-fill", {"selector": "#focus-length", "text": "35"})
-tomorrow = status("ui-click", "#save-plan")
-assert tomorrow["dayPlans"][tomorrow["tomorrowKey"]]["baseline"]["focusMinutes"] == 35
+time.sleep(0.9)
+tomorrow = status()
+assert tomorrow["dayPlans"][tomorrow["tomorrowKey"]]["current"]["focusMinutes"] == 35
 assert tomorrow["dayPlans"][tomorrow["todayKey"]]["baseline"]["focusMinutes"] == 25
 status("ui-click", {"selector": '[data-plan-day="today"]'})
 status("ui-click", "#open-meetings")
 dragged = status("ui-drag", {"selector": "#meeting-calendar .calendar-inner", "fromY": 90, "toY": 126})
 assert len(dragged["dayPlans"][dragged["todayKey"]]["current"]["meetings"]) == 0
 status("ui-click", "#close-meetings")
-meeting_plan = status("ui-click", "#save-plan")
+time.sleep(0.9)
+meeting_plan = status()
 assert len(meeting_plan["dayPlans"][meeting_plan["todayKey"]]["current"]["meetings"]) == 1
+assert all(block["kind"] != "free" for block in meeting_plan["plannedTimeline"] + meeting_plan["forecastTimeline"])
 status("save-reflection", "A pause helped yesterday.")
 status("navigate", "today")
 today_image = call("screenshot")
-assert today_image["renderedPage"] == "Your next good step"
+assert today_image["renderedPage"] == "Your little corner of today"
 print("Today screenshot:", today_image["screenshot"])
 status("start-focus")
 stability = call("input-stability")
@@ -76,7 +89,7 @@ state = root / ".build/dev-state" if instance == "default" else root / ".build/d
 with sqlite3.connect(state / "events.sqlite") as database:
     events = [(kind, json.loads(payload)) for kind, payload in database.execute("SELECT kind, payload FROM events ORDER BY seq")]
 assert sum(kind == "dayPlan" for kind, _ in events) == 2
-assert sum(kind == "dayPlanRevised" for kind, _ in events) == 1
+assert sum(kind == "dayPlanRevised" for kind, _ in events) >= 1
 assert sum(kind == "rewardGranted" for kind, _ in events) == 2
 assert sum(kind == "itemPurchased" for kind, _ in events) == 1
 assert any(kind == "reflection" for kind, _ in events)

@@ -7,7 +7,8 @@ const pages = [
 const state = () => appStore.getState();
 const draftFields = new Set(['settings-focus', 'settings-break', 'notifications', 'reflection-input', 'meeting-name']);
 const planFields = new Set(['day-start', 'day-end', 'focus-length', 'break-length']);
-let planDraftTimer;
+const planDraftTimers = new Map();
+let planSaveInFlight = false;
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const date = value => value ? new Date(typeof value === 'number' && value < 1e12 ? value * 1000 : value) : new Date();
 const mins = (start, end) => Math.max(0, Math.round((date(end) - date(start)) / 60000));
@@ -67,17 +68,45 @@ function todayActions(g) {
   const s = state().status;
   if (s.phase === 'focus') return `${actionButton('Take a break', g.breakAction ? 'today-break' : 'start-break', undefined, true, 'start-break')} ${s.breakDue ? `${actionButton('Snooze', 'snooze-break', undefined, false, 'snooze-break')} ${actionButton('Skip', 'skip-break', undefined, false, 'skip-break')}` : actionButton('End focus', 'end-focus', undefined, false, 'end-focus')}`;
   if (s.phase === 'rest' || s.phase === 'break') return actionButton('Finish break', 'finish-break', undefined, true, 'finish-break');
+  if (g.situation === 'noPlan') return `${actionButton('Start focus', 'start-focus', undefined, true, 'start-focus')} <button class="button" data-page="plan" id="today-edit-plan">Shape a plan</button>`;
   if (g.action?.type === 'editPlan' || g.action === 'editPlan' || g.action === 'edit-plan') return `<button class="button primary" data-page="plan" id="today-edit-plan">Edit plan</button>`;
   if (g.action?.type === 'rest' || g.action === 'rest' || g.action === 'break') return actionButton('Start break', 'today-suggestion', undefined, true, 'start-break');
+  if (!g.action && ['meeting', 'meetingSoon'].includes(g.situation)) return '<button class="button" data-page="plan">View plan</button>';
   return actionButton('Start focus', g.action ? 'today-suggestion' : 'start-focus', undefined, true, 'start-focus');
 }
 function timelineRows(items, actual = false) {
-  return items.map(item => `<div class="timeline-row"><time>${clock(item.start)}</time><span class="title">${html(actual ? item.kind === 'free' ? 'Away' : item.kind === 'break' ? item.confirmed ? 'Confirmed break' : 'Break' : 'Focus' : item.title || item.kind)}</span><span class="length">${mins(item.start, item.end)}m</span></div>`).join('');
+  return items.map(item => `<div class="timeline-row"><time>${clock(item.start)}</time><span class="title">${html(actual ? item.kind === 'away' ? 'Away' : item.kind === 'break' ? item.confirmed ? 'Confirmed break' : 'Break' : 'Focus' : item.title || item.kind)}</span><span class="length">${mins(item.start, item.end)}m</span></div>`).join('');
+}
+function dayPath(s) {
+  const plan = s.plan;
+  const blocks = s.forecastTimeline || s.plannedTimeline || [];
+  if (!plan) return `<section class="today-path today-path-empty"><div><div class="eyebrow">Your day path</div><h2>A fresh path starts here.</h2><p>Your focus and breaks will appear as your day unfolds.</p></div><div class="empty-path-track" aria-hidden="true"><span>✦</span></div></section>`;
+  const start = date(plan.start).getTime(), end = date(plan.end).getTime();
+  const span = Math.max(1, end - start);
+  const now = date(s.currentWallTimeISO || s.currentWallTime || Date.now()).getTime();
+  const percent = time => Math.max(0, Math.min(100, (time - start) / span * 100));
+  const position = percent(now);
+  const progress = Math.max(0, Math.min(100, position));
+  const label = now < start ? 'Before your day' : now >= end ? 'Day complete' : 'You are here';
+  const segments = blocks.map(item => {
+    const from = Math.max(start, date(item.start).getTime());
+    const until = Math.min(end, date(item.end).getTime());
+    if (until <= from) return '';
+    const kind = itemKind(item);
+    const name = item.title || (kind === 'focus' ? 'Focus' : kind === 'break' ? 'Break' : kind === 'meeting' ? 'Meeting' : 'Away');
+    return `<span class="path-segment ${html(kind)} ${item.actual ? 'is-actual' : ''} ${item.active ? 'is-active' : ''}" style="left:${percent(from)}%;width:${percent(until) - percent(from)}%" title="${html(`${name} · ${clock(item.start)}–${clock(item.end)}`)}"></span>`;
+  }).join('');
+  const upcoming = blocks.find(item => date(item.end).getTime() > now && !item.actual);
+  const upcomingKind = itemKind(upcoming || {});
+  const upcomingName = upcoming?.title || ({ focus: 'Focus', break: 'Break', meeting: 'Meeting', away: 'Away' }[upcomingKind] || 'Time');
+  const upcomingText = upcoming ? `${upcomingName} ${clock(upcoming.start)}–${clock(upcoming.end)}` : 'The rest of today is yours.';
+  const upcomingLabel = upcoming && date(upcoming.start).getTime() <= now ? 'Now' : 'Coming up';
+  return `<section class="today-path" aria-label="Today’s day path"><div class="path-heading"><div><div class="eyebrow">Your day path</div><h2>${html(clock(plan.start))} <span>to</span> ${html(clock(plan.end))}</h2></div><button class="button link" data-page="plan">Edit plan →</button></div><div class="path-scale"><span>${html(clock(plan.start))}</span><span>${html(label)} · ${html(clock(now))}</span><span>${html(clock(plan.end))}</span></div><div class="path-track" role="img" aria-label="${html(`Day progress: ${Math.round(progress)} percent. ${label}.`)}"><span class="path-progress" style="width:${progress}%"></span>${segments}<span class="path-marker" style="left:${position}%"></span></div><div class="path-footer"><div class="path-legend"><span><i class="legend-focus"></i>Focus</span><span><i class="legend-break"></i>Break</span><span><i class="legend-meeting"></i>Meeting</span></div><p><strong>${html(upcomingLabel)}</strong> ${html(upcomingText)}</p></div></section>`;
 }
 function today() {
   const s = state().status, g = guidance();
-  const plan = s.forecastTimeline || s.plannedTimeline || [];
-  return `${header('Your next good step', shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}${card(`<div class="hero"><div><div class="eyebrow">${html(s.phase === 'idle' ? 'Right now' : s.phase === 'focus' ? 'Focus' : 'Break')}</div><h2 id="today-guidance">${html(g.title)}</h2>${s.phase && s.phase !== 'idle' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}</div><div class="hero-pet"><img src="red-panda.png" alt="Your red panda companion"><div>${s.phase === 'rest' || s.phase === 'break' ? 'Rest together' : 'Here with you'}</div></div></div><p class="hero-detail">${html(g.detail || '')}</p><div class="actions">${todayActions(g)}</div>`)}${plan.length ? card(`<div class="card-head">${section('Your day, as it unfolds')}<button class="button link" data-page="plan">Edit plan</button></div>${calendar(plan, s.dayStart, s.dayEnd)}${(s.actualTimeline || []).length ? `<p class="small-note">${s.focusMinutesToday || 0} min focused · ${s.breakMinutesToday || 0} min of confirmed breaks</p>` : ''}`) : ''}`;
+  const phase = s.phase === 'focus' ? 'Focusing' : s.phase === 'break' ? 'Taking a break' : 'Ready when you are';
+  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div><div class="today-acorns" aria-label="${html(s.balance ?? 0)} acorns available"><span>✦</span> ${html(s.balance ?? 0)} <small>acorns</small></div></header><section class="today-stage"><div class="today-stage-copy"><div class="today-phase"><span class="phase-dot ${html(s.phase)}"></span>${html(phase)}</div><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div></div><div class="today-companion"><div class="companion-sun"></div><img src="red-panda.png" alt="Your red panda companion"><span>${s.phase === 'break' ? 'A little rest together' : s.phase === 'focus' ? 'One step at a time' : 'Here with you'}</span></div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.focusMinutesToday || 0)}</b> min focused</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -109,7 +138,7 @@ function selectedPlan() {
     new Date(s.currentWallTimeISO || Date.now()) >= new Date(record.current.end);
   const timeline = state().planDay === 'tomorrow' ? record.suggestedTimeline || [] :
     ended ? s.plannedTimeline || [] : s.forecastTimeline || [];
-  return { key, date, record, plan, timeline, ended };
+  return { key, date, record, plan, timeline, ended, bounds: state().planBounds[key] || {} };
 }
 function plan() {
   const s = state().status, view = selectedPlan();
@@ -119,21 +148,17 @@ function plan() {
   const reflection = editing ? `<p class="muted">What felt good? What would make breaks easier today?</p><input class="text-input" id="reflection-input" placeholder="A few words are enough…" value="${html(state().reflectionDraft ?? saved ?? '')}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-reflection-edit', undefined, false, 'cancel-reflection-edit') : ''}${actionButton('Save reflection', 'save-reflection', undefined, false, 'save-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`;
   const reflectionCard = state().planDay === 'today' ? card(`<div class="card-head">${section('Yesterday, briefly')}${saved && !editing ? actionButton('Edit reflection', 'edit-reflection', undefined, false, 'edit-reflection') : ''}</div><div class="inline-metrics"><span>Focus · ${s.yesterdayFocusMinutes || 0} min</span><span>Confirmed breaks · ${s.yesterdayBreakMinutes || 0} min</span></div>${yesterday.map(x => `<div class="line-row"><span>${x.kind === 'focus' ? 'Focus' : 'Break'}</span><span class="spacer"></span><time>${clock(x.start)} · ${Math.round((x.observedSeconds || mins(x.start, x.end) * 60) / 60)} min</time></div>`).join('')}${reflection}`) : '';
   const meetings = (view.plan.meetings || []).map(m => `<div class="line-row"><span>${html(m.title)}</span><span class="spacer"></span><time>${clock(m.start)}–${clock(m.end)}</time></div>`).join('') || empty('No meetings planned yet.');
-  const provenance = view.record.baseline?.provenance;
-  const planNote = !view.record.baseline ? 'Changes are drafts until you set this plan.' : provenance === 'legacy-first-save' ? 'This older plan began with a field save; it was not explicitly set as a baseline.' : `${view.record.revisionCount || 0} deliberate revision${view.record.revisionCount === 1 ? '' : 's'} since the baseline.`;
   const dayButtons = `<div class="actions"><button class="button ${state().planDay === 'today' ? 'primary' : ''}" data-plan-day="today">Today</button><button class="button ${state().planDay === 'tomorrow' ? 'primary' : ''}" data-plan-day="tomorrow">Tomorrow</button></div>`;
-  const startWithDraft = state().planDay === 'today' && !view.record.baseline && s.phase === 'idle'
-    ? actionButton('Start first focus with this plan', 'start-with-draft', undefined, false, 'start-with-draft') : '';
   const planSaving = state().pendingPlanKey === view.key;
-  const saveButton = `<button class="button primary" data-action="commit-plan" id="save-plan" ${planSaving ? 'disabled' : ''}>${planSaving ? 'Calculating…' : view.record.baseline ? 'Save plan revision' : 'Set plan'}</button>`;
-  const planFeedback = planSaving ? '<p class="calculation-status" role="status"><span class="spinner" aria-hidden="true"></span>Calculating your plan…</p>'
-    : state().error ? `<p class="small-note error" role="alert">${html(state().error)}</p>` : '';
-  const bounds = card(`${section('Day bounds & rhythm')}<div class="inline-fields"><label class="field"><span>Start</span><input type="time" id="day-start" value="${timeInput(view.plan.start)}"></label><label class="field"><span>Finish</span><input type="time" id="day-end" value="${timeInput(view.plan.end)}"></label><label class="field"><span>Focus · min</span><input type="number" id="focus-length" min="5" max="120" step="5" value="${view.plan.focusMinutes}"></label><label class="field"><span>Break · min</span><input type="number" id="break-length" min="5" max="60" step="5" value="${view.plan.breakMinutes}"></label></div><p class="small-note">${html(planNote)}</p><div class="actions">${saveButton}${startWithDraft}</div>${planFeedback}`);
+  const planFeedback = `<p class="calculation-status ${state().error ? 'error' : ''}" id="plan-save-status" role="status">${planSaving ? '<span class="spinner" aria-hidden="true"></span>Saving…' : state().error ? html(state().error) : view.record.baseline ? 'Saved' : ''}</p>`;
+  const startValue = view.record.baseline ? timeInput(view.plan.start) : view.bounds.start || '';
+  const endValue = view.record.baseline ? timeInput(view.plan.end) : view.bounds.end || '';
+  const bounds = card(`${section('Your hours and rhythm')}<div class="inline-fields"><label class="field"><span>Start</span><input type="time" id="day-start" value="${html(startValue)}"></label><label class="field"><span>Finish</span><input type="time" id="day-end" value="${html(endValue)}"></label><label class="field"><span>Focus · min</span><input type="number" id="focus-length" min="5" max="120" step="5" value="${view.plan.focusMinutes}"></label><label class="field"><span>Break · min</span><input type="number" id="break-length" min="5" max="60" step="5" value="${view.plan.breakMinutes}"></label></div>${planFeedback}`);
   const meetingCard = `<button class="card meeting-link" id="open-meetings" style="display:block;width:100%;text-align:left;border-color:rgba(64,74,59,.07);color:inherit;cursor:pointer">${section('Meetings')}${meetings}<span class="green" style="font-size:11px">Open day calendar ↗</span></button>`;
   const hasDraft = Boolean(state().planDrafts[view.key]);
   const timelineTitle = state().planDay === 'tomorrow' ? 'Suggested timeline' : view.ended ? 'Saved plan' : 'Live forecast';
-  const timelineNote = hasDraft && view.record.current ? '<p class="small-note">This timeline uses the saved plan. Save your draft to update it.</p>' : '';
-  const timeline = card(`${section(hasDraft && view.record.current ? `Saved plan · ${timelineTitle.toLowerCase()}` : timelineTitle)}${timelineNote}${view.timeline.length ? calendar(view.timeline, view.record.current?.start || view.plan.start, view.record.current?.end || view.plan.end) : empty(view.record.current ? 'No time remains in this plan.' : 'Set this plan to see suggested focus and break times.')}`);
+  const timelineNote = hasDraft && view.record.current ? '<p class="small-note">Updating this forecast from your latest changes…</p>' : '';
+  const timeline = card(`${section(timelineTitle)}${timelineNote}${view.timeline.length ? calendar(view.timeline, view.record.current?.start || view.plan.start, view.record.current?.end || view.plan.end) : empty(view.record.current ? 'No time remains in this plan.' : 'Enter your start and finish to see suggested focus and break times.')}`);
   return `${header('Shape your day', `Plan for ${shortDate(view.date)}. A plan is a guide, not a rule.`)}${dayButtons}${reflectionCard}${bounds}${meetingCard}${timeline}`;
 }
 function history() {
@@ -180,6 +205,10 @@ function setPlanDraft(patch) {
   state().savePlanDraft(view.key, draft);
   return draft;
 }
+function samePlan(a, b) {
+  return a && b && ['start', 'end', 'focusMinutes', 'breakMinutes', 'meetings', 'customBlocks']
+    .every(key => JSON.stringify(a[key] ?? null) === JSON.stringify(b[key] ?? null));
+}
 function savePlanFromFields() {
   const view = selectedPlan();
   const startField = document.getElementById('day-start');
@@ -187,55 +216,78 @@ function savePlanFromFields() {
   const focusField = document.getElementById('focus-length');
   const breakField = document.getElementById('break-length');
   if (!startField || !endField) return null;
+  const bounds = { start: startField.value, end: endField.value };
+  state().savePlanBounds(view.key, bounds);
   const focusMinutes = Number(focusField.value), breakMinutes = Number(breakField.value);
-  if (!startField.value || !endField.value || !focusField.value || !breakField.value ||
+  if (!focusField.value || !breakField.value ||
     !focusField.checkValidity() || !breakField.checkValidity() ||
     !Number.isInteger(focusMinutes) || !Number.isInteger(breakMinutes)) {
-    const note = endField.closest('.card').querySelector('.small-note');
-    note.className = 'small-note error';
-    note.textContent = 'Enter a start, finish, and valid focus and break lengths.';
+    planFeedback('Enter valid focus and break lengths.', true);
+    return null;
+  }
+  if (!startField.value || !endField.value) {
+    setPlanDraft({ focusMinutes, breakMinutes });
     return null;
   }
   const dayStart = withTime(view.plan.start, startField.value);
   const dayEnd = withTime(view.plan.end, endField.value);
   if (date(dayEnd) - date(dayStart) < 15 * 60000) {
-    const note = document.querySelector('#day-end').closest('.card').querySelector('.small-note');
-    note.className = 'small-note error';
-    note.textContent = 'Finish must be at least 15 minutes after start.';
+    planFeedback('Finish must be at least 15 minutes after start.', true);
     return null;
   }
   return setPlanDraft({ start: dayStart, end: dayEnd,
     focusMinutes, breakMinutes });
 }
 function flushPlanDraft() {
-  if (!planDraftTimer) return;
-  clearTimeout(planDraftTimer);
-  planDraftTimer = undefined;
-  savePlanFromFields();
+  const key = selectedPlan().key;
+  clearTimeout(planDraftTimers.get(key));
+  planDraftTimers.delete(key);
+  if (state().page === 'plan' && !state().meetingEditor) {
+    const draft = savePlanFromFields();
+    if (draft) queuePlanSave();
+  }
 }
-function queuePlanDraft() {
-  clearTimeout(planDraftTimer);
-  planDraftTimer = setTimeout(() => {
-    planDraftTimer = undefined;
-    if (state().page === 'plan') savePlanFromFields();
-  }, 300);
+function queuePlanSave(key = selectedPlan().key) {
+  clearTimeout(planDraftTimers.get(key));
+  planDraftTimers.set(key, setTimeout(() => {
+    planDraftTimers.delete(key);
+    commitPlan(key);
+  }, 550));
 }
-async function commitPlan() {
-  flushPlanDraft();
-  const draft = savePlanFromFields();
-  if (!draft) return;
-  const key = draft.dayKey, before = state().status.dayPlans?.[key]?.latestEventID;
+function planFeedback(message, error = false) {
+  const node = document.getElementById('plan-save-status');
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle('error', error);
+}
+async function commitPlan(key) {
+  if (planSaveInFlight) return;
+  const record = state().status.dayPlans?.[key] || {};
+  const draft = state().planDrafts[key];
+  const bounds = state().planBounds[key] || {};
+  if (!draft || (!record.baseline && (!bounds.start || !bounds.end))) return;
+  if (samePlan(draft, record.current)) { state().clearPlanDraft(key); return; }
+  const before = record.latestEventID;
+  planSaveInFlight = true;
   state().setUI({ pendingPlanKey: key, error: null });
-  render();
-  await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+  planFeedback('Saving…');
   try {
     const result = await dispatch('save-plan', draft);
     if (result?.dayPlans?.[key]?.latestEventID && result.dayPlans[key].latestEventID !== before) {
-      state().clearPlanDraft(key);
+      if (state().planDrafts[key] === draft) state().clearPlanDraft(key);
+      planFeedback('Saved');
+    } else if (result) {
+      const error = result.statusMessage || 'This plan could not be saved.';
+      state().setUI({ error });
+      planFeedback(error, true);
     }
   } finally {
+    planSaveInFlight = false;
     state().setUI({ pendingPlanKey: null });
-    render();
+    for (const [pendingKey, pendingDraft] of Object.entries(state().planDrafts)) {
+      if (pendingKey !== key || pendingDraft !== draft) queuePlanSave(pendingKey);
+    }
+    if (!document.activeElement?.matches('input, textarea, select, [contenteditable]')) render();
   }
 }
 function savePreferences() {
@@ -255,11 +307,13 @@ function upsertMeeting(meeting) {
   const item = { ...meeting, id: meeting.id || `draft-${Date.now()}` };
   if (index < 0) meetings.push(item); else meetings[index] = item;
   setPlanDraft({ meetings, customBlocks: null });
+  queuePlanSave();
   render();
 }
 function removeMeeting(id) {
   const view = selectedPlan();
   setPlanDraft({ meetings: (view.plan.meetings || []).filter(item => item.id !== id), customBlocks: null });
+  queuePlanSave();
   render();
 }
 function selectMeeting(id) {
@@ -322,12 +376,6 @@ document.addEventListener('click', event => {
   if (name === 'cancel-reflection-edit') { state().setUI({ reflectionDraft: null }); render(); return; }
   if (name === 'save-reflection') { const value = document.getElementById('reflection-input')?.value.trim(); if (value) { state().setUI({ reflectionDraft: null }); state().clearDirty('reflection-input'); state().deferRender(false); dispatch(name, value); } return; }
   if (name === 'save-preferences') { savePreferences(); return; }
-  if (name === 'commit-plan') { commitPlan(); return; }
-  if (name === 'start-with-draft') {
-    const planDraft = savePlanFromFields();
-    if (planDraft) dispatch('start-focus', { planDraft });
-    return;
-  }
   if (name === 'start-focus' && !state().status.dayPlans?.[state().status.todayKey]?.baseline) {
     dispatch(name, { planDraft: state().planDrafts[state().status.todayKey] }); return;
   }
@@ -336,7 +384,7 @@ document.addEventListener('click', event => {
   dispatch(name, value);
 });
 document.addEventListener('change', event => {
-  if (planFields.has(event.target.id)) queuePlanDraft();
+  if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'data-profile') dispatch('switch-profile', event.target.value);
   if (['preview-focus', 'preview-break'].includes(event.target.id)) {
     state().setUI({ rewardDraft: { focusCreditsPerMinute: Number(document.getElementById('preview-focus').value), breakBonus: Number(document.getElementById('preview-break').value) } });
@@ -346,7 +394,7 @@ document.addEventListener('change', event => {
 });
 document.addEventListener('input', event => {
   if (event.target.id) state().markDirty(event.target.id);
-  if (planFields.has(event.target.id)) queuePlanDraft();
+  if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'reflection-input') state().setUI({ reflectionDraft: event.target.value });
   if (event.target.id === 'meeting-name') state().setUI({ meetingDraft: event.target.value });
 });

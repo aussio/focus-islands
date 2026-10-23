@@ -160,6 +160,7 @@ async function driveUI(action, value) {
       node.value = input.text;
       node.dispatchEvent(new Event('input', { bubbles: true }));
       node.dispatchEvent(new Event('change', { bubbles: true }));
+      node.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
     }
     if (${JSON.stringify(action)} === 'ui-drag') {
       const rect = node.getBoundingClientRect(), x = rect.left + rect.width / 2;

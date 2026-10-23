@@ -20,7 +20,7 @@ function sameMeetings(a, b) {
 
 function validBlocks(blocks, plan) {
   if (!Array.isArray(blocks) || !blocks.length || ms(blocks[0].start) !== ms(plan.start) || ms(blocks.at(-1).end) !== ms(plan.end)) return false;
-  if (blocks.some((block, i) => ms(block.end) <= ms(block.start) || (i && ms(blocks[i - 1].end) !== ms(block.start)))) return false;
+  if (blocks.some((block, i) => !['focus', 'break', 'meeting'].includes(block.kind) || ms(block.end) <= ms(block.start) || (i && ms(blocks[i - 1].end) !== ms(block.start)))) return false;
   return sameMeetings(blocks.filter(block => block.kind === 'meeting'), fixedMeetings(plan));
 }
 
@@ -46,7 +46,7 @@ function suggest(plan, minimumFocusMinutes = 10) {
   let next = grid.length - 1;
   for (let i = grid.length - 1; i >= 0; i--) { if (starts.has(i)) next = i; nextMeeting[i] = next; }
   const paths = grid.map(() => new Map());
-  const initial = { work: 0, last: 'free', focused: false };
+  const initial = { work: 0, last: 'start', focused: false };
   const key = state => `${state.work}|${state.last}|${state.focused}`;
   paths[0].set(key(initial), { cost: 0, state: initial });
   const workCap = Math.max(2 * goal, 180);
@@ -66,15 +66,15 @@ function suggest(plan, minimumFocusMinutes = 10) {
       const limit = nextMeeting[i] === i ? grid.length - 1 : nextMeeting[i];
       if (i + 1 <= limit) {
         const duration = (grid[i + 1] - grid[i]) / 60000;
-        put(i + 1, { work: state.work, last: 'free', focused: false }, path.cost + 3 * duration + (state.last === 'free' && i !== 0 ? 0 : 12), i, priorKey,
-          { kind: 'free', start: iso(grid[i]), end: iso(grid[i + 1]) });
+        put(i + 1, { work: state.work, last: 'break', focused: false }, path.cost + 3 * duration + (state.last === 'break' ? 0 : 12), i, priorKey,
+          { kind: 'break', start: iso(grid[i]), end: iso(grid[i + 1]) });
       }
       if (!state.focused) for (let endIndex = i + 1; endIndex < grid.length && endIndex <= limit; endIndex++) {
         const duration = (grid[endIndex] - grid[i]) / 60000;
         if (duration > maximum) break;
         if (duration < minimum) continue;
         const deviation = goal - duration, overload = Math.max(0, state.work + duration - goal - 15);
-        const cost = 8 + .03 * deviation ** 2 + .015 * overload ** 2 + (duration % 5 === 0 ? 0 : 1.5) + (state.last === 'free' && i > 0 ? 15 : 0);
+        const cost = 8 + .03 * deviation ** 2 + .015 * overload ** 2 + (duration % 5 === 0 ? 0 : 1.5);
         put(endIndex, { work: Math.min(workCap, state.work + Math.trunc(duration)), last: 'focus', focused: true }, path.cost + cost, i, priorKey,
           { kind: 'focus', start: iso(grid[i]), end: iso(grid[endIndex]) });
       }
@@ -82,19 +82,28 @@ function suggest(plan, minimumFocusMinutes = 10) {
         const end = grid[i] + rest * 60000, endIndex = positions.get(end);
         if (endIndex != null && endIndex <= limit && endIndex < grid.length - 1) {
           const deviation = state.work - goal;
-          put(endIndex, { work: 0, last: 'break', focused: false }, path.cost + 6 + (deviation < 0 ? .002 : .025) * deviation ** 2 + (state.last === 'free' ? 20 : 0), i, priorKey,
+          put(endIndex, { work: 0, last: 'break', focused: false }, path.cost + 6 + (deviation < 0 ? .002 : .025) * deviation ** 2, i, priorKey,
             { kind: 'break', start: iso(grid[i]), end: iso(end) });
         }
       }
     }
   }
   const endings = [...paths.at(-1)].filter(([, path]) => path.state.work > 0).sort((a, b) => a[1].cost - b[1].cost);
-  if (!endings.length) return [{ kind: 'free', start: plan.start, end: plan.end }];
+  if (!endings.length) {
+    const fallback = [], meetings = fixedMeetings(plan);
+    let cursor = ms(plan.start);
+    for (const meeting of meetings) {
+      if (ms(meeting.start) > cursor) fallback.push({ kind: 'break', start: iso(cursor), end: meeting.start });
+      fallback.push(meeting); cursor = ms(meeting.end);
+    }
+    if (cursor < ms(plan.end)) fallback.push({ kind: 'break', start: iso(cursor), end: plan.end });
+    return fallback;
+  }
   let [id, path] = endings[0], at = grid.length - 1;
   const blocks = [];
   while (path.block) {
     const block = path.block;
-    if (block.kind === 'free' && blocks.at(-1)?.kind === 'free' && ms(blocks.at(-1).start) === ms(block.end)) blocks.at(-1).start = block.start;
+    if (block.kind === 'break' && blocks.at(-1)?.kind === 'break' && ms(blocks.at(-1).start) === ms(block.end)) blocks.at(-1).start = block.start;
     else blocks.push({ ...block });
     at = path.previousTime; id = path.previousKey; path = paths[at].get(id);
   }
@@ -112,7 +121,7 @@ function editBlock(blocks, index, change) {
       result[index - 1].end = iso(start); block.start = iso(start);
     } else {
       if (start <= old) return null;
-      block.start = iso(start); result.splice(index, 0, { kind: 'free', start: iso(old), end: iso(start) });
+      block.start = iso(start); result.splice(index, 0, { kind: 'break', start: iso(old), end: iso(start) });
     }
   } else if (change.durationMinutes != null) {
     const minutes = Number(change.durationMinutes), old = ms(block.end), end = ms(block.start) + minutes * 60000;
@@ -122,7 +131,7 @@ function editBlock(blocks, index, change) {
       block.end = iso(end); result[index + 1].start = iso(end);
     } else {
       if (end >= old) return null;
-      block.end = iso(end); result.splice(index + 1, 0, { kind: 'free', start: iso(end), end: iso(old) });
+      block.end = iso(end); result.splice(index + 1, 0, { kind: 'break', start: iso(end), end: iso(old) });
     }
   } else return null;
   return result.every((item, i) => ms(item.end) > ms(item.start) && (!i || ms(result[i - 1].end) === ms(item.start))) ? result : null;
@@ -144,7 +153,7 @@ function project(events, day, includeSuggestions = true) {
     const end = Math.min(ms(until), ms(from) + Math.max(0, seconds) * 1000, dayEnd);
     if (end > start) actual.push({ kind: 'focus', start: iso(start), end: iso(end), observedSeconds: (end - start) / 1000 });
   }
-  const pairs = { breakEnded: ['breakStarted', 'break'], awayEnded: ['awayStarted', 'free'] };
+  const pairs = { breakEnded: ['breakStarted', 'break'], awayEnded: ['awayStarted', 'away'] };
   for (const event of events) {
     if (event.kind === 'focusStarted' && event.payload?.sessionID) {
       focusSessions.set(event.payload.sessionID, { runningFrom: event.occurredAt, elapsedAtStart: 0, paused: false });
@@ -173,10 +182,10 @@ function project(events, day, includeSuggestions = true) {
     const start = Math.max(ms(startEvent.occurredAt), dayStart), end = Math.min(ms(event.occurredAt), dayEnd);
     if (end <= start) continue;
     const wallSeconds = (end - start) / 1000;
-    const observedSeconds = pair[1] === 'free' ? wallSeconds : Math.min(wallSeconds, Math.max(0, event.payload?.elapsedSeconds || 0));
+    const observedSeconds = pair[1] === 'away' ? wallSeconds : Math.min(wallSeconds, Math.max(0, event.payload?.elapsedSeconds || 0));
     const isConfirmed = pair[1] === 'break' && confirmed.has(startEvent.payload?.sessionID);
     actual.push({ kind: pair[1], start: iso(start), end: iso(end), confirmed: isConfirmed, observedSeconds });
-    if (pair[1] === 'free') awaySeconds += wallSeconds;
+    if (pair[1] === 'away') awaySeconds += wallSeconds;
   }
   return { plan, suggestions: includeSuggestions && plan ? suggest(plan) : [], actual,
     focusSeconds: actual.filter(item => item.kind === 'focus').reduce((total, item) => total + item.observedSeconds, 0),

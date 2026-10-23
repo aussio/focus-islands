@@ -1,15 +1,14 @@
 const { ms, iso, sameDay } = require('./planning');
 const minutes = seconds => Math.max(1, Math.ceil(seconds / 60));
 const time = value => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(new Date(value));
-const label = { focus: 'Focus time', break: 'A break', meeting: 'A meeting', free: 'Open time' };
+const label = { focus: 'Focus time', break: 'A break', meeting: 'A meeting', away: 'Away time' };
 const guidance = (situation, title, detail, action = null, breakAction = null) => ({ situation, title, detail, action, breakAction });
 function proposedBreak(plan, blocks, now) {
   if (!plan || now < ms(plan.start) || now >= ms(plan.end) || blocks.some(block => block.kind === 'meeting' && ms(block.start) <= now && now < ms(block.end))) return null;
   const block = blocks.find(item => ms(item.start) <= now && now < ms(item.end));
   const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.start) > now);
   let end = Math.min(ms(plan.end), now + Math.max(1, plan.breakMinutes) * 60000);
-  if (block?.kind === 'break') end = ms(block.end);
-  if (block?.kind === 'free') end = Math.min(end, ms(block.end));
+  if (block?.kind === 'break') end = Math.min(end, ms(block.end));
   if (meeting) {
     const readyAt = ms(meeting.start) - 120000;
     if (readyAt - end <= 300000) end = readyAt;
@@ -25,14 +24,14 @@ function nextFocusDescription(blocks, date) {
   return `${next.title || label[next.kind]} is next at ${time(next.start)}.`;
 }
 function scheduled(plan, blocks, now) {
-  if (!plan) return guidance('noPlan', 'Give today a little shape', 'Set your day bounds and meetings to see what fits next.', { type: 'editPlan' });
+  if (!plan) return guidance('noPlan', 'Ready when you are', 'Start a focus session, or give your day a little shape first.', { type: 'editPlan' });
   if (now < ms(plan.start)) return guidance('beforeDay', `Your day starts at ${time(plan.start)}`, 'Your schedule is ready. Start when your day begins, or adjust your plan.', { type: 'editPlan' });
   if (now >= ms(plan.end)) return guidance('afterDay', "You've reached the end of your plan", "Leave some room for life. You can adjust your finish time if there's more to do.", { type: 'editPlan' });
   const block = blocks.find(item => ms(item.start) <= now && now < ms(item.end));
   const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.end) > now);
   if (block?.kind === 'meeting') return guidance('meeting', block.title || 'Meeting time', `You're in a meeting until ${time(block.end)}. Your next suggestion will be here when it ends.`);
   if (meeting && ms(meeting.start) - now < 720000) return guidance('meetingSoon', `${meeting.title || 'Your meeting'} starts soon`, `Only ${minutes((ms(meeting.start) - now) / 1000)} minutes until ${time(meeting.start)}. Take a pause and leave two minutes to get ready.`, proposedBreak(plan, blocks, now));
-  if (!block) return guidance('free', 'A little open time', 'Your plan has room here. Take a pause or adjust what comes next.', { type: 'editPlan' });
+  if (!block) return guidance('pause', 'Take a moment', 'Check your plan for what comes next.', { type: 'editPlan' });
   const focusEnd = Math.min(ms(block.end), now + plan.focusMinutes * 60000,
     meeting ? ms(meeting.start) - 120000 : ms(plan.end));
   if (block.kind === 'focus' && focusEnd - now >= 60000) {
@@ -41,7 +40,7 @@ function scheduled(plan, blocks, now) {
     return guidance('focus', `Focus for ${minutes((focusEnd - now) / 1000)} minutes`, detail, { type: 'focus', until: iso(focusEnd) });
   }
   if (block.kind === 'break') return guidance('rest', 'Make room for a break', nextFocusDescription(blocks, ms(block.end)), proposedBreak(plan, blocks, now));
-  return guidance('free', 'A short pause fits here', "There's a little time before the next block. Step away or get ready for what's coming.", proposedBreak(plan, blocks, now));
+  return guidance('rest', 'Make room for a break', nextFocusDescription(blocks, ms(block.end)), proposedBreak(plan, blocks, now));
 }
 function fromActual(plan, blocks, actual, now) {
   if (!plan || now < ms(plan.start) || now >= ms(plan.end) || blocks.some(item => item.kind === 'meeting' && ms(item.start) <= now && now < ms(item.end))) return null;

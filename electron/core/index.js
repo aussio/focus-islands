@@ -77,9 +77,22 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     if (amount > 0) append('rewardGranted', { amount, policyVersion: policy.version, sourceID: id, reason },
       { occurredAt: instant.wall, source: 'system', uniqueKey: `grant:${policy.version}:${reason}:${id}` });
   }
-  function load() {
+  function load(closeInterruptedSession = false) {
     const events = allEvents(), instant = now();
     timer = Timer.recover(events, instant);
+    if (closeInterruptedSession && timer.state.phase !== 'idle') {
+      const { phase, sessionID, targetSeconds, elapsedSeconds, unknownGapStartedAt } = timer.state;
+      const observedAt = new Date(unknownGapStartedAt || instant.wall);
+      const payload = { sessionID, targetSeconds, elapsedSeconds, interrupted: true };
+      store.transaction(() => {
+        append(phase === 'focus' ? 'focusEnded' : 'breakEnded', payload,
+          { occurredAt: observedAt, source: 'system' });
+        if (phase === 'focus') grant('focus', sessionID, elapsedSeconds, targetSeconds,
+          { wall: observedAt });
+      });
+      timer = new Timer();
+      message = 'Your previous session ended when the app stopped. Only recorded time was kept.';
+    }
     currentPlan = null; plannedBlocks = []; latestPlanEventID = null;
     const bounds = dayBounds(instant.wall);
     let prefs = store.getSettings();
@@ -97,15 +110,14 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const todayPlan = planForDay(events, dayKey(instant.wall));
     currentPlan = todayPlan.current; latestPlanEventID = todayPlan.latestEventID;
     if (currentPlan) { focusLength = currentPlan.focusMinutes; breakLength = currentPlan.breakMinutes; plannedBlocks = suggest(currentPlan); }
-    else { currentPlan = null; if (timer.state.phase === 'idle') page = 'plan'; }
+    else currentPlan = null;
     const yesterday = new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate() - 1);
     const saved = events.filter(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, yesterday)).at(-1);
     savedReflection = saved?.payload.note || '';
-    if (timer.state.phase !== 'idle') message = 'A session was restored. Unobserved time was not counted.';
     writeLease();
     return bounds;
   }
-  let bounds = load();
+  let bounds = load(true);
   function syncDay() {
     if (sameDay(bounds.start, now().wall)) return;
     bounds = load();
@@ -283,7 +295,11 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const actual = today.actual.sort((a, b) => ms(a.start) - ms(b.start));
     const balance = events.filter(event => ['rewardGranted', 'rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
     const unlocked = [...new Set(events.filter(event => ['itemPurchased', 'itemUnlocked'].includes(event.kind)).map(event => event.payload?.itemID).filter(Boolean))].sort();
-    const history = events.filter(item => sameDay(item.occurredAt, instant.wall) && eventKinds.has(item.kind)).reverse().map(item => ({ id: item.id, title: historyTitles[item.kind], date: item.occurredAt, kind: item.kind }));
+    const history = events.filter(item => sameDay(item.occurredAt, instant.wall) && eventKinds.has(item.kind)).reverse().map(item => ({
+      id: item.id,
+      title: item.payload?.interrupted ? (item.kind === 'focusEnded' ? 'Focus stopped when app closed' : 'Break stopped when app closed') : historyTitles[item.kind],
+      date: item.occurredAt, kind: item.kind,
+    }));
     committedCacheKey = key;
     committedCache = { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState,
       tomorrowBlocks, actual, balance, unlocked, history, rebalancePreview: rebalance(events) };
@@ -381,7 +397,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         if (!currentPlan) break;
         const input = value || {}, blocks = plannedBlocks, index = Number(input.index);
         let updated = null;
-        if (name === 'edit-block' && input.kind && blocks[index]?.kind !== 'meeting') { updated = blocks.map(item => ({ ...item })); updated[index].kind = input.kind; }
+        if (name === 'edit-block' && ['focus', 'break'].includes(input.kind) && blocks[index]?.kind !== 'meeting') { updated = blocks.map(item => ({ ...item })); updated[index].kind = input.kind; }
         else updated = editBlock(blocks, index, name === 'edit-block-duration' ? { durationMinutes: input.minutes ?? input.durationMinutes } : { start: input.start });
         if (updated) savePlan({ ...currentPlan, customBlocks: updated }); else message = 'That timing would move a meeting or cross a day boundary.';
         break;

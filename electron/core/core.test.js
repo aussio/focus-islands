@@ -16,6 +16,16 @@ function temporaryCore() {
   return { dbPath, statusPath, core: createCore({ dbPath, statusPath, profile: 'testing', development: true }) };
 }
 
+test('a fresh day opens on Today without starting a session or requiring a plan', () => {
+  const { core } = temporaryCore();
+  const status = core.status();
+  assert.equal(status.page, 'today');
+  assert.equal(status.phase, 'idle');
+  assert.equal(status.plan, null);
+  assert.equal(status.guidance.situation, 'noPlan');
+  core.close();
+});
+
 test('existing event schema and legacy date payloads replay without migration', () => {
   const dbPath = join(mkdtempSync(join(tmpdir(), 'cozy-legacy-test-')), 'events.sqlite');
   const database = new DatabaseSync(dbPath);
@@ -143,6 +153,52 @@ test('focus and confirmed break grant once and persist after restart', () => {
   reopened.close();
 });
 
+test('launch starts idle after an unfinished focus and keeps only observed progress', () => {
+  const { dbPath, statusPath, core } = temporaryCore();
+  assert.equal(core.status().phase, 'idle');
+  core.action('start-focus');
+  core.action('advance', 2);
+  const before = core.status();
+  const checkpoint = before.events.filter(event => event.kind === 'focusResumed').at(-1);
+  core.close();
+
+  const reopened = createCore({ dbPath, statusPath, profile: 'testing', development: true });
+  const after = reopened.status();
+  const ended = after.events.filter(event => event.kind === 'focusEnded');
+  assert.equal(after.phase, 'idle');
+  assert.equal(after.timer.sessionID, null);
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].occurredAt, checkpoint.occurredAt);
+  assert.equal(ended[0].payload.elapsedSeconds, checkpoint.payload.elapsedSeconds);
+  assert.equal(ended[0].payload.interrupted, true);
+  assert.equal(after.balance, Math.floor(checkpoint.payload.elapsedSeconds / 60));
+  assert.equal(JSON.parse(readFileSync(statusPath, 'utf8')).phase, 'idle');
+  reopened.close();
+
+  const nextLaunch = createCore({ dbPath, profile: 'testing', development: true });
+  assert.equal(nextLaunch.status().events.filter(event => event.kind === 'focusEnded').length, 1);
+  nextLaunch.close();
+});
+
+test('launch starts idle after an unfinished break without confirming it', () => {
+  const { dbPath, core } = temporaryCore();
+  core.action('start-break');
+  core.action('advance', 2);
+  const checkpoint = core.status().events.filter(event => event.kind === 'breakProgress').at(-1);
+  core.close();
+
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  const after = reopened.status();
+  const ended = after.events.filter(event => event.kind === 'breakEnded');
+  assert.equal(after.phase, 'idle');
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].occurredAt, checkpoint.occurredAt);
+  assert.equal(ended[0].payload.interrupted, true);
+  assert.equal(after.events.filter(event => event.kind === 'breakConfirmed').length, 0);
+  assert.equal(after.balance, 0);
+  reopened.close();
+});
+
 test('unobserved gap does not credit focus after recovery', () => {
   const start = new Date('2025-01-01T10:00:00Z');
   const events = [
@@ -170,7 +226,7 @@ test('actual focus timeline excludes an unobserved pause', () => {
   assert.equal(actual.focusSeconds, 1200);
   assert.deepEqual(actual.actual.filter(block => block.kind === 'focus').map(block => [block.start, block.end]),
     [[at(0), at(10)], [at(20), at(30)]]);
-  assert.equal(actual.actual.find(block => block.kind === 'free').observedSeconds, 600);
+  assert.equal(actual.actual.find(block => block.kind === 'away').observedSeconds, 600);
 });
 
 test('suggested focus days keep breaks at common and odd durations', () => {
@@ -192,6 +248,17 @@ test('suggested focus days keep breaks at common and odd durations', () => {
   assert.deepEqual(shifted.filter(block => block.kind === 'meeting').map(block => [block.start, block.end]), [[meetingStart, meetingEnd]]);
   assert.equal(shifted[0].start, shiftedStart);
   assert.equal(shifted.at(-1).end, end);
+});
+
+test('plans use focus, breaks, and meetings even when a gap is too short for focus', () => {
+  const day = new Date(2026, 0, 5);
+  const at = (hour, minute) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(9, 35), focusMinutes: 25, breakMinutes: 5,
+    meetings: [{ title: 'Check-in', start: at(9, 5), end: at(9, 35) }],
+    customBlocks: [{ kind: 'free', start: at(9, 0), end: at(9, 5) },
+      { kind: 'meeting', title: 'Check-in', start: at(9, 5), end: at(9, 35) }] };
+  assert.deepEqual(suggest(plan).map(block => block.kind), ['break', 'meeting']);
+  assert.deepEqual(suggest({ ...plan, meetings: [], end: at(9, 5), customBlocks: null }).map(block => block.kind), ['break']);
 });
 
 test('export and backup include committed events', async () => {
