@@ -269,7 +269,7 @@ public struct DayProjection: Sendable {
     public var breakSeconds: TimeInterval
     public var awaySeconds: TimeInterval
 
-    public static func project(events: [Event], on day: Date, calendar: Calendar = .current) -> DayProjection {
+    public static func project(events: [Event], on day: Date, calendar: Calendar = .current, includeSuggestions: Bool = true) -> DayProjection {
         let dayBounds = calendar.dateInterval(of: .day, for: day)!
         var plan: DayPlan?
         var starts: [EventKind: Date] = [:]
@@ -319,7 +319,7 @@ public struct DayProjection: Sendable {
         }
         return DayProjection(
             plan: plan,
-            suggestions: plan.map { DayPlanner.suggest($0) } ?? [],
+            suggestions: includeSuggestions ? (plan.map { DayPlanner.suggest($0) } ?? []) : [],
             actual: actual,
             focusSeconds: actual.filter { $0.kind == .focus }.reduce(0) { $0 + $1.observedSeconds },
             breakSeconds: actual.filter { $0.kind == .break && $0.confirmed }.reduce(0) { $0 + $1.observedSeconds },

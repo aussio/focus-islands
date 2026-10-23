@@ -431,7 +431,7 @@ final class AppModel: ObservableObject {
 
     func changeSuggestion(at index: Int, to kind: PlanBlockKind) {
         guard var plan = currentPlan else { return }
-        var blocks = DayPlanner.suggest(plan)
+        var blocks = plannedTimeline
         guard blocks.indices.contains(index), blocks[index].kind != .meeting else { return }
         blocks[index].kind = kind
         saveEditedTimeline(blocks, in: &plan)
@@ -439,7 +439,7 @@ final class AppModel: ObservableObject {
 
     func changeSuggestion(at index: Int, edit: DayPlanner.Edit) {
         guard var plan = currentPlan,
-              let blocks = DayPlanner.edit(DayPlanner.suggest(plan), at: index, change: edit) else {
+              let blocks = DayPlanner.edit(plannedTimeline, at: index, change: edit) else {
             statusMessage = "That timing would move a meeting or cross a day boundary."
             return
         }
@@ -453,8 +453,7 @@ final class AppModel: ObservableObject {
 
     private func stagePlan(_ plan: DayPlan) {
         currentPlan = plan
-        loadSuggestions(plan)
-        plannedTimeline = DayPlanner.suggest(plan)
+        updatePlanPresentation(plan)
         pendingPlanWork?.cancel()
         if let persistedPlan, samePlanContent(plan, persistedPlan) {
             pendingPlan = nil
@@ -498,8 +497,10 @@ final class AppModel: ObservableObject {
         return true
     }
 
-    private func loadSuggestions(_ plan: DayPlan) {
-        suggestions = DayPlanner.suggest(plan).map {
+    private func updatePlanPresentation(_ plan: DayPlan) {
+        let blocks = DayPlanner.suggest(plan)
+        plannedTimeline = blocks
+        suggestions = blocks.map {
             SuggestedRow(kind: $0.kind.rawValue.capitalized, start: $0.start,
                          minutes: Int($0.end.timeIntervalSince($0.start) / 60), title: $0.title)
         }
@@ -833,7 +834,7 @@ final class AppModel: ObservableObject {
             focusLength = plan.focusMinutes
             breakLength = plan.breakMinutes
             meetings = plan.meetings.map { MeetingRow(id: $0.id, title: $0.title, start: $0.start, duration: Int($0.end.timeIntervalSince($0.start) / 60)) }
-            loadSuggestions(plan)
+            updatePlanPresentation(plan)
         }
         refreshSummary()
     }
@@ -842,13 +843,12 @@ final class AppModel: ObservableObject {
         guard let events = try? store?.allEvents() else { return }
         coins = RewardEngine.balance(events: events)
         unlockedItems = RewardEngine.unlockedItems(events: events)
-        let projection = DayProjection.project(events: events, on: now().wall)
+        let projection = DayProjection.project(events: events, on: now().wall, includeSuggestions: false)
         let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now().wall) ?? now().wall
-        let prior = DayProjection.project(events: events, on: yesterday)
+        let prior = DayProjection.project(events: events, on: yesterday, includeSuggestions: false)
         yesterdayTimeline = prior.actual.sorted { $0.start < $1.start }
         yesterdayFocusMinutes = Int(prior.focusSeconds / 60)
         yesterdayBreakMinutes = Int(prior.breakSeconds / 60)
-        plannedTimeline = todayPlan.map { DayPlanner.suggest($0) } ?? []
         actualTimeline = projection.actual.sorted { $0.start < $1.start }
         focusMinutesToday = Int(projection.focusSeconds / 60)
         breakMinutesToday = Int(projection.breakSeconds / 60)
