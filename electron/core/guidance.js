@@ -42,37 +42,24 @@ function scheduled(plan, blocks, now) {
   if (block.kind === 'break') return guidance('rest', 'Make room for a break', nextFocusDescription(blocks, ms(block.end)), proposedBreak(plan, blocks, now));
   return guidance('rest', 'Make room for a break', nextFocusDescription(blocks, ms(block.end)), proposedBreak(plan, blocks, now));
 }
-function fromActual(plan, blocks, actual, now) {
-  if (!plan || now < ms(plan.start) || now >= ms(plan.end) || blocks.some(item => item.kind === 'meeting' && ms(item.start) <= now && now < ms(item.end))) return null;
-  const latest = actual.filter(item => ['focus', 'break'].includes(item.kind) && ms(item.end) <= now && ms(item.end) >= ms(plan.start)).sort((a, b) => ms(b.end) - ms(a.end))[0];
-  if (!latest) return null;
-  const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.start) > now);
-  if (meeting && ms(meeting.start) - now < 720000) return null;
-  if (latest.kind === 'focus') {
-    const action = proposedBreak(plan, blocks, ms(latest.end));
-    if (!action || ms(action.until) - now < 60000) return null;
-    return guidance('rest', 'Rest after your focus session', `Your completed focus session ended at ${time(latest.end)}. Take a break until ${time(action.until)}.`, action);
-  }
-  const end = Math.min(ms(plan.end), ms(latest.end) + Math.max(1, plan.focusMinutes) * 60000, meeting ? ms(meeting.start) - 120000 : ms(plan.end));
-  if (end - now < 600000) return null;
-  return guidance('focus', 'Focus after your break', `Your completed break ended at ${time(latest.end)}. Focus until ${time(end)} to leave room for your next meeting or the end of your plan.`, { type: 'focus', until: iso(end) });
-}
 function todayGuidance(plan, blocks, actual, nowDate, timer) {
   const now = ms(nowDate);
   if (plan && !sameDay(plan.day, now)) plan = null;
   const schedule = scheduled(plan, blocks, now);
-  if (timer.phase === 'idle') return fromActual(plan, blocks, actual, now) || schedule;
+  if (timer.phase === 'idle') return schedule;
   const isFocus = timer.phase === 'focus';
   const title = timer.isSleeping ? (isFocus ? 'Focus is paused' : 'Your break is paused') : timer.isDue ? (isFocus ? 'Time for a real break' : "Welcome back, whenever you're ready") : (isFocus ? 'One thing at a time' : 'A little room to recharge');
   const remaining = Math.max(0, timer.targetSeconds - timer.elapsedSeconds) * 1000;
   const boundary = blocks.find(item => ms(item.end) > now);
   let context = schedule.detail;
-  if (isFocus && timer.isDue) context = "Your focus block is complete. Start a break, snooze, or skip when you're ready.";
+  const snoozedFocus = isFocus && timer.isDue && blocks.some(item => item.active && item.kind === 'focus' && ms(item.end) > now);
+  if (snoozedFocus) context = `Your break is moved to ${time(blocks.find(item => item.active && item.kind === 'focus' && ms(item.end) > now).end)}. Take it sooner whenever you're ready.`;
+  else if (isFocus && timer.isDue) context = "Your focus block is complete. Start a break, snooze, or skip when you're ready.";
   else if (plan && isFocus && now >= ms(plan.start) && now < ms(plan.end)) {
     const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.start) > now && ms(item.start) < now + remaining);
     if (meeting) context = `${meeting.title || 'Your meeting'} starts in ${minutes((ms(meeting.start) - now) / 1000)} minutes at ${time(meeting.start)}. Your focus timer will not stop automatically.`;
     else if (boundary) context = `${boundary.title || label[boundary.kind]} until ${time(boundary.end)}. Your running timer keeps the length you started.`;
   } else if (plan && !isFocus && now >= ms(plan.start) && now < ms(plan.end)) context = nextFocusDescription(blocks, now + remaining);
-  return guidance(isFocus ? 'runningFocus' : 'runningBreak', title, context, null, isFocus ? proposedBreak(plan, blocks, now) : null);
+  return guidance(isFocus ? 'runningFocus' : 'runningBreak', snoozedFocus ? 'Focus a little longer' : title, context, null, isFocus ? proposedBreak(plan, blocks, now) : null);
 }
 module.exports = { todayGuidance };

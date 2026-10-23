@@ -313,7 +313,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const plan = currentPlan, blocks = plannedBlocks;
     const forecastKey = `${committedCacheKey}:${latestPlanEventID}:${timer.state.phase}:${timer.state.sessionID}:${timer.state.isSleeping}:${timer.state.observedSegmentStartedAt}:${Math.floor(instant.wall.getTime() / 60000)}`;
     if (forecastKey !== forecastCacheKey) {
-      forecastCache = forecast(plan, actual, timer.state, instant.wall);
+      forecastCache = forecast(plan, actual, timer.state, instant.wall, events);
       forecastCacheKey = forecastKey;
     }
     const guide = todayGuidance(plan, forecastCache, actual, instant.wall, timer.state);
@@ -362,8 +362,20 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft); break;
       case 'end-focus': endFocus(); break;
       case 'start-break': start('break', Number(value?.targetSeconds || breakLength * 60)); break;
+      case 'start-long-break': start('break', Math.max(breakLength, 20) * 60); break;
       case 'finish-break': finishBreak(); break;
-      case 'snooze': case 'snooze-break': if (timer.state.phase === 'focus' && timer.state.isDue) { const instant = now(); append('breakSnoozed', sessionPayload(), { occurredAt: instant.wall }); timer.snooze(5, instant); message = 'Another reminder will arrive in five minutes.'; } break;
+      case 'snooze': case 'snooze-break': {
+        const instant = now();
+        if (timer.state.phase === 'focus' && timer.state.isDue) {
+          append('breakSnoozed', { ...sessionPayload(), minutes: 5 }, { occurredAt: instant.wall });
+          timer.snooze(5, instant);
+          message = 'Break moved five minutes later.';
+        } else if (timer.state.phase === 'idle' && status().guidance.situation === 'rest') {
+          append('breakSnoozed', { scope: 'forecast', minutes: 5 }, { occurredAt: instant.wall });
+          message = 'Break moved five minutes later.';
+        }
+        break;
+      }
       case 'skip-break': endFocus(true); break;
       case 'today-suggestion': {
         const proposed = status().guidance.action;
