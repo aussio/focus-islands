@@ -1,14 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+export COZY_FOCUS_INSTANCE="${COZY_FOCUS_INSTANCE:-ui-smoke}"
 trap '"$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || true' EXIT
-"$repo_root/scripts/run-dev.sh" --reset
+"$repo_root/scripts/run-dev.sh" --reset --hidden-window
 REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'
 import json
 import os
 import sqlite3
 import subprocess
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 root = Path(os.environ["REPO_ROOT"])
@@ -25,45 +27,77 @@ def status(action="status", value=None):
     assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"], (action, state["profile"], state["appActive"], state["dockIconActive"])
     return state
 
+def open_settings():
+    status("ui-click", "#profile-badge summary")
+    status("ui-click", "#profile-settings")
+    assert call("ui-read", ".page-head h1")["ui"]["value"] == "Settings"
+
 initial = status()
 assert initial["todaySituation"] == "noPlan"
 assert initial["defaultFocusLength"] == 60 and initial["defaultBreakLength"] == 10
+assert initial["defaultStartTime"] == "09:00" and initial["defaultEndTime"] == "17:00"
 assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
-status("ui-click", "#nav-settings")
+assert "Settings" not in call("ui-read", "#navigation")["ui"]["value"]
+assert "Use Testing" not in call("ui-read", "#profile-badge")["ui"]["value"]
+open_settings()
+assert call("ui-read", "#data-profile")["ui"]["value"] == "testing"
+assert call("ui-read", "#settings-start option:first-child")["ui"]["value"] == "07:00"
+assert call("ui-read", "#settings-start option:last-child")["ui"]["value"] == "20:45"
+assert call("ui-read", "#settings-end option:first-child")["ui"]["value"] == "07:15"
+assert call("ui-read", "#settings-end option:last-child")["ui"]["value"] == "21:00"
 status("ui-click", "#show-activity-meter")
 status("ui-click", "#nav-today")
 assert call("ui-read", ".activity-meter")["ui"]["found"]
-status("ui-click", "#nav-settings")
+open_settings()
 status("ui-click", "#show-activity-meter")
 status("ui-click", "#nav-today")
 assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
 status("ui-click", "#today-edit-plan")
 status("ui-click", "#nav-plan")
 assert call("ui-read", "#focus-length")["ui"]["value"] == "60"
-status("ui-fill", {"selector": "#day-start", "text": "09:00"})
-assert not status()["dayPlans"][initial["todayKey"]].get("baseline")
+assert call("ui-read", "#day-start option:first-child")["ui"]["value"] == "07:00"
+assert call("ui-read", "#day-start option:last-child")["ui"]["value"] == "20:45"
+assert call("ui-read", "#day-end option:first-child")["ui"]["value"] == "07:15"
+assert call("ui-read", "#day-end option:last-child")["ui"]["value"] == "21:00"
+status("ui-fill", {"selector": "#day-start", "text": "09:30"})
 status("ui-fill", {"selector": "#day-end", "text": "17:00"})
 time.sleep(0.9)
 planned = status()
 assert planned["plannedTimeline"]
 assert all(block["kind"] != "free" for block in planned["plannedTimeline"] + planned["forecastTimeline"])
+assert call("ui-read", "#suggested-day-calendar .hour-line:first-child span")["ui"]["value"].startswith("10:00")
+assert call("ui-read", "#suggested-day-calendar .hour-line:nth-child(8) span")["ui"]["value"].startswith("5:00")
 status("ui-click", {"selector": '[data-plan-day="tomorrow"]'})
-status("ui-fill", {"selector": "#day-start", "text": "09:00"})
+status("ui-fill", {"selector": "#day-start", "text": "09:15"})
 status("ui-fill", {"selector": "#day-end", "text": "17:00"})
 status("ui-fill", {"selector": "#focus-length", "text": "35"})
 time.sleep(0.9)
 tomorrow = status()
 assert tomorrow["dayPlans"][tomorrow["tomorrowKey"]]["current"]["focusMinutes"] == 35
 assert tomorrow["dayPlans"][tomorrow["todayKey"]]["baseline"]["focusMinutes"] == 60
+assert call("ui-read", "#suggested-day-calendar .hour-line:first-child span")["ui"]["value"].startswith("10:00")
 status("ui-click", {"selector": '[data-plan-day="today"]'})
 status("ui-click", "#open-meetings")
-dragged = status("ui-drag", {"selector": "#meeting-calendar .calendar-inner", "fromY": 90, "toY": 126})
+assert call("ui-read", "#meeting-calendar .hour-line:first-child span")["ui"]["value"].startswith("10:00")
+dragged_response = call("ui-drag", {"selector": "#meeting-calendar .calendar-inner", "fromY": 90, "toY": 126})
+assert dragged_response["ui"]["previewVisible"]
+dragged = dragged_response["status"]
+assert dragged["profile"] == "testing" and not dragged["appActive"]
 assert len(dragged["dayPlans"][dragged["todayKey"]]["current"]["meetings"]) == 0
 status("ui-click", "#close-meetings")
 time.sleep(0.9)
 meeting_plan = status()
 assert len(meeting_plan["dayPlans"][meeting_plan["todayKey"]]["current"]["meetings"]) == 1
 assert all(block["kind"] != "free" for block in meeting_plan["plannedTimeline"] + meeting_plan["forecastTimeline"])
+status("ui-click", "#open-meetings")
+resize = call("ui-drag", {"selector": "#meeting-calendar [data-meeting-id]", "fromY": 34, "toY": 52})
+assert resize["ui"]["previewVisible"] and not resize["status"]["appActive"]
+status("ui-click", "#close-meetings")
+time.sleep(0.9)
+resized = status()["dayPlans"][initial["todayKey"]]["current"]["meetings"]
+assert len(resized) == 1
+assert datetime.fromisoformat(resized[0]["end"].replace("Z", "+00:00")) - datetime.fromisoformat(resized[0]["start"].replace("Z", "+00:00")) == timedelta(minutes=45)
+meeting_slots = [(item["start"], item["end"]) for item in resized]
 status("save-reflection", "A pause helped yesterday.")
 status("navigate", "today")
 today_image = call("screenshot")
@@ -74,22 +108,32 @@ stability = call("input-stability")
 assert stability["ok"] and stability["preserved"] and stability["afterBlur"] and stability["saved"] and stability["status"]["phase"] == "focus" and not stability["status"]["appActive"]
 due = status("advance", 60)
 assert due["phase"] == "focus" and due["breakDue"]
+status("ui-click", "#nav-today")
+assert call("ui-read", "#snooze-minutes")["ui"]["value"] == "5"
+status("ui-fill", {"selector": "#snooze-minutes", "text": "15"})
+snoozed = status("ui-click", "#snooze-break")
+assert snoozed["phase"] == "focus" and not snoozed["breakDue"] and snoozed["timerTargetSeconds"] >= 75 * 60
+assert [(item["start"], item["end"]) for item in snoozed["forecastTimeline"] if item["kind"] == "meeting"] == meeting_slots
+status("advance", 15)
 status("start-break")
 status("advance", 10)
 finished = status("finish-break")
-assert finished["phase"] == "idle"
-assert finished["focusMinutesToday"] == 60 and finished["breakMinutesToday"] == 10
+assert finished["phase"] == "focus" and finished["timerTargetSeconds"] == finished["focusLength"] * 60
+assert finished["focusMinutesToday"] >= 75 and finished["breakMinutesToday"] == 10
+assert [(item["start"], item["end"]) for item in finished["forecastTimeline"] if item["kind"] == "meeting"] == meeting_slots
 status("ui-click", "#nav-room")
 room = status("ui-click", "#purchase-plant")
 assert "plant" in room["unlockedItems"]
-for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("room", "Your little room"), ("settings", "Make it yours")):
-    status("navigate", page)
+for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("room", "Room"), ("settings", "Settings")):
+    if page == "settings": open_settings()
+    else: status("ui-click", f"#nav-{page}")
+    assert heading in call("ui-read", ".page-head h1")["ui"]["value"]
     image = call("screenshot")
     assert image["renderedPage"] == heading, (page, image["renderedPage"])
     print(f"{page} screenshot:", image["screenshot"])
-subprocess.run([str(root / "scripts/run-dev.sh")], check=True, capture_output=True, text=True)
+subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
 restored = status()
-assert restored["focusMinutesToday"] == 60 and restored["breakMinutesToday"] == 10
+assert restored["focusMinutesToday"] == finished["focusMinutesToday"] and restored["breakMinutesToday"] == 10
 assert restored["savedReflection"] == "A pause helped yesterday."
 assert "plant" in restored["unlockedItems"]
 assert restored["dayPlans"][restored["todayKey"]]["current"]["meetings"]

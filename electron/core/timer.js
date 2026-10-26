@@ -14,7 +14,7 @@ class Timer {
     this.nextNudgeAt = null;
     this.sleepBeganAt = null;
   }
-  get remainingSeconds() { return Math.max(0, this.state.targetSeconds - this.state.elapsedSeconds); }
+  get remainingSeconds() { return this.state.targetSeconds - this.state.elapsedSeconds; }
   clone() {
     const copy = new Timer(this.nudgeInterval);
     copy.state = { ...this.state };
@@ -51,11 +51,16 @@ class Timer {
     return [];
   }
   snooze(minutes, instant) {
-    if (this.state.phase === 'focus' && this.state.isDue) this.nextNudgeAt = instant.monotonicSeconds + Math.max(1, minutes) * 60;
+    if (this.state.phase === 'focus' && this.state.isDue) {
+      this.advance(instant);
+      this.state.targetSeconds = this.state.elapsedSeconds + Math.max(1, minutes) * 60;
+      this.state.isDue = false;
+      this.nextNudgeAt = null;
+    }
   }
   end(instant) {
     this.advance(instant);
-    const elapsed = this.state.phase === 'focus' ? Math.min(this.state.elapsedSeconds, this.state.targetSeconds) : this.state.elapsedSeconds;
+    const elapsed = this.state.elapsedSeconds;
     this.state = emptyState();
     this.lastTick = this.nextNudgeAt = this.sleepBeganAt = null;
     return elapsed;
@@ -78,9 +83,12 @@ class Timer {
     this.state.isSleeping = false;
     this.state.observedSegmentStartedAt = instant.wall.toISOString();
     this.lastTick = instant.monotonicSeconds;
-    if (this.state.phase === 'break' && !this.state.isDue) {
-      this.state.elapsedSeconds += Math.min(slept, this.remainingSeconds);
-      if (this.state.elapsedSeconds >= this.state.targetSeconds) { this.state.isDue = true; return ['breakComplete']; }
+    if (this.state.phase === 'break') {
+      this.state.elapsedSeconds += slept;
+      if (this.state.elapsedSeconds >= this.state.targetSeconds && !this.state.isDue) {
+        this.state.isDue = true;
+        return ['breakComplete'];
+      }
     }
     return [];
   }
@@ -102,8 +110,9 @@ class Timer {
           startedAt: event.occurredAt, targetSeconds: payload.targetSeconds, observedElapsedSeconds: 0, lastObservedAt: event.occurredAt };
       } else if (active && ['focusPaused', 'focusResumed', 'breakProgress'].includes(event.kind) && payload?.sessionID === active.sessionID) {
         active.observedElapsedSeconds = payload.elapsedSeconds ?? active.observedElapsedSeconds;
+        active.targetSeconds = payload.targetSeconds ?? active.targetSeconds;
         active.lastObservedAt = event.occurredAt;
-      } else if (active && ['focusEnded', 'breakEnded', 'breakSkipped'].includes(event.kind) && payload?.sessionID === active.sessionID) {
+      } else if (active && ['focusEnded', 'breakEnded'].includes(event.kind) && payload?.sessionID === active.sessionID) {
         active = null;
       }
     }

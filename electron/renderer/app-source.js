@@ -3,13 +3,14 @@ import { appStore } from './state.js';
 
 const pages = [
   ['today', '◉', 'Today'], ['plan', '▦', 'Plan'], ['history', '◷', 'History'],
-  ['room', '⌂', 'Room'], ['settings', '⚙', 'Settings']
+  ['room', '⌂', 'Room']
 ];
 const state = () => appStore.getState();
-const draftFields = new Set(['settings-focus', 'settings-break', 'notifications', 'reflection-input', 'meeting-name']);
+const draftFields = new Set(['settings-focus', 'settings-break', 'settings-start', 'settings-end', 'notifications', 'reflection-input', 'meeting-name']);
 const planFields = new Set(['day-start', 'day-end', 'focus-length', 'break-length']);
 const planDraftTimers = new Map();
 let planSaveInFlight = false;
+let timeDrag = null;
 const activityMeterSetting = 'cozy-focus-show-activity-meter';
 const showActivityMeter = () => localStorage.getItem(activityMeterSetting) === 'true';
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -18,8 +19,20 @@ const mins = (start, end) => Math.max(0, Math.round((date(end) - date(start)) / 
 const clock = value => date(value).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const shortDate = value => date(value).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 const timeInput = value => { const d = date(value); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+const timeChoices = (selected, firstSlot, lastSlot) => {
+  const values = Array.from({ length: lastSlot - firstSlot + 1 }, (_, index) => {
+    const slot = firstSlot + index;
+    return `${String(Math.floor(slot / 4)).padStart(2, '0')}:${String(slot % 4 * 15).padStart(2, '0')}`;
+  });
+  const savedOutsideRange = selected && !values.includes(selected);
+  if (savedOutsideRange) values.push(selected);
+  values.sort();
+  return values.map(value => `<option value="${html(value)}" ${value === selected ? 'selected' : ''} ${savedOutsideRange && value === selected ? 'disabled' : ''}>${html(clock(withTime(new Date(), value)))}${savedOutsideRange && value === selected ? ' (saved)' : ''}</option>`).join('');
+};
+const startChoices = selected => timeChoices(selected, 28, 83);
+const finishChoices = selected => timeChoices(selected, 29, 84);
 const withTime = (base, value) => { const d = date(base); const [hour, minute] = value.split(':').map(Number); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
-const countdown = seconds => { if (typeof seconds === 'string' && /^\d+:\d{2}$/.test(seconds)) return seconds; const n = Math.max(0, Math.ceil(Number(seconds) || 0)); return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
+const countdown = seconds => { if (typeof seconds === 'string' && /^-?\d+:\d{2}$/.test(seconds)) return seconds; const value = Number(seconds) || 0; const n = Math.ceil(Math.abs(value)); return `${value < 0 ? '-' : ''}${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
 const itemKind = item => String(item.kind ?? '').toLowerCase();
 const actionButton = (label, action, value, primary = false, id = '') => `<button class="button ${primary ? 'primary' : ''}" data-action="${html(action)}" ${value === undefined ? '' : `data-value="${html(typeof value === 'string' ? value : JSON.stringify(value))}"`} ${id ? `id="${html(id)}"` : ''}>${html(label)}</button>`;
 const card = inner => `<section class="card">${inner}</section>`;
@@ -55,6 +68,44 @@ function acceptStatus(next, previous) {
     if (timer) timer.textContent = countdown(status.countdown ?? status.displaySeconds);
   } else render();
   updatePresenceDisplay();
+  updateDayPathTime(status);
+}
+function updateDayPathTime(status, previewSeconds) {
+  const track = document.querySelector('.path-track');
+  if (!track) return;
+  const slider = document.getElementById('dev-time-slider');
+  if (slider?.dataset.scrubbing === 'true' && previewSeconds === undefined) return;
+  const start = Number(track.dataset.start), end = Number(track.dataset.end);
+  const current = Number(status.currentWallTime) * 1000;
+  const shown = previewSeconds === undefined ? current : previewSeconds * 1000;
+  const percent = Math.max(0, Math.min(100, (shown - start) / Math.max(1, end - start) * 100));
+  track.querySelector('.path-progress').style.width = `${percent}%`;
+  track.querySelector('.path-marker').style.left = `${percent}%`;
+  track.setAttribute('aria-label', `Day progress: ${Math.round(percent)} percent. ${shown < start ? 'Before start' : shown >= end ? 'Plan ended' : 'Current time'}.`);
+  const label = shown < start ? 'Before start' : shown >= end ? 'Plan ended' : previewSeconds === undefined ? 'Current time' : 'Simulated time';
+  const display = new Date(shown).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...(status.developmentMode ? { second: '2-digit' } : {}) });
+  document.getElementById('path-current-time').textContent = `${label} · ${display}`;
+  if (slider && previewSeconds === undefined) {
+    slider.value = String(Math.min(end, Math.max(start, start + Math.ceil((current - start) / 30000) * 30000)) / 1000);
+  }
+}
+function commitTimeSlider(slider) {
+  slider.dataset.scrubbing = 'false';
+  const seconds = Number(slider.value) - Number(state().status.currentWallTime);
+  if (state().status.developmentMode && seconds > 0) dispatch('dev-advance', { minutes: seconds / 60 });
+  else updateDayPathTime(state().status);
+}
+function previewTimeDrag(clientX) {
+  if (!timeDrag) return;
+  const { track, slider } = timeDrag;
+  const rect = track.getBoundingClientRect();
+  const start = Number(slider.min), end = Number(slider.max);
+  const fraction = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const selected = start + Math.round((end - start) * fraction / 30) * 30;
+  const current = Math.min(end, start + Math.ceil((Number(state().status.currentWallTime) - start) / 30) * 30);
+  slider.value = String(Math.min(end, Math.max(current, selected)));
+  slider.dataset.scrubbing = 'true';
+  updateDayPathTime(state().status, Number(slider.value));
 }
 function presenceEmoji() {
   return '<div class="presence-emoji" role="img" aria-label="Happy: recent computer activity">😊</div>';
@@ -86,7 +137,16 @@ function updatePresenceDisplay() {
 }
 function navigation() {
   const s = state().status;
-  document.getElementById('profile-badge').innerHTML = `◉ ${html((s.profile || 'personal').replace(/^./, c => c.toUpperCase()))} profile${s.canSwitchProfiles && s.profile === 'personal' && s.phase === 'idle' ? '<br><button data-action="switch-profile" data-value="testing" id="switch-to-testing">Use Testing</button>' : ''}`;
+  const profileKey = s.profile || 'personal';
+  const profile = html(profileKey.replace(/^./, c => c.toUpperCase()));
+  const badge = document.getElementById('profile-badge');
+  if (badge.dataset.profile !== profileKey) {
+    badge.innerHTML = `<details class="profile-menu"><summary><span>◉ ${profile} profile</span><span class="profile-chevron" aria-hidden="true">⌄</span></summary><div class="profile-dropdown"><button data-page="settings" id="profile-settings">⚙ Settings</button></div></details>`;
+    badge.dataset.profile = profileKey;
+  }
+  const settingsButton = document.getElementById('profile-settings');
+  if (state().page === 'settings') settingsButton.setAttribute('aria-current', 'page');
+  else settingsButton.removeAttribute('aria-current');
   document.getElementById('navigation').innerHTML = pages.map(([key, icon, name]) => `<button class="nav-button ${state().page === key ? 'active' : ''}" data-page="${key}" id="nav-${key}" ${state().page === key ? 'aria-current="page"' : ''}><span class="nav-icon">${icon}</span>${name}</button>`).join('');
 }
 function guidance() {
@@ -98,27 +158,33 @@ function guidance() {
 }
 function todayActions(g) {
   const s = state().status;
-  const longerBreak = actionButton(`Longer break · ${Math.max(s.breakLength || 10, 20)}m`, 'start-long-break');
-  if (s.phase === 'focus') return `${actionButton('Take a break', g.breakAction ? 'today-break' : 'start-break', undefined, true, 'start-break')} ${longerBreak} ${s.breakDue ? `${actionButton('Snooze 5m', 'snooze-break', undefined, false, 'snooze-break')} ${actionButton('Skip', 'skip-break', undefined, false, 'skip-break')}` : actionButton('End focus', 'end-focus', undefined, false, 'end-focus')}`;
+  const snooze = `<div class="snooze-control"><label for="snooze-minutes">Snooze <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="Snooze minutes">${actionButton(s.phase === 'idle' ? 'Snooze & focus' : 'Snooze', 'snooze-break', undefined, false, 'snooze-break')}</div>`;
+  if (g.situation === 'working') return actionButton('Take a break', 'start-break', undefined, true, 'start-break');
+  if (s.phase === 'focus') return `${actionButton('Take a break', 'start-break', undefined, true, 'start-break')} ${s.breakDue ? `${snooze} ${actionButton('Skip', 'skip-break', undefined, false, 'skip-break')}` : ''}`;
   if (s.phase === 'rest' || s.phase === 'break') return actionButton('Finish break', 'finish-break', undefined, true, 'finish-break');
   if (g.situation === 'noPlan') return `${actionButton('Start focus', 'start-focus', undefined, true, 'start-focus')} <button class="button" data-page="plan" id="today-edit-plan">Create a plan</button>`;
   if (g.action?.type === 'editPlan' || g.action === 'editPlan' || g.action === 'edit-plan') return `<button class="button primary" data-page="plan" id="today-edit-plan">Edit plan</button>`;
-  if (g.action?.type === 'rest' || g.action === 'rest' || g.action === 'break') return `${actionButton('Start break', 'today-suggestion', undefined, true, 'start-break')} ${actionButton('Snooze 5m', 'snooze-break')} ${longerBreak}`;
-  if (!g.action && ['meeting', 'meetingSoon'].includes(g.situation)) return '<button class="button" data-page="plan">View plan</button>';
-  return `${actionButton('Start focus', g.action ? 'today-suggestion' : 'start-focus', undefined, true, 'start-focus')} ${longerBreak}`;
+  if (g.situation === 'rest' || g.action?.type === 'rest' || g.action === 'rest' || g.action === 'break') return `${actionButton('Start break', 'start-break', undefined, true, 'start-break')} ${snooze}`;
+  return actionButton('Start focus', g.action ? 'today-suggestion' : 'start-focus', undefined, true, 'start-focus');
 }
 function timelineRows(items, actual = false) {
   return items.map(item => `<div class="timeline-row"><time>${clock(item.start)}</time><span class="title">${html(actual ? item.kind === 'away' ? 'Away' : item.kind === 'break' ? item.confirmed ? 'Confirmed break' : 'Break' : 'Focus' : item.title || item.kind)}</span><span class="length">${mins(item.start, item.end)}m</span></div>`).join('');
 }
 function today() {
   const s = state().status, g = guidance();
-  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div><div class="today-acorns" aria-label="${html(s.balance ?? 0)} acorns available"><span>✦</span> ${html(s.balance ?? 0)} <small>acorns</small></div></header><section class="today-stage"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}</div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.focusMinutesToday || 0)}</b> min focused</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div><div class="today-acorns" aria-label="${html(s.balance ?? 0)} acorns available"><span>✦</span> ${html(s.balance ?? 0)} <small>acorns</small></div></header><section class="today-stage"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' || g.situation === 'working' ? `<div class="timer" id="timer-countdown">${countdown(s.countdown ?? s.displaySeconds)}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}</div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.workingMinutesToday || 0)}</b> min working</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
   const duration = Math.max(15, Math.round((end - start) / 60000));
   const height = duration * 1.2;
-  const lines = Array.from({ length: Math.ceil(duration / 60) + 1 }, (_, i) => `<div class="hour-line" style="top:${i * 72}px"><span>${clock(start.getTime() + i * 3600000)}</span></div>`).join('');
+  const firstHour = new Date(start);
+  firstHour.setMinutes(0, 0, 0);
+  if (firstHour < start) firstHour.setHours(firstHour.getHours() + 1);
+  const lines = [];
+  for (const hour = firstHour; hour <= end; hour.setHours(hour.getHours() + 1)) {
+    lines.push(`<div class="hour-line" style="top:${(hour - start) / 60000 * 1.2}px"><span>${clock(hour)}</span></div>`);
+  }
   const blocks = items.map(item => {
     const top = Math.max(0, Math.round((date(item.start) - start) / 60000));
     const length = Number(item.minutes ?? item.duration ?? mins(item.start, item.end));
@@ -128,7 +194,7 @@ function calendar(items, dayStart, dayEnd, meetingMode = false) {
     const selected = meetingMode && state().selectedMeeting === item.id;
     return `<div class="calendar-block ${html(kind)} ${selected ? 'selected' : ''}" style="top:${top * 1.2}px;height:${clipped * 1.2}px" ${meetingMode ? `data-meeting-id="${html(item.id)}"` : ''} title="${html(item.title || item.kind)} at ${clock(item.start)}"><span>${html(item.title || item.kind)}</span><span>${clipped}m</span></div>`;
   }).join('');
-  return `<div class="calendar ${meetingMode ? 'meeting-calendar' : ''}" ${meetingMode ? 'id="meeting-calendar"' : 'id="suggested-day-calendar"'}><div class="calendar-inner" style="height:${height + 4}px" data-day-start="${html(start.toISOString())}" data-day-minutes="${duration}">${lines}${blocks}</div></div>`;
+  return `<div class="calendar ${meetingMode ? 'meeting-calendar' : ''}" ${meetingMode ? 'id="meeting-calendar"' : 'id="suggested-day-calendar"'}><div class="calendar-inner" style="height:${height + 4}px" data-day-start="${html(start.toISOString())}" data-day-minutes="${duration}">${lines.join('')}${blocks}</div></div>`;
 }
 function selectedPlan() {
   const s = state().status;
@@ -136,8 +202,10 @@ function selectedPlan() {
   const record = s.dayPlans?.[key] || {};
   const [year, month, day] = key.split('-').map(Number);
   const date = new Date(year, month - 1, day);
-  const defaults = { dayKey: key, start: new Date(year, month - 1, day, 9).toISOString(),
-    end: new Date(year, month - 1, day, 17).toISOString(), meetings: [],
+  const [startHour, startMinute] = (s.defaultStartTime || '09:00').split(':').map(Number);
+  const [endHour, endMinute] = (s.defaultEndTime || '17:00').split(':').map(Number);
+  const defaults = { dayKey: key, start: new Date(year, month - 1, day, startHour, startMinute).toISOString(),
+    end: new Date(year, month - 1, day, endHour, endMinute).toISOString(), meetings: [],
     focusMinutes: s.defaultFocusLength || 60, breakMinutes: s.defaultBreakLength || 10 };
   const plan = state().planDrafts[key] || record.current || defaults;
   const ended = state().planDay === 'today' && record.current &&
@@ -157,9 +225,9 @@ function plan() {
   const dayButtons = `<div class="actions"><button class="button ${state().planDay === 'today' ? 'primary' : ''}" data-plan-day="today">Today</button><button class="button ${state().planDay === 'tomorrow' ? 'primary' : ''}" data-plan-day="tomorrow">Tomorrow</button></div>`;
   const planSaving = state().pendingPlanKey === view.key;
   const planFeedback = `<p class="calculation-status ${state().error ? 'error' : ''}" id="plan-save-status" role="status">${planSaving ? '<span class="spinner" aria-hidden="true"></span>Saving…' : state().error ? html(state().error) : view.record.baseline ? 'Saved' : ''}</p>`;
-  const startValue = view.record.baseline ? timeInput(view.plan.start) : view.bounds.start || '';
-  const endValue = view.record.baseline ? timeInput(view.plan.end) : view.bounds.end || '';
-  const bounds = card(`${section('Plan settings')}<div class="inline-fields"><label class="field"><span>Start</span><input type="time" id="day-start" value="${html(startValue)}"></label><label class="field"><span>Finish</span><input type="time" id="day-end" value="${html(endValue)}"></label><label class="field"><span>Focus · min</span><input type="number" id="focus-length" min="5" max="120" step="5" value="${view.plan.focusMinutes}"></label><label class="field"><span>Break · min</span><input type="number" id="break-length" min="5" max="60" step="5" value="${view.plan.breakMinutes}"></label></div>${planFeedback}`);
+  const startValue = view.bounds.start || timeInput(view.plan.start);
+  const endValue = view.bounds.end || timeInput(view.plan.end);
+  const bounds = card(`${section('Plan settings')}<div class="inline-fields"><label class="field"><span>Start</span><select id="day-start">${startChoices(startValue)}</select></label><label class="field"><span>Finish</span><select id="day-end">${finishChoices(endValue)}</select></label><label class="field"><span>Focus · min</span><input type="number" id="focus-length" min="5" max="120" step="5" value="${view.plan.focusMinutes}"></label><label class="field"><span>Break · min</span><input type="number" id="break-length" min="5" max="60" step="5" value="${view.plan.breakMinutes}"></label></div>${planFeedback}`);
   const meetingCard = `<button class="card meeting-link" id="open-meetings" style="display:block;width:100%;text-align:left;border-color:rgba(64,74,59,.07);color:inherit;cursor:pointer">${section('Meetings')}${meetings}<span class="green" style="font-size:11px">Open day calendar ↗</span></button>`;
   const hasDraft = Boolean(state().planDrafts[view.key]);
   const timelineTitle = state().planDay === 'tomorrow' ? 'Suggested timeline' : view.ended ? 'Saved plan' : 'Live forecast';
@@ -182,7 +250,7 @@ function debugSettings() {
 }
 function settings() {
   const s = state().status, preview = s.rebalancePreview;
-  return `${header('Settings', 'Set focus and break defaults.')}${card(`${section('Focus & breaks')}<div class="inline-fields"><label class="field"><span>Default focus · minutes</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Default break · minutes</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Notifications</label>${actionButton('Save preferences', 'save-preferences', undefined, true)}`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
+  return `${header('Settings', 'Set your usual day and break rhythm.')}${card(`${section('Plan defaults')}<div class="inline-fields"><label class="field"><span>Start</span><select id="settings-start">${startChoices(s.defaultStartTime || '09:00')}</select></label><label class="field"><span>Finish</span><select id="settings-end">${finishChoices(s.defaultEndTime || '17:00')}</select></label><label class="field"><span>Focus · min</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Break · min</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><p class="small-note">Used for new days. Your saved plans keep their times.</p><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Notifications</label>${actionButton('Save defaults', 'save-preferences', undefined, true)}`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
 }
 function meetingDialog() {
   const view = selectedPlan(), meetings = view.plan.meetings || [], meeting = meetings.find(x => x.id === state().selectedMeeting);
@@ -301,7 +369,9 @@ async function commitPlan(key) {
   }
 }
 function savePreferences() {
-  const value = { focusLength: Number(document.getElementById('settings-focus').value), breakLength: Number(document.getElementById('settings-break').value), notificationsEnabled: document.getElementById('notifications').checked };
+  const value = { focusLength: Number(document.getElementById('settings-focus').value), breakLength: Number(document.getElementById('settings-break').value),
+    startTime: document.getElementById('settings-start').value, endTime: document.getElementById('settings-end').value,
+    notificationsEnabled: document.getElementById('notifications').checked };
   state().clearDirty();
   state().deferRender(false);
   dispatch('save-preferences', value);
@@ -345,12 +415,9 @@ function meetingGeometry(event) {
   const slot = Math.max(0, Math.min(slotCount, Math.floor((event.clientY - rect.top) / 18)));
   return { inner, rect, slot, slotCount, start: date(inner.dataset.dayStart) };
 }
-function meetingDrop(event) {
-  const drag = state().drag;
-  state().setUI({ drag: null });
-  if (!drag) return;
+function meetingSlots(drag, event) {
   const geo = meetingGeometry(event);
-  if (!geo) return;
+  if (!geo) return null;
   const targetSlot = Math.max(0, Math.min(geo.slotCount, Math.round((event.clientY - geo.rect.top) / 18)));
   let first, last;
   if (drag.meeting) {
@@ -360,22 +427,45 @@ function meetingDrop(event) {
     if (drag.mode === 'resize-top') { first = Math.max(0, Math.min(originalStart + delta, originalStart + length - 1)); last = originalStart + length; }
     else if (drag.mode === 'resize-bottom') { first = originalStart; last = Math.max(first + 1, Math.min(geo.slotCount, originalStart + length + delta)); }
     else { first = Math.max(0, Math.min(geo.slotCount - length, originalStart + delta)); last = first + length; }
-    if (first === originalStart && last === originalStart + length) { selectMeeting(drag.meeting.id); return; }
   } else {
     first = Math.min(drag.slot, targetSlot);
     last = Math.max(drag.slot + 1, targetSlot);
     first = Math.max(0, Math.min(first, geo.slotCount - 1));
     last = Math.max(first + 1, Math.min(last, geo.slotCount));
   }
+  return { geo, first, last };
+}
+function previewMeeting(event) {
+  const drag = state().drag;
+  if (!drag) return;
+  const slots = meetingSlots(drag, event);
+  if (!slots) return;
+  const preview = slots.geo.inner.querySelector('.meeting-drag-preview');
+  if (!preview) return;
+  preview.style.top = `${slots.first * 18}px`;
+  preview.style.height = `${(slots.last - slots.first) * 18}px`;
+  preview.innerHTML = `<span>${html(drag.meeting?.title || 'New meeting')}</span><span>${(slots.last - slots.first) * 15}m</span>`;
+}
+function meetingDrop(event) {
+  const drag = state().drag;
+  state().setUI({ drag: null });
+  if (!drag) return;
+  const slots = meetingSlots(drag, event);
+  if (!slots) return;
+  const { geo, first, last } = slots;
+  if (drag.meeting && first === Math.round((date(drag.meeting.start) - geo.start) / 900000) &&
+    last === Math.round((date(drag.meeting.end) - geo.start) / 900000)) { selectMeeting(drag.meeting.id); return; }
   const start = new Date(geo.start.getTime() + first * 900000).toISOString();
   const end = new Date(geo.start.getTime() + last * 900000).toISOString();
   upsertMeeting({ id: drag.meeting?.id, title: drag.meeting?.title || 'Meeting', start, end });
 }
 document.addEventListener('click', event => {
+  const profileMenu = document.querySelector('.profile-menu[open]');
+  if (profileMenu && !event.target.closest('.profile-menu')) profileMenu.open = false;
   const planDay = event.target.closest('[data-plan-day]');
   if (planDay) { flushPlanDraft(); state().selectPlanDay(planDay.dataset.planDay); render(); return; }
   const pageButton = event.target.closest('[data-page]');
-  if (pageButton) { flushPlanDraft(); state().setPage(pageButton.dataset.page); dispatch('navigate', state().page); render(); return; }
+  if (pageButton) { if (profileMenu) profileMenu.open = false; flushPlanDraft(); state().setPage(pageButton.dataset.page); dispatch('navigate', state().page); render(); return; }
   if (event.target.closest('#open-meetings')) { state().setUI({ meetingEditor: true }); meetingDialog(); return; }
   if (event.target.closest('#close-meetings') || event.target.id === 'modal-backdrop') { closeMeetings(); return; }
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
@@ -386,6 +476,12 @@ document.addEventListener('click', event => {
   if (name === 'cancel-reflection-edit') { state().setUI({ reflectionDraft: null }); render(); return; }
   if (name === 'save-reflection') { const value = document.getElementById('reflection-input')?.value.trim(); if (value) { state().setUI({ reflectionDraft: null }); state().clearDirty('reflection-input'); state().deferRender(false); dispatch(name, value); } return; }
   if (name === 'save-preferences') { savePreferences(); return; }
+  if (name === 'dev-timer-end') {
+    const remaining = state().status.timer?.remainingSeconds;
+    if (state().status.developmentMode && state().status.phase !== 'idle' && remaining > 0) dispatch('dev-advance', { minutes: (remaining + 1) / 60 });
+    return;
+  }
+  if (name === 'snooze-break') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
   if (name === 'start-focus' && !state().status.dayPlans?.[state().status.todayKey]?.baseline) {
     dispatch(name, { planDraft: state().planDrafts[state().status.todayKey] }); return;
   }
@@ -394,6 +490,10 @@ document.addEventListener('click', event => {
   dispatch(name, value);
 });
 document.addEventListener('change', event => {
+  if (event.target.id === 'dev-time-slider') {
+    commitTimeSlider(event.target);
+    return;
+  }
   if (event.target.id === 'show-activity-meter') localStorage.setItem(activityMeterSetting, String(event.target.checked));
   if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'data-profile') dispatch('switch-profile', event.target.value);
@@ -404,6 +504,22 @@ document.addEventListener('change', event => {
   if (event.target.id === 'meeting-name') saveMeetingName();
 });
 document.addEventListener('input', event => {
+  if (event.target.id === 'dev-time-slider') {
+    const slider = event.target;
+    const current = Number(state().status.currentWallTime);
+    if (Number(slider.value) < current) {
+      const start = Number(slider.min);
+      slider.value = String(Math.min(Number(slider.max), start + Math.ceil((current - start) / 30) * 30));
+    }
+    slider.dataset.scrubbing = 'true';
+    updateDayPathTime(state().status, Number(slider.value));
+    return;
+  }
+  if (event.target.id === 'snooze-minutes') {
+    state().setUI({ snoozeMinutes: Number(event.target.value) });
+    document.getElementById('snooze-value').textContent = `${event.target.value}m`;
+    return;
+  }
   if (event.target.id) state().markDirty(event.target.id);
   if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'reflection-input') state().setUI({ reflectionDraft: event.target.value });
@@ -411,6 +527,7 @@ document.addEventListener('input', event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && state().meetingEditor) closeMeetings();
+  if (event.key === 'Escape') document.querySelector('.profile-menu[open]')?.removeAttribute('open');
   if (event.key === 'Enter' && event.target.id === 'reflection-input') { event.preventDefault(); document.getElementById('save-reflection')?.click(); }
 });
 document.addEventListener('contextmenu', event => {
@@ -421,6 +538,14 @@ document.addEventListener('contextmenu', event => {
   if (confirm('Delete this meeting?')) { removeMeeting(block.dataset.meetingId); state().setUI({ selectedMeeting: null }); }
 });
 document.addEventListener('pointerdown', event => {
+  const timeTrack = event.target.closest('.path-track[data-time-scrub]');
+  if (timeTrack && event.button === 0) {
+    timeDrag = { track: timeTrack, slider: timeTrack.querySelector('#dev-time-slider') };
+    event.preventDefault();
+    previewTimeDrag(event.clientX);
+    try { timeTrack.setPointerCapture(event.pointerId); } catch { /* Synthetic test pointers cannot be captured. */ }
+    return;
+  }
   if (!state().meetingEditor || !event.target.closest('#meeting-calendar .calendar-inner')) return;
   if (event.button !== 0) return;
   const geo = meetingGeometry(event);
@@ -433,8 +558,30 @@ document.addEventListener('pointerdown', event => {
     else if (bounds.bottom - event.clientY <= 11) mode = 'resize-bottom';
   }
   state().setUI({ drag: { y: event.clientY, slot: geo.slot, meeting, mode } });
+  const preview = document.createElement('div');
+  preview.className = 'meeting-drag-preview';
+  geo.inner.append(preview);
+  previewMeeting(event);
 });
-document.addEventListener('pointerup', event => { if (state().drag) meetingDrop(event); });
+document.addEventListener('pointermove', event => {
+  if (timeDrag) previewTimeDrag(event.clientX);
+  if (state().drag) previewMeeting(event);
+});
+document.addEventListener('pointerup', event => {
+  if (timeDrag) {
+    previewTimeDrag(event.clientX);
+    const { slider } = timeDrag;
+    timeDrag = null;
+    commitTimeSlider(slider);
+  }
+  if (state().drag) meetingDrop(event);
+});
+document.addEventListener('pointercancel', () => {
+  if (!timeDrag) return;
+  timeDrag.slider.dataset.scrubbing = 'false';
+  timeDrag = null;
+  updateDayPathTime(state().status);
+});
 appStore.subscribe(acceptStatus);
 window.cozy.onStatus(snapshot => state().receive(snapshot));
 state().refresh();

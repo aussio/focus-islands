@@ -9,11 +9,7 @@ function proposedBreak(plan, blocks, now) {
   const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.start) > now);
   let end = Math.min(ms(plan.end), now + Math.max(1, plan.breakMinutes) * 60000);
   if (block?.kind === 'break') end = Math.min(end, ms(block.end));
-  if (meeting) {
-    const readyAt = ms(meeting.start) - 120000;
-    if (readyAt - end <= 300000) end = readyAt;
-    end = Math.min(end, readyAt);
-  }
+  if (meeting && ms(meeting.start) < end) return null;
   return end - now >= 60000 ? { type: 'rest', until: iso(end) } : null;
 }
 function nextFocusDescription(blocks, date) {
@@ -28,12 +24,9 @@ function scheduled(plan, blocks, now) {
   if (now < ms(plan.start)) return guidance('beforeDay', `Your day starts at ${time(plan.start)}`, 'Your schedule is ready. Start when your day begins, or adjust your plan.', { type: 'editPlan' });
   if (now >= ms(plan.end)) return guidance('afterDay', "You've reached the end of your plan", 'Adjust your finish time to extend today’s plan.', { type: 'editPlan' });
   const block = blocks.find(item => ms(item.start) <= now && now < ms(item.end));
-  const meeting = blocks.find(item => item.kind === 'meeting' && ms(item.end) > now);
-  if (block?.kind === 'meeting') return guidance('meeting', block.title || 'Meeting time', `You're in a meeting until ${time(block.end)}. Your next suggestion will be here when it ends.`);
-  if (meeting && ms(meeting.start) - now < 720000) return guidance('meetingSoon', `${meeting.title || 'Your meeting'} starts soon`, `${minutes((ms(meeting.start) - now) / 1000)} minutes until ${time(meeting.start)}. Leave two minutes to get ready.`, proposedBreak(plan, blocks, now));
+  if (block?.kind === 'meeting') return guidance('working', block.title || 'Working', `Meeting until ${time(block.end)}.`, { type: 'working', until: block.end });
   if (!block) return guidance('pause', 'No activity scheduled now', 'Check your plan for what comes next.', { type: 'editPlan' });
-  const focusEnd = Math.min(ms(block.end), now + plan.focusMinutes * 60000,
-    meeting ? ms(meeting.start) - 120000 : ms(plan.end));
+  const focusEnd = Math.min(ms(block.end), now + plan.focusMinutes * 60000, ms(plan.end));
   if (block.kind === 'focus' && focusEnd - now >= 60000) {
     const next = blocks.find(item => ms(item.start) >= ms(block.end));
     const detail = next ? `${label[next.kind]} at ${time(next.start)}. This focus session fits the time left in your plan.` : `Your planned day ends at ${time(plan.end)}. This session fits the time you have left.`;
@@ -48,6 +41,7 @@ function todayGuidance(plan, blocks, actual, nowDate, timer) {
   const schedule = scheduled(plan, blocks, now);
   if (timer.phase === 'idle') return schedule;
   const isFocus = timer.phase === 'focus';
+  if (isFocus && timer.isDue && schedule.situation === 'working') return schedule;
   const title = timer.isSleeping ? (isFocus ? 'Focus is paused' : 'Your break is paused') : timer.isDue ? (isFocus ? 'Time for a real break' : 'Break complete') : (isFocus ? 'Focus in progress' : 'Break in progress');
   const remaining = Math.max(0, timer.targetSeconds - timer.elapsedSeconds) * 1000;
   const boundary = blocks.find(item => ms(item.end) > now);

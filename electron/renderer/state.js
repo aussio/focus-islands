@@ -7,6 +7,7 @@ export const appStore = createStore((set, get) => ({
   meetingEditor: false,
   selectedMeeting: null,
   meetingDraft: '',
+  snoozeMinutes: 5,
   reflectionDraft: null,
   rewardDraft: null,
   planDrafts: {},

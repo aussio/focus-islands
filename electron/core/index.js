@@ -15,10 +15,14 @@ const shopItems = Object.freeze([
 ]);
 const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'reflection', 'itemPurchased', 'itemUnlocked']);
 const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', reflection: 'Reflection saved', itemPurchased: 'Room item unlocked', itemUnlocked: 'Room item unlocked' };
-const dayBounds = now => {
+const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):(00|15|30|45)$/.test(value);
+const validStartTime = value => validTime(value) && value >= '07:00' && value <= '20:45';
+const validEndTime = value => validTime(value) && value >= '07:15' && value <= '21:00';
+const localTime = value => { const date = new Date(value); return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`; };
+const dayBounds = (now, startTime = '09:00', endTime = '17:00') => {
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return { start: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9).toISOString(),
-    end: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 17).toISOString() };
+  const bound = time => { const [hour, minute] = time.split(':').map(Number); return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute).toISOString(); };
+  return { start: bound(startTime), end: bound(endTime) };
 };
 const dayKey = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 function dateForDayKey(key) {
@@ -28,7 +32,11 @@ function dateForDayKey(key) {
   if (dayKey(date) !== key) throw new Error('Choose a valid local calendar date.');
   return date;
 }
-const countDown = seconds => `${String(Math.floor(Math.ceil(Math.max(0, seconds)) / 60)).padStart(2, '0')}:${String(Math.ceil(Math.max(0, seconds)) % 60).padStart(2, '0')}`;
+const countDown = seconds => {
+  const value = Number(seconds) || 0;
+  const whole = Math.ceil(Math.abs(value));
+  return `${value < 0 ? '-' : ''}${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
+};
 
 function createCore({ dbPath, statusPath, profile = 'personal', development = false }) {
   if (!dbPath) throw new Error('dbPath is required.');
@@ -37,6 +45,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   let timer, currentPlan = null, plannedBlocks = [], latestPlanEventID = null, page = 'today', message = '', clockOffset = 0, wallOffset = 0;
   let lastCheckpoint = 0, lastTick = null, awayStartedAt = null, suspended = new Set();
   let focusLength = 60, breakLength = 10, defaultFocusLength = 60, defaultBreakLength = 10;
+  let defaultStartTime = '09:00', defaultEndTime = '17:00';
   let notificationsEnabled = true, savedReflection = '';
   let previewFocusCredits = 1, previewBreakBonus = 10;
   let reminderSequence = 0, breakCompleteSequence = 0;
@@ -94,7 +103,6 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       message = 'Your previous session ended when the app stopped. Only recorded time was kept.';
     }
     currentPlan = null; plannedBlocks = []; latestPlanEventID = null;
-    const bounds = dayBounds(instant.wall);
     let prefs = store.getSettings();
     if (!prefs) {
       let legacy = {};
@@ -102,9 +110,15 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       const legacyFocus = Number(legacy.focusMinutes), legacyBreak = Number(legacy.breakMinutes);
       prefs = store.saveSettings({ focusMinutes: Number.isInteger(legacyFocus) && legacyFocus >= 5 && legacyFocus <= 120 ? legacyFocus : 60,
         breakMinutes: Number.isInteger(legacyBreak) && legacyBreak >= 5 && legacyBreak <= 60 ? legacyBreak : 10,
+        startTime: validTime(legacy.startTime) ? legacy.startTime : '09:00',
+        endTime: validTime(legacy.endTime) ? legacy.endTime : '17:00',
         notificationsEnabled: legacy.notificationsEnabled ?? true });
     }
     defaultFocusLength = prefs.focusMinutes; defaultBreakLength = prefs.breakMinutes;
+    defaultStartTime = validStartTime(prefs.startTime) ? prefs.startTime : '09:00';
+    defaultEndTime = validEndTime(prefs.endTime) ? prefs.endTime : '17:00';
+    if (defaultEndTime <= defaultStartTime) { defaultStartTime = '09:00'; defaultEndTime = '17:00'; }
+    const bounds = dayBounds(instant.wall, defaultStartTime, defaultEndTime);
     focusLength = defaultFocusLength; breakLength = defaultBreakLength;
     notificationsEnabled = prefs.notificationsEnabled;
     const todayPlan = planForDay(events, dayKey(instant.wall));
@@ -131,9 +145,9 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
           append('awayStarted', { reason: 'idle' }, { occurredAt: startedAt, source: 'inferred' });
           awayStartedAt = startedAt;
         }
-        suspend('idle', idleSeconds);
-      } else if (idleSeconds < 3 && suspended.has('idle')) {
-        resume('idle');
+        if (timer.state.phase === 'focus') suspend('idle', idleSeconds);
+      } else if (idleSeconds < 3) {
+        if (suspended.has('idle')) resume('idle');
         if (awayStartedAt && !suspended.has('locked')) {
           append('awayEnded', { reason: 'input resumed' }, { occurredAt: instant.wall, source: 'inferred' });
           awayStartedAt = null;
@@ -195,35 +209,42 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     timer = proposed; suspended.clear();
     lastTick = instant; lastCheckpoint = instant.wall.getTime(); writeLease();
   }
-  function endFocus(skippedBreak = false) {
+  function endFocus() {
     if (timer.state.phase !== 'focus') return;
     const instant = now(), proposed = timer.clone(), { sessionID, targetSeconds } = proposed.state;
     const elapsedSeconds = proposed.end(instant);
     store.transaction(() => {
-      if (skippedBreak) append('breakSkipped', { sessionID, targetSeconds, elapsedSeconds }, { occurredAt: instant.wall });
       append('focusEnded', { sessionID, targetSeconds, elapsedSeconds }, { occurredAt: instant.wall });
       grant('focus', sessionID, elapsedSeconds, targetSeconds, instant);
     });
     timer = proposed; writeLease();
   }
-  function finishBreak() {
+  function finishBreak(startNextFocus = true) {
     if (timer.state.phase !== 'break') return;
     const instant = now(), proposed = timer.clone(), { sessionID, targetSeconds } = proposed.state;
     const elapsedSeconds = proposed.end(instant);
     const payload = { sessionID, targetSeconds, elapsedSeconds };
+    const focusID = startNextFocus ? proposed.start('focus', focusLength * 60, instant) : null;
     store.transaction(() => {
       append('breakConfirmed', payload, { occurredAt: instant.wall });
       append('breakEnded', payload, { occurredAt: instant.wall });
       grant('break', sessionID, elapsedSeconds, targetSeconds, instant);
+      if (focusID) append('focusStarted', { sessionID: focusID, targetSeconds: proposed.state.targetSeconds }, { occurredAt: instant.wall });
     });
-    timer = proposed; writeLease();
+    timer = proposed; suspended.clear();
+    lastTick = instant; lastCheckpoint = instant.wall.getTime(); writeLease();
   }
   function preparePlan(value, provenance, instant) {
     const key = value.dayKey || dayKey(instant.wall);
     const day = dateForDayKey(key), existing = planForDay(allEvents(), key);
-    const base = existing.current, targetBounds = dayBounds(day);
+    const base = existing.current, targetBounds = dayBounds(day, defaultStartTime, defaultEndTime);
     const start = iso(value.start || value.dayStart || base?.start || targetBounds.start);
     const end = iso(value.end || value.dayEnd || base?.end || targetBounds.end);
+    if (((!base || start !== base.start) && !validStartTime(localTime(start))) ||
+      ((!base || end !== base.end) && !validEndTime(localTime(end)))) {
+      message = 'Choose a start from 7:00 AM and a finish by 9:00 PM in 15-minute steps.';
+      return false;
+    }
     if (ms(end) - ms(start) < 900000) { message = 'Finish must be at least 15 minutes after start.'; return false; }
     if (dayKey(new Date(start)) !== key || dayKey(new Date(end)) !== key) { message = 'Plan bounds must stay on the selected day.'; return false; }
     const meetings = (value.meetings || base?.meetings || []).map(item => ({ id: item.id || uuid(), title: item.title,
@@ -318,14 +339,29 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     }
     const guide = todayGuidance(plan, forecastCache, actual, instant.wall, timer.state);
     const currentMinutes = Math.floor(today.focusSeconds / 60), breakMinutes = Math.floor(today.breakSeconds / 60);
-    const display = timer.state.phase === 'idle' ? `${String(focusLength).padStart(2, '0')}:00` : countDown(timer.remainingSeconds);
+    const dayStart = new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate()).getTime();
+    const workSpans = [
+      ...actual.filter(item => item.kind === 'focus').map(item => [ms(item.start), ms(item.end)]),
+      ...(plan?.meetings || []).map(item => [ms(item.start), ms(item.end)]),
+      ...(timer.state.phase === 'focus' && !timer.state.isSleeping
+        ? [[ms(timer.state.observedSegmentStartedAt || timer.state.startedAt), instant.wall.getTime()]] : []),
+    ].map(([from, until]) => [Math.max(dayStart, from), Math.min(instant.wall.getTime(), until)])
+      .filter(([from, until]) => until > from).sort((a, b) => a[0] - b[0]);
+    let workingMs = 0, coveredUntil = dayStart;
+    for (const [from, until] of workSpans) {
+      workingMs += Math.max(0, until - Math.max(from, coveredUntil));
+      coveredUntil = Math.max(coveredUntil, until);
+    }
+    const display = guide.situation === 'working'
+      ? countDown((ms(guide.action.until) - instant.wall) / 1000)
+      : timer.state.phase === 'idle' ? `${String(focusLength).padStart(2, '0')}:00` : countDown(timer.remainingSeconds);
     return { page, profile, phase: timer.state.phase, timer: { ...timer.state, remainingSeconds: timer.remainingSeconds }, countdown: display,
       currentWallTime: instant.wall.getTime() / 1000, currentWallTimeISO: instant.wall.toISOString(),
       todaySituation: guide.situation, todayTitle: guide.title, todayProposedSeconds: guide.action?.until ? Math.max(0, (ms(guide.action.until) - instant.wall) / 1000) : 0,
       timerTargetSeconds: timer.state.targetSeconds, breakDue: timer.state.phase === 'focus' && timer.state.isDue, suspended: timer.state.isSleeping,
       reminderSequence, breakCompleteSequence,
-      balance, focusMinutesToday: currentMinutes, breakMinutesToday: breakMinutes, focusLength, breakLength,
-      defaultFocusLength, defaultBreakLength,
+      balance, focusMinutesToday: currentMinutes, workingMinutesToday: Math.floor(workingMs / 60000), breakMinutesToday: breakMinutes, focusLength, breakLength,
+      defaultFocusLength, defaultBreakLength, defaultStartTime, defaultEndTime,
       dayStart: plan?.start || bounds.start, dayEnd: plan?.end || bounds.end,
       todayKey, tomorrowKey, dayPlans: { [todayKey]: todayPlanState,
         [tomorrowKey]: { ...tomorrowPlanState, suggestedTimeline: tomorrowBlocks } },
@@ -362,29 +398,46 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft); break;
       case 'end-focus': endFocus(); break;
       case 'start-break': start('break', Number(value?.targetSeconds || breakLength * 60)); break;
-      case 'start-long-break': start('break', Math.max(breakLength, 20) * 60); break;
       case 'finish-break': finishBreak(); break;
       case 'snooze': case 'snooze-break': {
         const instant = now();
+        const minutes = Number(value?.minutes ?? value ?? 5);
+        if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60 || minutes % 5 !== 0) throw new Error('Snooze for 5 to 60 minutes in five-minute steps.');
         if (timer.state.phase === 'focus' && timer.state.isDue) {
-          append('breakSnoozed', { ...sessionPayload(), minutes: 5 }, { occurredAt: instant.wall });
-          timer.snooze(5, instant);
-          message = 'Break moved five minutes later.';
+          const proposed = timer.clone();
+          proposed.snooze(minutes, instant);
+          store.transaction(() => {
+            append('breakSnoozed', { ...sessionPayload(proposed), minutes }, { occurredAt: instant.wall });
+            append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall });
+          });
+          timer = proposed;
+          message = `Break moved ${minutes} minutes later.`;
         } else if (timer.state.phase === 'idle' && status().guidance.situation === 'rest') {
-          append('breakSnoozed', { scope: 'forecast', minutes: 5 }, { occurredAt: instant.wall });
-          message = 'Break moved five minutes later.';
+          start('focus', minutes * 60);
+          message = `Focus started for ${minutes} minutes. Then take a break.`;
         }
         break;
       }
-      case 'skip-break': endFocus(true); break;
+      case 'skip-break': {
+        if (timer.state.phase !== 'focus' || !timer.state.isDue) break;
+        const instant = now(), proposed = timer.clone();
+        proposed.snooze(focusLength, instant);
+        store.transaction(() => {
+          append('breakSkipped', { ...sessionPayload(proposed), minutes: focusLength }, { occurredAt: instant.wall });
+          append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall });
+        });
+        timer = proposed;
+        message = `Break skipped. Focus continues for ${focusLength} minutes.`;
+        break;
+      }
       case 'today-suggestion': {
         const proposed = status().guidance.action;
         if (proposed?.type === 'focus') start('focus', Math.max(1, (ms(proposed.until) - now().wall) / 1000));
-        else if (proposed?.type === 'rest') start('break', Math.max(1, (ms(proposed.until) - now().wall) / 1000));
+        else if (proposed?.type === 'rest') start('break', breakLength * 60);
         else if (proposed?.type === 'editPlan') page = 'plan';
         break;
       }
-      case 'today-break': { const proposed = status().guidance.breakAction; if (proposed?.type === 'rest') start('break', Math.max(1, (ms(proposed.until) - now().wall) / 1000)); break; }
+      case 'today-break': start('break', breakLength * 60); break;
       case 'save-plan': savePlan(value); break;
       case 'flush-plan': break;
       case 'upsert-meeting': case 'meeting-window': case 'revise-meeting': {
@@ -393,7 +446,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         const startAt = iso(meeting.start || meeting.startAt || new Date());
         const endAt = iso(meeting.end || (ms(startAt) + Number(meeting.duration || 30) * 60000));
         const key = meeting.dayKey || dayKey(now().wall);
-        const source = planForDay(allEvents(), key).current || { ...dayBounds(dateForDayKey(key)), meetings: [] };
+        const source = planForDay(allEvents(), key).current || { ...dayBounds(dateForDayKey(key), defaultStartTime, defaultEndTime), meetings: [] };
         if (!name || ms(endAt) - ms(startAt) < 900000 || ms(startAt) < ms(source.start) || ms(endAt) > ms(source.end)) { message = 'Choose a meeting of at least 15 minutes within your day bounds.'; break; }
         const meetings = [...source.meetings]; const index = meetings.findIndex(item => item.id === meeting.id);
         const item = { id: meeting.id || uuid(), title: name, start: startAt, end: endAt };
@@ -427,13 +480,19 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'save-preferences': {
         const nextFocus = Number(value?.focusMinutes ?? value?.focusLength ?? defaultFocusLength);
         const nextBreak = Number(value?.breakMinutes ?? value?.breakLength ?? defaultBreakLength);
+        const nextStart = value?.startTime ?? defaultStartTime;
+        const nextEnd = value?.endTime ?? defaultEndTime;
         if (!Number.isInteger(nextFocus) || nextFocus < 5 || nextFocus > 120 ||
           !Number.isInteger(nextBreak) || nextBreak < 5 || nextBreak > 60) throw new Error('Choose valid default focus and break lengths.');
+        if (!validStartTime(nextStart) || !validEndTime(nextEnd) || nextEnd <= nextStart) throw new Error('Choose default start from 7:00 AM and finish by 9:00 PM in 15-minute steps.');
         const saved = store.saveSettings({ focusMinutes: nextFocus,
           breakMinutes: nextBreak,
+          startTime: nextStart, endTime: nextEnd,
           notificationsEnabled: value?.notificationsEnabled ?? notificationsEnabled });
         defaultFocusLength = saved.focusMinutes; defaultBreakLength = saved.breakMinutes;
+        defaultStartTime = saved.startTime; defaultEndTime = saved.endTime;
         if (!currentPlan) { focusLength = defaultFocusLength; breakLength = defaultBreakLength; }
+        if (!currentPlan) bounds = dayBounds(now().wall, defaultStartTime, defaultEndTime);
         notificationsEnabled = saved.notificationsEnabled;
         message = 'Preferences saved.'; break;
       }
@@ -457,8 +516,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'unlock': resume('locked'); break;
       case 'scenario': case 'dev-scenario': {
         if (value === 'morning') { page = 'plan'; action('upsert-meeting', { title: 'Team check-in', start: new Date(new Date().setHours(10, 30, 0, 0)).toISOString(), duration: 30 }); }
-        if (value === 'break-due' || value === 'breakDue') { if (timer.state.phase === 'break') finishBreak(); if (timer.state.phase === 'focus') endFocus(); start('focus', focusLength * 60); action('advance', focusLength); page = 'today'; }
-        if (value === 'completed-day' || value === 'completedDay') { if (timer.state.phase === 'focus') endFocus(); if (timer.state.phase === 'break') finishBreak(); start('focus', focusLength * 60); action('advance', focusLength); start('break', breakLength * 60); action('advance', breakLength); finishBreak(); page = 'history'; }
+        if (value === 'break-due' || value === 'breakDue') { if (timer.state.phase === 'break') finishBreak(false); if (timer.state.phase === 'focus') endFocus(); start('focus', focusLength * 60); action('advance', focusLength); page = 'today'; }
+        if (value === 'completed-day' || value === 'completedDay') { if (timer.state.phase === 'focus') endFocus(); if (timer.state.phase === 'break') finishBreak(false); start('focus', focusLength * 60); action('advance', focusLength); start('break', breakLength * 60); action('advance', breakLength); finishBreak(false); page = 'history'; }
         break;
       }
       case 'dev-advance': return action('advance', value);

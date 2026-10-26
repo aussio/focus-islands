@@ -1,13 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+export COZY_FOCUS_INSTANCE="${COZY_FOCUS_INSTANCE:-today-smoke}"
 trap '"$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || true' EXIT
-"$repo_root/scripts/run-dev.sh" --reset
+"$repo_root/scripts/run-dev.sh" --reset --hidden-window
 REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 root = Path(os.environ["REPO_ROOT"])
@@ -19,14 +20,16 @@ def status(action="status", value=None):
         args.append(json.dumps(value) if isinstance(value, dict) else str(value))
     result = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
     state = result["status"]
-    assert state["profile"] == "testing" and not state["appActive"]
+    assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"]
     return state
 
 assert status()["todaySituation"] == "noPlan"
-now = datetime.now(timezone.utc)
-start = (now - timedelta(minutes=5)).isoformat()
-end = (now + timedelta(hours=2)).isoformat()
-planned = status("save-plan", {"dayStart": start, "dayEnd": end, "focusLength": 25, "breakLength": 5})
+now = datetime.now().astimezone()
+morning = now.replace(hour=9, minute=30, second=0, microsecond=0)
+status("wall-jump", (morning - now).total_seconds() / 60)
+start = morning.replace(hour=9, minute=0).isoformat()
+end = morning.replace(hour=12, minute=0).isoformat()
+planned = status("save-plan", {"start": start, "end": end, "focusMinutes": 25, "breakMinutes": 5})
 assert planned["plannedTimeline"] and planned["todaySituation"] == "focus"
 started = status("today-suggestion")
 assert started["phase"] == "focus"

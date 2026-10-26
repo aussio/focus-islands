@@ -14,7 +14,7 @@ The companion is local-first and useful without a browser extension. It records 
 
 The menu bar app samples macOS system idle time once per second. Recent mouse or keyboard use shows 😊; after 5 seconds without input, or while the Mac is locked or asleep, it shows 😴. The emoji changes back when input resumes. Settings → Debug can show a countdown and progress bar on Today and Room; it is off by default and does not change detection. This short timeout makes the behavior easy to try. It is a local, temporary presence signal: the app does not capture keys, pointer coordinates, or individual input events, and it does not save these samples to SQLite. Being at the computer is not proof of working, and being away is not a confirmed break. The signal is available for future automatic session and break behavior; the manual buttons remain available.
 
-New plans default to 9 am–5 pm, with 60-minute focus windows and 10-minute breaks. Existing plans and saved preferences keep their values.
+New plans default to 9 am–5 pm, with 60-minute focus windows and 10-minute breaks. Settings can change these defaults for future days; existing plans keep their values. Day start and finish use 15-minute choices, from 7 am through 9 pm. Snoozing a suggested break starts a short focus session for the chosen interval. Skipping a due break keeps the current focus session running and asks again after another focus interval. Timers show negative overtime after zero; a break continues until you finish it, then the next focus session starts automatically.
 
 ## Run Personal
 
@@ -33,15 +33,20 @@ Personal history stays at `~/Library/Application Support/CozyFocusPet/events.sql
 ## Develop and verify
 
 ```bash
-scripts/test.sh                  # core behavior
-scripts/build.sh                 # build the local macOS app bundle
+npm run check:source             # quick renderer and Electron source check
+scripts/test.sh                  # core behavior changes
+scripts/build.sh                 # packaging changes or a distributable bundle
 scripts/run-dev.sh               # background Testing app
 scripts/dev-control.sh status    # require profile=testing and appActive=false
 scripts/dev-control.sh screenshot
 scripts/dev-control.sh quit
 ```
 
-The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. `scripts/ui-smoke.sh` resets Testing and checks the focus, break, reward, purchase, reflection, screenshot, and relaunch loop. `scripts/today-smoke.sh` checks day guidance and timer targets. Screenshots come from the app's own Electron window.
+Use the checks that match the change. For a small UI change, drive just that flow with `dev-control.sh` in the background Testing app, inspect its screenshot, and confirm `appActive=false`. Run `scripts/today-smoke.sh` when changing day guidance or timer integration. Reserve the longer `scripts/ui-smoke.sh` loop for changes spanning several views, persistence and relaunch, or a release check. It covers focus, breaks, rewards, purchase, reflection, screenshots, and relaunch.
+
+On Today in the development app, drag anywhere on Your day path forward in 30-second steps. Releasing it advances the simulated clock; focus and break timers continue ticking from the new time. While a timer runs, **To focus end** or **To break end** advances precisely to its due point. The controls are available only in development mode and change Testing history.
+
+`scripts/run-dev.sh` is the background launch entry point; `scripts/dev-control.sh` sends commands to the app after it starts. The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. Both smoke scripts run hidden and default to separate disposable instances (`today-smoke` and `ui-smoke`); they reset only their own instance. Screenshots come from the app's own Electron window.
 
 Use [development-tools/forecast](development-tools/forecast/README.md) to render a manually supplied day plan and history as a local HTML forecast preview. The tool contains no bundled scenario data and does not open a profile database.
 

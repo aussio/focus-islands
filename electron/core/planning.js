@@ -234,6 +234,21 @@ function forecast(plan, actual, timer, now, events = []) {
   const idleSnooze = timer.phase === 'idle' ? events.filter(item => item.kind === 'breakSnoozed' && item.payload?.scope === 'forecast' && ms(item.occurredAt) >= lastFocusEnd && ms(item.occurredAt) <= present)
     .sort((a, b) => ms(b.occurredAt) - ms(a.occurredAt))[0] : null;
   const snoozedUntil = idleSnooze ? ms(idleSnooze.occurredAt) + (idleSnooze.payload.minutes || 5) * 60000 : 0;
+  const meetingWindows = [...(plan.meetings || [])].sort((a, b) => ms(a.start) - ms(b.start));
+  function addDueBreak(earliest) {
+    const duration = Math.max(1, plan.breakMinutes) * 60000;
+    let from = earliest;
+    for (const meeting of meetingWindows) {
+      if (ms(meeting.end) <= from) continue;
+      if (ms(meeting.start) >= from + duration) break;
+      from = ms(meeting.end);
+    }
+    const until = Math.min(end, from + duration);
+    if (until > from) {
+      blocks.push({ kind: 'break', start: iso(from), end: iso(until), forecast: true });
+      next = until;
+    }
+  }
   const nextMeetingStart = (plan.meetings || []).map(item => ms(item.start)).filter(time => time > next).sort((a, b) => a - b)[0] ?? end;
   if (snoozedUntil > next && next < end) {
     const focusEnd = Math.min(end, nextMeetingStart, snoozedUntil);
@@ -242,10 +257,7 @@ function forecast(plan, actual, timer, now, events = []) {
   }
   const needsRest = activeFocus || (timer.phase === 'idle' && (snoozedUntil > present || (recentWork && !skipped && workedMinutes >= plan.focusMinutes * .75)));
   if (needsRest && next < end) {
-    const nextMeeting = (plan.meetings || []).map(item => ms(item.start)).filter(time => time >= next).sort((a, b) => a - b)[0] ?? end;
-    const breakEnd = Math.min(end, nextMeeting, next + Math.max(1, plan.breakMinutes) * 60000);
-    if (breakEnd > next) blocks.push({ kind: 'break', start: iso(next), end: iso(breakEnd), forecast: true });
-    next = breakEnd;
+    addDueBreak(next);
   } else if (timer.phase === 'idle' && recentWork && workedMinutes > 0 && !skipped && next < end) {
     const nextMeeting = (plan.meetings || []).map(item => ms(item.start)).filter(time => time > next).sort((a, b) => a - b)[0] ?? end;
     const remaining = Math.max(1, Math.round(plan.focusMinutes - workedMinutes));
@@ -253,13 +265,32 @@ function forecast(plan, actual, timer, now, events = []) {
     if (focusEnd - next >= 10 * 60000) {
       blocks.push({ kind: 'focus', start: iso(next), end: iso(focusEnd), forecast: true });
       next = focusEnd;
-      const breakEnd = Math.min(end, nextMeeting, next + Math.max(1, plan.breakMinutes) * 60000);
-      if (breakEnd > next) blocks.push({ kind: 'break', start: iso(next), end: iso(breakEnd), forecast: true });
-      next = breakEnd;
+      addDueBreak(next);
     }
   }
   if (next < end) blocks.push(...suggest({ ...plan, start: iso(next), customBlocks: null }).map(item => ({ ...item, forecast: true })));
-  return blocks.sort((a, b) => ms(a.start) - ms(b.start)).reduce((timeline, block) => {
+  // Meetings belong to the saved plan, not to the flexible schedule rebuilt from `next`.
+  // That rebuild can begin inside or after a meeting when focus or a break runs late.
+  const meetings = (plan.meetings || []).filter(item => ms(item.end) > start && ms(item.start) < end)
+    .map(item => ({ kind: 'meeting', start: iso(Math.max(start, ms(item.start))),
+      end: iso(Math.min(end, ms(item.end))), title: item.title, forecast: true }));
+  const timelineBlocks = blocks.filter(item => item.kind !== 'meeting').flatMap(block => {
+    if (block.actual) return [block];
+    let pieces = [block];
+    for (const meeting of meetings) {
+      pieces = pieces.flatMap(piece => {
+        const from = ms(piece.start), until = ms(piece.end);
+        const meetingStart = ms(meeting.start), meetingEnd = ms(meeting.end);
+        if (meetingEnd <= from || meetingStart >= until) return [piece];
+        return [
+          ...(meetingStart > from ? [{ ...piece, end: iso(meetingStart) }] : []),
+          ...(meetingEnd < until ? [{ ...piece, start: iso(meetingEnd) }] : []),
+        ];
+      });
+    }
+    return pieces;
+  });
+  return [...timelineBlocks, ...meetings].sort((a, b) => ms(a.start) - ms(b.start)).reduce((timeline, block) => {
     const previous = timeline.at(-1);
     if (previous?.kind === 'break' && block.kind === 'break' && previous.forecast && block.forecast && ms(previous.end) === ms(block.start)) {
       previous.end = block.end;

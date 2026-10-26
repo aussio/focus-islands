@@ -32,7 +32,7 @@ if (development) {
 const initialProfile = development ? 'testing' : 'personal';
 let activeProfile = initialProfile;
 const rendererActions = new Set([
-  'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'snooze-break',
+  'navigate', 'start-focus', 'end-focus', 'start-break', 'finish-break', 'snooze-break',
   'skip-break', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile', 'purchase', 'preview-rewards',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database',
@@ -45,6 +45,7 @@ let tray;
 let quitting = false;
 let lastReminderSequence = 0;
 let lastBreakCompleteSequence = 0;
+let lastTodaySituation = null;
 let publicationEpoch = 0;
 let publicationNumber = 0;
 let controlProcessing = false;
@@ -81,7 +82,9 @@ function publish() {
   const state = appStatus();
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
   if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.countdown || ''}`}`);
-  if (state.breakDue && state.reminderSequence > lastReminderSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
+  if (state.breakDue && state.todaySituation !== 'working' &&
+    (state.reminderSequence > lastReminderSequence || lastTodaySituation === 'working') &&
+    !development && state.notificationsEnabled && Notification.isSupported()) {
     const prompt = new Notification({ title: 'Time for a real break', body: 'Start your break, snooze for 5 minutes, or skip it.', actions: [
       { type: 'button', text: 'Start break' }, { type: 'button', text: 'Snooze 5 min' }, { type: 'button', text: 'Skip' },
     ] });
@@ -95,6 +98,7 @@ function publish() {
   }
   lastReminderSequence = state.reminderSequence || 0;
   lastBreakCompleteSequence = state.breakCompleteSequence || 0;
+  lastTodaySituation = state.todaySituation;
   return state;
 }
 
@@ -114,6 +118,7 @@ function execute(name, value) {
       publicationNumber = 0;
       lastReminderSequence = 0;
       lastBreakCompleteSequence = 0;
+      lastTodaySituation = null;
     }
     return publish();
   }
@@ -154,8 +159,14 @@ async function driveUI(action, value) {
   if (!input || typeof input.selector !== 'string' || input.selector.length > 160 ||
     !['ui-click', 'ui-fill', 'ui-read', 'ui-drag'].includes(action)) throw new Error('Invalid UI control request.');
   if (action === 'ui-fill' && (typeof input.text !== 'string' || input.text.length > 2000)) throw new Error('Invalid UI text.');
-  if (action === 'ui-drag' && (![input.fromY, input.toY].every(Number.isFinite) ||
-    Math.abs(input.fromY) > 5000 || Math.abs(input.toY) > 5000)) throw new Error('Invalid UI drag.');
+  if (action === 'ui-drag') {
+    const horizontal = [input.fromX, input.toX].every(Number.isFinite);
+    const vertical = [input.fromY, input.toY].every(Number.isFinite);
+    if ((!horizontal && !vertical) || [input.fromX, input.toX, input.fromY, input.toY]
+      .some(coordinate => coordinate !== undefined && (!Number.isFinite(coordinate) || Math.abs(coordinate) > 5000))) {
+      throw new Error('Invalid UI drag.');
+    }
+  }
   const outcome = await window.webContents.executeJavaScript(`(() => {
     const input = ${JSON.stringify(input)};
     const node = document.querySelector(input.selector);
@@ -170,12 +181,18 @@ async function driveUI(action, value) {
       node.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
     }
     if (${JSON.stringify(action)} === 'ui-drag') {
-      const rect = node.getBoundingClientRect(), x = rect.left + rect.width / 2;
-      const fromY = rect.top + input.fromY, toY = rect.top + input.toY;
-      const start = document.elementFromPoint(x, fromY) || node;
-      start.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: x, clientY: fromY }));
-      const end = document.elementFromPoint(x, toY) || node;
-      end.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: x, clientY: toY }));
+      const rect = node.getBoundingClientRect();
+      const fromX = rect.left + (input.fromX ?? rect.width / 2), toX = rect.left + (input.toX ?? rect.width / 2);
+      const fromY = rect.top + (input.fromY ?? rect.height / 2), toY = rect.top + (input.toY ?? rect.height / 2);
+      const start = document.elementFromPoint(fromX, fromY) || node;
+      start.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: fromX, clientY: fromY }));
+      const middleX = (fromX + toX) / 2, middleY = (fromY + toY) / 2;
+      (document.elementFromPoint(middleX, middleY) || node).dispatchEvent(new PointerEvent('pointermove', { bubbles: true, button: 0, clientX: middleX, clientY: middleY }));
+      const previewVisible = Boolean(document.querySelector('.meeting-drag-preview')?.getBoundingClientRect().height);
+      (document.elementFromPoint(toX, toY) || node).dispatchEvent(new PointerEvent('pointermove', { bubbles: true, button: 0, clientX: toX, clientY: toY }));
+      const end = document.elementFromPoint(toX, toY) || node;
+      end.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: toX, clientY: toY }));
+      return { found: true, previewVisible };
     }
     return { found: true };
   })()`);
@@ -261,8 +278,6 @@ async function processControl() {
         result = { ok: true, status: appStatus() };
       } else if (request.action === 'show-window') {
         showWindow(); result = { ok: true, status: appStatus() };
-      } else if (request.action === 'background-window') {
-        window.showInactive(); result = { ok: true, status: appStatus() };
       } else if (request.action === 'close-window') {
         window.hide(); result = { ok: true, status: appStatus() };
       } else {
@@ -316,8 +331,10 @@ app.whenReady().then(() => {
   }, 1000);
   if (controlDir) fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
   window.once('ready-to-show', () => {
-    if (process.argv.includes('--background-window')) window.showInactive();
-    else window.show();
+    if (!process.argv.includes('--hidden-window')) {
+      if (process.argv.includes('--background-window')) window.showInactive();
+      else window.show();
+    }
     publish();
   });
 });
