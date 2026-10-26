@@ -34,7 +34,18 @@ chmod 700 "$state" "$state/control"
 rm -f "$state/control/"*.json "$state/control/"*.response
 cd "$repo_root"
 npm run check:source
-if [[ ! -x "$electron" ]]; then echo "Electron is missing. Run npm install." >&2; exit 1; fi
+if [[ ! -x "$electron" ]]; then
+  if [[ ! -f "$repo_root/node_modules/electron/install.js" ]]; then
+    echo "Electron package is missing. Run npm install." >&2
+    exit 1
+  fi
+  echo "Installing Electron binary..."
+  if ! node "$repo_root/node_modules/electron/install.js"; then
+    echo "Electron binary installation failed. Check download access and retry." >&2
+    exit 1
+  fi
+fi
+if [[ ! -x "$electron" ]]; then echo "Electron binary is missing after installation." >&2; exit 1; fi
 open -g -n -a "$electron_app" \
   --env "COZY_FOCUS_DEV=1" \
   --args "$repo_root" --background-window "--cozy-instance=$instance"

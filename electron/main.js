@@ -82,14 +82,14 @@ function publish() {
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
   if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.countdown || ''}`}`);
   if (state.breakDue && state.reminderSequence > lastReminderSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
-    const prompt = new Notification({ title: 'Time for a real break', body: 'Pause when you are ready.', actions: [
+    const prompt = new Notification({ title: 'Time for a real break', body: 'Start your break, snooze for 5 minutes, or skip it.', actions: [
       { type: 'button', text: 'Start break' }, { type: 'button', text: 'Snooze 5 min' }, { type: 'button', text: 'Skip' },
     ] });
     prompt.on('action', (_event, index) => execute(['start-break', 'snooze-break', 'skip-break'][index]));
     prompt.show();
   }
   if (state.breakCompleteSequence > lastBreakCompleteSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
-    const complete = new Notification({ title: 'Break complete', body: 'Come back when you are ready to confirm your break.' });
+    const complete = new Notification({ title: 'Break complete', body: 'Open the app to confirm your break.' });
     complete.on('click', showWindow);
     complete.show();
   }
