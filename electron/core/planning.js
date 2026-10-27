@@ -147,6 +147,7 @@ function project(events, day, includeSuggestions = true) {
     if (event.kind === 'breakConfirmed') confirmed.add(event.payload?.sessionID);
   }
   const starts = new Map(), actual = [];
+  let firstFocusAt = Infinity;
   const focusSessions = new Map();
   function focusSegment(from, until, seconds) {
     const start = Math.max(ms(from), dayStart);
@@ -156,6 +157,7 @@ function project(events, day, includeSuggestions = true) {
   const pairs = { breakEnded: ['breakStarted', 'break'], awayEnded: ['awayStarted', 'away'] };
   for (const event of events) {
     if (event.kind === 'focusStarted' && event.payload?.sessionID) {
+      if (ms(event.occurredAt) >= dayStart && ms(event.occurredAt) < dayEnd) firstFocusAt = Math.min(firstFocusAt, ms(event.occurredAt));
       focusSessions.set(event.payload.sessionID, { runningFrom: event.occurredAt, elapsedAtStart: 0, paused: false });
     }
     if (['focusPaused', 'focusResumed', 'focusEnded'].includes(event.kind) && event.payload?.sessionID) {
@@ -175,7 +177,21 @@ function project(events, day, includeSuggestions = true) {
         }
       }
     }
-    if (['breakStarted', 'awayStarted'].includes(event.kind)) starts.set(event.kind, event);
+    if (event.kind === 'breakStarted') starts.set(event.kind, event);
+    if (event.kind === 'awayStarted') starts.set(event.kind, { ...event, duringBreak: starts.has('breakStarted') });
+    if (event.kind === 'sleepStarted') starts.set(event.kind, { ...event, duringBreak: starts.has('breakStarted') });
+    if (event.kind === 'sleepEnded' && starts.has('sleepStarted')) {
+      const sleep = starts.get('sleepStarted'); starts.delete('sleepStarted');
+      const start = Math.max(ms(sleep.occurredAt), dayStart), end = Math.min(ms(event.occurredAt), dayEnd);
+      const overlapsAway = starts.has('awayStarted') || actual.some(item =>
+        (item.kind === 'away' || item.inferred) && ms(item.start) < end && ms(item.end) > start);
+      if (!sleep.duringBreak && !overlapsAway && start >= firstFocusAt && end > start) {
+        const observedSeconds = (end - start) / 1000;
+        actual.push({ kind: 'break', start: iso(start), end: iso(end),
+          confirmed: false, inferred: true, observedSeconds });
+        awaySeconds += observedSeconds;
+      }
+    }
     const pair = pairs[event.kind];
     if (!pair || !starts.has(pair[0])) continue;
     const startEvent = starts.get(pair[0]); starts.delete(pair[0]);
@@ -183,13 +199,35 @@ function project(events, day, includeSuggestions = true) {
     if (end <= start) continue;
     const wallSeconds = (end - start) / 1000;
     const observedSeconds = pair[1] === 'away' ? wallSeconds : Math.min(wallSeconds, Math.max(0, event.payload?.elapsedSeconds || 0));
+    const inferredBreak = pair[1] === 'away' && !startEvent.duringBreak &&
+      ms(startEvent.occurredAt) >= firstFocusAt && ms(startEvent.occurredAt) < dayEnd;
     const isConfirmed = pair[1] === 'break' && confirmed.has(startEvent.payload?.sessionID);
-    actual.push({ kind: pair[1], start: iso(start), end: iso(end), confirmed: isConfirmed, observedSeconds });
+    if (!startEvent.duringBreak || pair[1] !== 'away') actual.push({ kind: inferredBreak ? 'break' : pair[1], start: iso(start), end: iso(end),
+      confirmed: isConfirmed, inferred: inferredBreak, observedSeconds });
     if (pair[1] === 'away') awaySeconds += wallSeconds;
   }
+  const unclosedSleep = starts.get('sleepStarted');
+  if (unclosedSleep && !unclosedSleep.duringBreak && !starts.has('awayStarted')) {
+    const resumed = events.find(event => event.kind === 'focusResumed' &&
+      event.payload?.sessionID === unclosedSleep.payload?.sessionID &&
+      ms(event.occurredAt) > ms(unclosedSleep.occurredAt));
+    const start = Math.max(ms(unclosedSleep.occurredAt), dayStart);
+    const end = resumed ? Math.min(ms(resumed.occurredAt), dayEnd) : start;
+    if (start >= firstFocusAt && end > start && !actual.some(item => item.inferred && ms(item.start) < end && ms(item.end) > start)) {
+      const observedSeconds = (end - start) / 1000;
+      actual.push({ kind: 'break', start: iso(start), end: iso(end),
+        confirmed: false, inferred: true, observedSeconds });
+      awaySeconds += observedSeconds;
+    }
+  }
+  actual.sort((a, b) => ms(a.start) - ms(b.start));
   return { plan, suggestions: includeSuggestions && plan ? suggest(plan) : [], actual,
     focusSeconds: actual.filter(item => item.kind === 'focus').reduce((total, item) => total + item.observedSeconds, 0),
-    breakSeconds: actual.filter(item => item.kind === 'break' && item.confirmed).reduce((total, item) => total + item.observedSeconds, 0), awaySeconds };
+    breakSeconds: actual.filter(item => item.kind === 'break' && (item.confirmed || item.inferred)).reduce((total, item) => total + item.observedSeconds, 0), awaySeconds };
+}
+
+function qualifyingRestSeconds(breakMinutes) {
+  return Math.max(3 * 60, Number(breakMinutes || 10) * 60 * .75);
 }
 
 function forecast(plan, actual, timer, now, events = []) {
@@ -217,7 +255,8 @@ function forecast(plan, actual, timer, now, events = []) {
     }
   }
   const completed = actual.filter(item => ms(item.end) <= present).sort((a, b) => ms(a.end) - ms(b.end));
-  const lastRestEnd = Math.max(start, ...completed.filter(item => item.kind === 'break' && item.confirmed).map(item => ms(item.end)));
+  const lastRestEnd = Math.max(start, ...completed.filter(item => item.kind === 'break' &&
+    (item.confirmed || (item.inferred && item.observedSeconds >= qualifyingRestSeconds(plan.breakMinutes)))).map(item => ms(item.end)));
   const workSpans = [
     ...completed.filter(item => item.kind === 'focus').map(item => [Math.max(lastRestEnd, ms(item.start)), Math.min(present, ms(item.end))]),
     ...fixedMeetings(plan).map(item => [Math.max(lastRestEnd, ms(item.start)), Math.min(present, ms(item.end))]),
@@ -299,4 +338,4 @@ function forecast(plan, actual, timer, now, events = []) {
   }, []);
 }
 
-module.exports = { suggest, editBlock, project, forecast, fixedMeetings, validBlocks, sameDay, ms, iso };
+module.exports = { suggest, editBlock, project, forecast, fixedMeetings, validBlocks, sameDay, ms, iso, qualifyingRestSeconds };

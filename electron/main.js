@@ -4,6 +4,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { createCore } = require('./core');
 const { createActivityDetector } = require('./activity');
+const { createBreakReminder } = require('./break-reminders');
 
 const development = process.env.COZY_FOCUS_DEV === '1';
 const support = path.join(os.homedir(), 'Library', 'Application Support', 'CozyFocusPet');
@@ -32,7 +33,7 @@ if (development) {
 const initialProfile = development ? 'testing' : 'personal';
 let activeProfile = initialProfile;
 const rendererActions = new Set([
-  'navigate', 'start-focus', 'end-focus', 'start-break', 'finish-break', 'snooze-break',
+  'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'snooze-break',
   'skip-break', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile', 'purchase', 'preview-rewards',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database',
@@ -43,13 +44,15 @@ let core;
 let window;
 let tray;
 let quitting = false;
-let lastReminderSequence = 0;
 let lastBreakCompleteSequence = 0;
-let lastTodaySituation = null;
+let lastReturnPromptSince = null;
+let lastBreakReminderPreview = null;
 let publicationEpoch = 0;
 let publicationNumber = 0;
 let controlProcessing = false;
-const activity = createActivityDetector();
+const activity = createActivityDetector(development ? 5 : 120);
+const breakReminder = createBreakReminder();
+let activeBreakNotification = null;
 let screenLocked = false;
 let systemSuspended = false;
 let activityOverrideUntil = 0;
@@ -74,31 +77,67 @@ function appStatus() {
     publicationEpoch, publicationNumber,
     developmentMode: development,
     canSwitchProfiles: !development,
+    ...(development ? { lastBreakReminderPreview } : {}),
   };
+}
+
+function showToday() {
+  execute('navigate', 'today');
+  showWindow();
+}
+
+function closeBreakNotification() {
+  if (!activeBreakNotification) return;
+  const { prompt } = activeBreakNotification;
+  activeBreakNotification = null;
+  prompt.close();
+}
+
+function showBreakReminder(notice) {
+  closeBreakNotification();
+  const actions = notice.kind === 'timer'
+    ? [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break'], ['Skip', 'skip-break']]
+    : [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break']];
+  const prompt = new Notification({
+    title: 'Time for a real break',
+    body: notice.kind === 'timer' ? 'Your focus time is up. Take a break, snooze, or skip.' : 'Your day plan suggests a break now. Take a break or snooze.',
+    actions: actions.map(([label]) => ({ type: 'button', text: label })),
+    groupId: 'cozy-focus-break-reminder',
+  });
+  activeBreakNotification = { prompt, key: notice.key };
+  prompt.on('click', showToday);
+  prompt.on('action', (event, index) => {
+    if (!breakReminder.isCurrent(notice.key, appStatus())) return showToday();
+    const action = actions[event.actionIndex ?? index]?.[1];
+    if (action) execute(action);
+  });
+  prompt.on('close', () => {
+    if (activeBreakNotification?.prompt === prompt) activeBreakNotification = null;
+  });
+  prompt.on('failed', (_event, error) => {
+    if (activeBreakNotification?.prompt === prompt) activeBreakNotification = null;
+    console.error('Break notification failed:', error);
+  });
+  prompt.show();
 }
 
 function publish() {
   publicationNumber++;
   const state = appStatus();
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
-  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.countdown || ''}`}`);
-  if (state.breakDue && state.todaySituation !== 'working' &&
-    (state.reminderSequence > lastReminderSequence || lastTodaySituation === 'working') &&
-    !development && state.notificationsEnabled && Notification.isSupported()) {
-    const prompt = new Notification({ title: 'Time for a real break', body: 'Start your break, snooze for 5 minutes, or skip it.', actions: [
-      { type: 'button', text: 'Start break' }, { type: 'button', text: 'Snooze 5 min' }, { type: 'button', text: 'Skip' },
-    ] });
-    prompt.on('action', (_event, index) => execute(['start-break', 'snooze-break', 'skip-break'][index]));
-    prompt.show();
-  }
+  if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow();
+  lastReturnPromptSince = state.returnPrompt?.since || null;
+  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
+  const notice = breakReminder.next({ ...state, notificationsEnabled: state.notificationsEnabled && (development || Notification.isSupported()) });
+  if (activeBreakNotification && !breakReminder.isCurrent(activeBreakNotification.key, state)) closeBreakNotification();
+  if (notice && development) lastBreakReminderPreview = notice;
+  if (notice && !development) showBreakReminder(notice);
   if (state.breakCompleteSequence > lastBreakCompleteSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
     const complete = new Notification({ title: 'Break complete', body: 'Open the app to confirm your break.' });
     complete.on('click', showWindow);
     complete.show();
   }
-  lastReminderSequence = state.reminderSequence || 0;
   lastBreakCompleteSequence = state.breakCompleteSequence || 0;
-  lastTodaySituation = state.todaySituation;
   return state;
 }
 
@@ -114,15 +153,19 @@ function execute(name, value) {
       activeProfile = value;
       const nextDbPath = value === 'personal' ? path.join(support, 'events.sqlite') : path.join(support, 'profiles', 'testing', 'events.sqlite');
       core = createCore({ dbPath: nextDbPath, statusPath, profile: value, development: false });
+      activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
       publicationEpoch++;
       publicationNumber = 0;
-      lastReminderSequence = 0;
       lastBreakCompleteSequence = 0;
-      lastTodaySituation = null;
+      lastReturnPromptSince = null;
+      lastBreakReminderPreview = null;
+      closeBreakNotification();
+      breakReminder.reset();
     }
     return publish();
   }
   core.action(name, value);
+  if (name === 'save-preferences') activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
   return publish();
 }
 
@@ -293,6 +336,7 @@ async function processControl() {
 app.whenReady().then(() => {
   app.dock?.hide();
   core = createCore({ dbPath, statusPath, profile: initialProfile, development });
+  activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
   activity.observe(powerMonitor.getSystemIdleTime());
   window = new BrowserWindow({
     width: 980, height: 700, minWidth: 790, minHeight: 590, show: false,
@@ -311,9 +355,9 @@ app.whenReady().then(() => {
     if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
     return execute(name, value);
   });
-  powerMonitor.on('suspend', () => { systemSuspended = true; activity.setUnavailable(true); execute('sleep'); });
+  powerMonitor.on('suspend', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); systemSuspended = true; activity.setUnavailable(true); execute('sleep', idleSeconds); });
   powerMonitor.on('resume', () => { systemSuspended = false; activity.setUnavailable(screenLocked); execute('wake'); });
-  powerMonitor.on('lock-screen', () => { screenLocked = true; activity.setUnavailable(true); execute('lock'); });
+  powerMonitor.on('lock-screen', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); screenLocked = true; activity.setUnavailable(true); execute('lock', idleSeconds); });
   powerMonitor.on('unlock-screen', () => { screenLocked = false; activity.setUnavailable(systemSuspended); execute('unlock'); });
   setInterval(() => {
     try {

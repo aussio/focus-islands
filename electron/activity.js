@@ -1,10 +1,15 @@
 // A volatile estimate of computer presence. Never stores input events or writes to SQLite.
-const INACTIVE_AFTER_SECONDS = 5;
+const INACTIVE_AFTER_SECONDS = 120;
 
-function createActivityDetector() {
+function createActivityDetector(inactiveAfterSeconds = INACTIVE_AFTER_SECONDS) {
   let unavailable = false;
   let state = 'unknown';
   let idleSeconds = null;
+
+  function updateState() {
+    state = unavailable ? 'inactive' : idleSeconds === null ? 'unknown'
+      : idleSeconds >= inactiveAfterSeconds ? 'inactive' : 'active';
+  }
 
   return {
     observe(seconds) {
@@ -13,18 +18,24 @@ function createActivityDetector() {
         idleSeconds = null;
       } else {
         idleSeconds = Math.floor(seconds);
-        state = unavailable || idleSeconds >= INACTIVE_AFTER_SECONDS ? 'inactive' : 'active';
+        updateState();
       }
       return this.status();
     },
     setUnavailable(value) {
       unavailable = Boolean(value);
-      state = unavailable ? 'inactive' : 'unknown';
       idleSeconds = null;
+      updateState();
+      return this.status();
+    },
+    setInactiveAfterSeconds(value) {
+      if (!Number.isInteger(value) || value < 1 || value > 3600) throw new Error('Invalid activity delay.');
+      inactiveAfterSeconds = value;
+      updateState();
       return this.status();
     },
     status() {
-      return { state, idleSeconds, inactiveAfterSeconds: INACTIVE_AFTER_SECONDS };
+      return { state, idleSeconds, inactiveAfterSeconds };
     },
   };
 }

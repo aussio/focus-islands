@@ -38,6 +38,7 @@ assert initial["defaultFocusLength"] == 60 and initial["defaultBreakLength"] == 
 assert initial["defaultStartTime"] == "09:00" and initial["defaultEndTime"] == "17:00"
 assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
 assert "Settings" not in call("ui-read", "#navigation")["ui"]["value"]
+assert "Room" not in call("ui-read", "#navigation")["ui"]["value"]
 assert "Use Testing" not in call("ui-read", "#profile-badge")["ui"]["value"]
 open_settings()
 assert call("ui-read", "#data-profile")["ui"]["value"] == "testing"
@@ -121,21 +122,22 @@ finished = status("finish-break")
 assert finished["phase"] == "focus" and finished["timerTargetSeconds"] == finished["focusLength"] * 60
 assert finished["focusMinutesToday"] >= 75 and finished["breakMinutesToday"] == 10
 assert [(item["start"], item["end"]) for item in finished["forecastTimeline"] if item["kind"] == "meeting"] == meeting_slots
-status("ui-click", "#nav-room")
-room = status("ui-click", "#purchase-plant")
-assert "plant" in room["unlockedItems"]
-for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("room", "Room"), ("settings", "Settings")):
+status("ui-click", "#nav-today")
+assert "+35 today" in call("ui-read", "#today-acorns summary")["ui"]["value"]
+for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("settings", "Settings")):
     if page == "settings": open_settings()
     else: status("ui-click", f"#nav-{page}")
     assert heading in call("ui-read", ".page-head h1")["ui"]["value"]
     image = call("screenshot")
     assert image["renderedPage"] == heading, (page, image["renderedPage"])
     print(f"{page} screenshot:", image["screenshot"])
+focus_starts_before_restart = sum(event["kind"] == "focusStarted" for event in call("events")["events"])
 subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
 restored = status()
+assert restored["phase"] == "focus" and restored["timer"]["sessionID"] == finished["timer"]["sessionID"]
+assert sum(event["kind"] == "focusStarted" for event in call("events")["events"]) == focus_starts_before_restart
 assert restored["focusMinutesToday"] == finished["focusMinutesToday"] and restored["breakMinutesToday"] == 10
 assert restored["savedReflection"] == "A pause helped yesterday."
-assert "plant" in restored["unlockedItems"]
 assert restored["dayPlans"][restored["todayKey"]]["current"]["meetings"]
 
 instance = os.environ.get("COZY_FOCUS_INSTANCE", "default")
@@ -145,7 +147,6 @@ with sqlite3.connect(state / "events.sqlite") as database:
 assert sum(kind == "dayPlan" for kind, _ in events) == 2
 assert sum(kind == "dayPlanRevised" for kind, _ in events) >= 1
 assert sum(kind == "rewardGranted" for kind, _ in events) == 2
-assert sum(kind == "itemPurchased" for kind, _ in events) == 1
 assert any(kind == "reflection" for kind, _ in events)
-print("PASS isolated Testing loop, screenshots, rewards, reflection, purchase, and relaunch")
+print("PASS isolated Testing loop, screenshots, rewards, reflection, and relaunch")
 PY

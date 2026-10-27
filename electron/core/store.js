@@ -80,6 +80,13 @@ function openStore(path) {
         INSERT INTO schema_migrations(version, applied_at) VALUES (3, strftime('%s','now')); COMMIT`);
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
+  if (version < 4) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`ALTER TABLE settings ADD COLUMN activity_delay_seconds INTEGER;
+        INSERT INTO schema_migrations(version, applied_at) VALUES (4, strftime('%s','now')); COMMIT`);
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
   const insert = db.prepare(`INSERT INTO events
     (id, kind, schema_version, occurred_at, recorded_at, timezone, source, payload, unique_key)
     VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`);
@@ -87,21 +94,23 @@ function openStore(path) {
   const selectLastSequence = db.prepare('SELECT COALESCE(MAX(seq), 0) AS sequence FROM events');
   const allEvents = () => select.all().map(rowEvent);
   const lastSequence = () => selectLastSequence.get().sequence;
-  const settingsRow = db.prepare('SELECT focus_minutes, break_minutes, notifications_enabled, start_time, end_time FROM settings WHERE id = 1');
-  const updateSettings = db.prepare(`INSERT INTO settings (id, focus_minutes, break_minutes, notifications_enabled, start_time, end_time)
-    VALUES (1, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
+  const settingsRow = db.prepare('SELECT focus_minutes, break_minutes, notifications_enabled, start_time, end_time, activity_delay_seconds FROM settings WHERE id = 1');
+  const updateSettings = db.prepare(`INSERT INTO settings (id, focus_minutes, break_minutes, notifications_enabled, start_time, end_time, activity_delay_seconds)
+    VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
     focus_minutes = excluded.focus_minutes, break_minutes = excluded.break_minutes,
-    notifications_enabled = excluded.notifications_enabled, start_time = excluded.start_time, end_time = excluded.end_time`);
+    notifications_enabled = excluded.notifications_enabled, start_time = excluded.start_time, end_time = excluded.end_time,
+    activity_delay_seconds = excluded.activity_delay_seconds`);
   function getSettings() {
     const row = settingsRow.get();
     return row && { focusMinutes: row.focus_minutes, breakMinutes: row.break_minutes,
       startTime: row.start_time, endTime: row.end_time,
-      notificationsEnabled: Boolean(row.notifications_enabled) };
+      notificationsEnabled: Boolean(row.notifications_enabled), activityDelaySeconds: row.activity_delay_seconds };
   }
   function saveSettings(settings) {
     const previous = getSettings();
     updateSettings.run(settings.focusMinutes, settings.breakMinutes, settings.notificationsEnabled ? 1 : 0,
-      settings.startTime ?? previous?.startTime ?? '09:00', settings.endTime ?? previous?.endTime ?? '17:00');
+      settings.startTime ?? previous?.startTime ?? '09:00', settings.endTime ?? previous?.endTime ?? '17:00',
+      settings.activityDelaySeconds ?? previous?.activityDelaySeconds ?? null);
     return getSettings();
   }
   function transaction(work) {
