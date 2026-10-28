@@ -60,3 +60,17 @@ test('dismissed and old session actions cannot control a later break', () => {
   assert.notEqual(second.key, first.key);
   assert.equal(reminder.isCurrent(first.key, { ...focusDue(3), timer: { sessionID: 'focus-2' } }), false);
 });
+
+
+test('end day replaces break reminders, invalidates old actions, and respects snooze and completion', () => {
+  const reminder = createBreakReminder();
+  const first = reminder.next(focusDue());
+  const ending = minute => ({ ...focusDue(minute), todaySituation: 'afterDay', dayEnding: true });
+  assert.equal(reminder.next(ending(1)).kind, 'endDay');
+  assert.equal(reminder.isCurrent(first.key, ending(1)), false);
+  assert.equal(reminder.next(ending(2)), null);
+  assert.equal(reminder.next(ending(6)).kind, 'endDay');
+  assert.equal(reminder.next({ ...ending(7), todaySituation: 'wrappingUp' }), null);
+  assert.equal(reminder.next(ending(8)).kind, 'endDay');
+  assert.equal(reminder.next({ ...ending(9), dayEndedAt: '2026-10-27T17:00:00Z' }), null);
+});

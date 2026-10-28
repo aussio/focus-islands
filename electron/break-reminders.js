@@ -1,6 +1,9 @@
 const REPEAT_MS = 5 * 60 * 1000;
 
 function breakOpportunity(state) {
+  if (state.dayEndedAt) return null;
+  if (state.todaySituation === 'afterDay') return { kind: 'endDay', identity: state.todayKey };
+  if (state.dayEnding) return null;
   if (state.phase === 'focus' && state.breakDue && state.todaySituation !== 'working' && !state.inferredBreakActive) {
     return { kind: 'timer', identity: state.timer?.sessionID };
   }

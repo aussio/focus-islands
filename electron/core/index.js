@@ -4,7 +4,7 @@ const { backup: sqliteBackup } = require('node:sqlite');
 const { openStore, uuid } = require('./store');
 const { Timer } = require('./timer');
 const { suggest, editBlock, project, forecast, sameDay, ms, iso, qualifyingRestSeconds } = require('./planning');
-const { todayGuidance } = require('./guidance');
+const { todayGuidance, dayEndGuidance } = require('./guidance');
 
 const policy = Object.freeze({ version: 1, focusCreditsPerMinute: 1, maximumFocusMinutesPerSession: 25,
   minimumBreakMinutesForBonus: 3, breakBonus: 10, itemCosts: { plant: 35, cushion: 50, lamp: 75 } });
@@ -13,9 +13,9 @@ const shopItems = Object.freeze([
   { id: 'cushion', name: 'Soft cushion', cost: 50 },
   { id: 'lamp', name: 'Reading lamp', cost: 75 },
 ]);
-const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'reflection', 'itemPurchased', 'itemUnlocked']);
+const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'dayEnded', 'reflection', 'itemPurchased', 'itemUnlocked']);
 const viewPages = new Set(['today', 'plan', 'history', 'settings']);
-const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', reflection: 'Reflection saved', itemPurchased: 'Room item unlocked', itemUnlocked: 'Room item unlocked' };
+const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', dayEnded: 'Day ended', reflection: 'Reflection saved', itemPurchased: 'Room item unlocked', itemUnlocked: 'Room item unlocked' };
 const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):(00|15|30|45)$/.test(value);
 const validStartTime = value => validTime(value) && value >= '07:00' && value <= '20:45';
 const validEndTime = value => validTime(value) && value >= '07:15' && value <= '21:00';
@@ -51,6 +51,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   let focusLength = 60, breakLength = 10, defaultFocusLength = 60, defaultBreakLength = 10;
   let defaultStartTime = '09:00', defaultEndTime = '17:00';
   let notificationsEnabled = true, savedReflection = '';
+  let dayEndedAt = null, dayEndSnoozedUntil = null;
   let activityDelaySeconds = development ? 5 : 120;
   let previewFocusCredits = 1, previewBreakBonus = 10;
   let reminderSequence = 0, breakCompleteSequence = 0;
@@ -93,6 +94,9 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   }
   function load(onStartup = false) {
     const events = allEvents(), instant = now();
+    const key = dayKey(instant.wall);
+    dayEndedAt = events.findLast(event => event.kind === 'dayEnded' && event.payload?.dayKey === key)?.occurredAt || null;
+    dayEndSnoozedUntil = events.findLast(event => event.kind === 'dayEndSnoozed' && event.payload?.dayKey === key)?.payload.until || null;
     timer = Timer.recover(events, instant);
     const openAway = events.reduce((open, event) => event.kind === 'awayStarted' ? event : event.kind === 'awayEnded' ? null : open, null);
     awayStartedAt = openAway && timer.state.phase === 'focus' && sameDay(openAway.occurredAt, instant.wall)
@@ -171,6 +175,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   }
   function tick(idleSeconds = 0) {
     const instant = now(); syncDay();
+    if (dayEndedAt) { lastTick = instant; writeLease('idle'); return; }
     if (!development && Number.isFinite(idleSeconds)) {
       if (idleSeconds >= activityDelaySeconds) {
         beginAway('idle', new Date(Math.max(observationStartedAt.getTime(), instant.wall.getTime() - idleSeconds * 1000)),
@@ -216,6 +221,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     writeLease();
   }
   function start(phase, target, planDraft) {
+    if (dayEndedAt) return;
     if (timer.state.phase !== 'idle' && !(phase === 'break' && timer.state.phase === 'focus')) return;
     const instant = now(), proposed = timer.clone();
     let finishedFocus = null;
@@ -275,6 +281,28 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     timer = proposed; suspended.clear();
     breakAwayStartedAt = null; breakElapsedAtAway = 0; returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
     lastTick = instant; lastCheckpoint = instant.wall.getTime(); writeLease();
+  }
+  function endDay() {
+    if (dayEndedAt) return;
+    const instant = now(), proposed = timer.clone();
+    const { phase, sessionID, targetSeconds } = proposed.state;
+    const elapsedSeconds = Math.max(proposed.end(instant), phase === 'break' && breakAwayStartedAt
+      ? breakElapsedAtAway + Math.max(0, (instant.wall - breakAwayStartedAt) / 1000) : 0);
+    const payload = { sessionID, targetSeconds, elapsedSeconds };
+    store.transaction(() => {
+      if (awayStartedAt || breakAwayStartedAt) append('awayEnded', { reason: 'day ended' }, { occurredAt: instant.wall, source: 'inferred' });
+      if (phase !== 'idle') {
+        if (phase === 'break') append('breakConfirmed', payload, { occurredAt: instant.wall });
+        append(phase === 'focus' ? 'focusEnded' : 'breakEnded', payload, { occurredAt: instant.wall });
+        grant(phase, sessionID, elapsedSeconds, targetSeconds, instant);
+      }
+      append('dayEnded', { dayKey: dayKey(instant.wall) }, { occurredAt: instant.wall });
+    });
+    timer = proposed; dayEndedAt = instant.wall.toISOString(); suspended.clear();
+    awayStartedAt = null; breakAwayStartedAt = null; breakElapsedAtAway = 0;
+    returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
+    lastTick = instant; lastCheckpoint = instant.wall.getTime();
+    page = 'today'; message = ''; writeLease('idle');
   }
   function preparePlan(value, provenance, instant) {
     const key = value.dayKey || dayKey(instant.wall);
@@ -346,6 +374,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     breakCompleteSequence += signals.filter(signal => signal === 'breakComplete').length;
   }
   function beginAway(reason, startedAt = now().wall, idleSeconds = 0) {
+    if (dayEndedAt) return;
+    startedAt = new Date(Math.max(startedAt.getTime(), dateForDayKey(dayKey(now().wall)).getTime()));
     if (timer.state.phase !== 'idle') startedAt = new Date(Math.max(startedAt.getTime(), ms(timer.state.startedAt)));
     if (timer.state.phase === 'break') {
       if (!breakAwayStartedAt) {
@@ -479,15 +509,17 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         if (!block.active || block.kind !== 'break' || ms(block.start) >= ms(liveBreak.end)) return [block];
         return ms(block.end) > ms(liveBreak.end) ? [{ ...block, start: liveBreak.end }] : [];
       });
+      if (dayEndedAt) forecastCache = forecastCache.filter(block => block.actual);
       if (liveAway?.inferred || (liveBreak && timer.state.isDue)) {
         forecastCache = forecastCache.filter(block => !block.forecast || block.kind === 'meeting');
       }
       forecastCacheKey = forecastKey;
     }
-    const guide = liveAway?.inferred
+    const endGuide = dayEndGuidance(plan, instant.wall, dayEndedAt, dayEndSnoozedUntil);
+    const guide = endGuide || (liveAway?.inferred
       ? { situation: 'runningBreak', title: returnCandidateAt ? 'Welcome back' : 'Break detected',
         detail: returnCandidateAt ? 'Your break appears to be ending. Confirm when you are ready to focus.' : 'Time away from your Mac is counting as a break.' }
-      : todayGuidance(plan, forecastCache, actualWithLiveAway, instant.wall, timer.state);
+      : todayGuidance(plan, forecastCache, actualWithLiveAway, instant.wall, timer.state));
     const currentMinutes = Math.floor(today.focusSeconds / 60);
     const breakMinutes = Math.floor((today.breakSeconds + (liveAway?.inferred ? liveAwaySeconds : 0) + liveBreakSeconds) / 60);
     const dayStart = new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate()).getTime();
@@ -501,23 +533,25 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       ...(plan?.meetings || []).map(item => [ms(item.start), ms(item.end)]),
       ...(timer.state.phase === 'focus' && !timer.state.isSleeping
         ? [[ms(timer.state.observedSegmentStartedAt || timer.state.startedAt), instant.wall.getTime()]] : []),
-    ].map(([from, until]) => [Math.max(dayStart, from), Math.min(instant.wall.getTime(), until)])
+    ].map(([from, until]) => [Math.max(dayStart, from), Math.min(dayEndedAt ? ms(dayEndedAt) : instant.wall.getTime(), until)])
       .filter(([from, until]) => until > from).sort((a, b) => a[0] - b[0]);
     let workingMs = 0, coveredUntil = dayStart;
     for (const [from, until] of workSpans) {
       workingMs += Math.max(0, until - Math.max(from, coveredUntil));
       coveredUntil = Math.max(coveredUntil, until);
     }
-    const display = liveAway?.inferred ? countDown(liveAwaySeconds) : guide.situation === 'working'
+    const display = guide.situation === 'wrappingUp' ? countDown((ms(dayEndSnoozedUntil) - instant.wall) / 1000) : liveAway?.inferred ? countDown(liveAwaySeconds) : guide.situation === 'working'
       ? countDown((ms(guide.action.until) - instant.wall) / 1000)
       : timer.state.phase === 'idle' ? `${String(focusLength).padStart(2, '0')}:00` : countDown(timer.remainingSeconds);
-    return { page, profile, phase: timer.state.phase, timer: { ...timer.state, remainingSeconds: timer.remainingSeconds }, countdown: display,
+    return { page, profile, dayEndedAt, dayEndSnoozedUntil, dayEnding: Boolean(endGuide),
+      todayReflection: events.findLast(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, instant.wall))?.payload.note || '',
+      phase: timer.state.phase, timer: { ...timer.state, remainingSeconds: timer.remainingSeconds }, countdown: display,
       currentWallTime: instant.wall.getTime() / 1000, currentWallTimeISO: instant.wall.toISOString(),
       todaySituation: guide.situation, todayTitle: guide.title, todayProposedSeconds: guide.action?.until ? Math.max(0, (ms(guide.action.until) - instant.wall) / 1000) : 0,
-      timerTargetSeconds: timer.state.targetSeconds, breakDue: timer.state.phase === 'focus' && timer.state.isDue && !liveAway?.inferred,
+      timerTargetSeconds: timer.state.targetSeconds, breakDue: timer.state.phase === 'focus' && timer.state.isDue && !liveAway?.inferred && !endGuide,
       inferredBreakActive: Boolean(liveAway?.inferred), suspended: timer.state.isSleeping,
       reminderSequence, breakCompleteSequence,
-      returnPrompt: returnCandidateAt ? { since: returnCandidateAt.toISOString(),
+      returnPrompt: returnCandidateAt && !endGuide ? { since: returnCandidateAt.toISOString(),
         activeSeconds: returnActivityStartedAt ? Math.max(0, (instant.wall - returnActivityStartedAt) / 1000) : 0,
         autoEndAfterSeconds: RETURN_ACTIVITY_SECONDS,
         kind: awayStartedAt ? 'inferred' : 'started' } : null,
@@ -555,10 +589,21 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'day-time'].includes(name)) {
       throw new Error('Development action unavailable.');
     }
+    syncDay();
+    if (dayEndedAt && ['away', 'return', 'sleep-wake', 'sleep', 'wake', 'lock', 'unlock', 'dev-away', 'dev-return', 'dev-sleep-wake', 'confirm-return'].includes(name)) return status();
     switch (name) {
       case 'tick': tick(Number(value) || 0); return;
       case 'navigate': page = viewPages.has(String(value)) ? String(value) : 'today'; break;
       case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft); break;
+      case 'end-day': endDay(); break;
+      case 'snooze-end-day': {
+        if (dayEndedAt || !currentPlan || now().wall < new Date(currentPlan.end)) break;
+        const minutes = Number(value?.minutes ?? value ?? 5);
+        if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60 || minutes % 5 !== 0) throw new Error('Snooze for 5 to 60 minutes in five-minute steps.');
+        const instant = now(), until = new Date(instant.wall.getTime() + minutes * 60000).toISOString();
+        append('dayEndSnoozed', { dayKey: dayKey(instant.wall), minutes, until }, { occurredAt: instant.wall });
+        dayEndSnoozedUntil = until; message = ''; break;
+      }
       case 'end-focus': endFocus(); break;
       case 'start-break': start('break', Number(value?.targetSeconds || breakLength * 60)); break;
       case 'start-long-break': start('break', 30 * 60); break;
@@ -600,6 +645,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         const proposed = status().guidance.action;
         if (proposed?.type === 'focus') start('focus', Math.max(1, (ms(proposed.until) - now().wall) / 1000));
         else if (proposed?.type === 'rest') start('break', breakLength * 60);
+        else if (proposed?.type === 'endDay') endDay();
         else if (proposed?.type === 'editPlan') page = 'plan';
         break;
       }
@@ -637,11 +683,12 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'day-time': savePlan({ ...(currentPlan || {}), start: value?.start || bounds.start, end: value?.end || bounds.end, customBlocks: null }); break;
       case 'save-reflection': {
         const note = String(typeof value === 'string' ? value : value?.note || '').trim(); if (!note) break;
-        if (note !== savedReflection) {
-          const yesterday = new Date(now().wall); yesterday.setDate(yesterday.getDate() - 1);
-          append('reflection', { day: yesterday.toISOString(), note });
-        }
-        savedReflection = note; message = 'Reflection saved.'; break;
+        const yesterday = new Date(now().wall); yesterday.setDate(yesterday.getDate() - 1);
+        const day = value?.dayKey ? dateForDayKey(value.dayKey) : yesterday;
+        const existing = allEvents().findLast(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, day));
+        if (note !== existing?.payload.note) append('reflection', { day: day.toISOString(), note });
+        if (sameDay(day, yesterday)) savedReflection = note;
+        message = 'Reflection saved.'; break;
       }
       case 'save-preferences': {
         const nextFocus = Number(value?.focusMinutes ?? value?.focusLength ?? defaultFocusLength);

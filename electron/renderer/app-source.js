@@ -5,7 +5,7 @@ const pages = [
   ['today', '◉', 'Today'], ['plan', '▦', 'Plan'], ['history', '◷', 'History']
 ];
 const state = () => appStore.getState();
-const draftFields = new Set(['settings-focus', 'settings-break', 'settings-start', 'settings-end', 'settings-activity-delay', 'notifications', 'reflection-input', 'meeting-name']);
+const draftFields = new Set(['settings-focus', 'settings-break', 'settings-start', 'settings-end', 'settings-activity-delay', 'notifications', 'reflection-input', 'today-reflection-input', 'meeting-name']);
 const planFields = new Set(['day-start', 'day-end', 'focus-length', 'break-length']);
 const planDraftTimers = new Map();
 let planSaveInFlight = false;
@@ -64,7 +64,7 @@ function acceptStatus(next, previous) {
   }
   const stable = snapshot => JSON.stringify(Object.fromEntries(Object.entries(snapshot).filter(([key]) => !changing.has(key))));
   const editing = state().dirtyInputs.size > 0 || document.activeElement?.matches('input, textarea, select, [contenteditable]');
-  if (before.page !== status.page || before.profile !== status.profile || !editing) state().deferRender(false);
+  if (before.page !== status.page || before.profile !== status.profile || before.todayKey !== status.todayKey || !editing) state().deferRender(false);
   else if (editing) state().deferRender(true);
   if (before.returnPrompt?.since !== status.returnPrompt?.since && !state().renderDeferred) render();
   else if (stable(before) === stable(status) || state().renderDeferred) {
@@ -120,15 +120,16 @@ function activityMeter() {
 }
 function updatePresenceDisplay() {
   const activity = state().status.activity || {};
-  const away = activity.state === 'inactive';
+  const ended = Boolean(state().status.dayEndedAt);
+  const away = ended || activity.state === 'inactive';
   document.querySelectorAll('.presence-emoji').forEach(node => {
     node.textContent = away ? '😴' : '😊';
-    node.setAttribute('aria-label', away ? 'Sleeping: likely away from the computer' : 'Happy: recent computer activity');
+    node.setAttribute('aria-label', ended ? 'Resting: day ended' : away ? 'Sleeping: likely away from the computer' : 'Happy: recent computer activity');
   });
   const threshold = activity.inactiveAfterSeconds || 5;
   const elapsed = activity.idleSeconds;
   const progress = elapsed === null || elapsed === undefined ? (away ? 1 : 0) : Math.min(1, Math.max(0, elapsed / threshold));
-  const label = activity.state === 'unknown' ? 'Activity unavailable'
+  const label = ended ? 'Day ended · activity ignored' : activity.state === 'unknown' ? 'Activity unavailable'
     : away ? (elapsed === null || elapsed === undefined ? 'Away' : `Away · ${elapsed}s idle`)
       : `Away in ${Math.max(0, threshold - (elapsed || 0))}s`;
   document.querySelectorAll('.activity-meter').forEach(node => {
@@ -160,10 +161,20 @@ function guidance() {
   if (s.phase === 'rest' || s.phase === 'break') return { title: 'Break in progress', detail: 'Step away from the computer for your break.' };
   return { title: 'Ready when you are.', detail: 'Start a focus session or create a plan for today.', action: 'focus' };
 }
+function snoozeControl(action, label) {
+  return `<div class="snooze-control"><label for="snooze-minutes">Snooze <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="Snooze minutes">${actionButton(label, action, undefined, false, action)}</div>`;
+}
+function todayReflection() {
+  const saved = state().status.todayReflection || '';
+  const editing = state().todayReflectionDraft !== null || !saved;
+  return card(`<div class="card-head">${section('How did today feel?')}${saved && !editing ? actionButton('Edit reflection', 'edit-today-reflection', undefined, false, 'edit-today-reflection') : ''}</div>${editing ? `<p class="muted">What felt good? What would you like to do differently tomorrow? A reflection is optional.</p><input class="text-input" id="today-reflection-input" data-day-key="${html(state().status.todayKey)}" aria-label="Today’s reflection" placeholder="A thought to carry into tomorrow…" value="${html(state().todayReflectionDraft ?? saved)}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-today-reflection', undefined, false, 'cancel-today-reflection') : ''}${actionButton('Save reflection', 'save-today-reflection', undefined, false, 'save-today-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`}`);
+}
 function todayActions(g) {
   const s = state().status;
+  if (g.situation === 'dayEnded') return '<button class="button" data-page="plan" data-plan-tomorrow id="plan-tomorrow">Plan tomorrow</button>';
+  if (g.situation === 'afterDay' || g.situation === 'wrappingUp') return `${actionButton('End day', 'end-day', undefined, true, 'end-day')} ${snoozeControl('snooze-end-day', 'Snooze ending day')}`;
   if (s.inferredBreakActive) return actionButton("I'm back · start focus", 'confirm-return', undefined, true, 'end-inferred-break');
-  const snooze = `<div class="snooze-control"><label for="snooze-minutes">Snooze <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="Snooze minutes">${actionButton(s.phase === 'idle' ? 'Snooze & focus' : 'Snooze', 'snooze-break', undefined, false, 'snooze-break')}</div>`;
+  const snooze = snoozeControl('snooze-break', s.phase === 'idle' ? 'Snooze & focus' : 'Snooze');
   const longBreak = actionButton('Take long break · 30m', 'start-long-break', undefined, false, 'start-long-break');
   if (g.situation === 'working') return `${actionButton('Take a break', 'start-break', undefined, true, 'start-break')} ${longBreak}`;
   if (s.phase === 'focus') return `${actionButton('Take a break', 'start-break', undefined, true, 'start-break')} ${longBreak} ${s.breakDue ? `${snooze} ${actionButton('Skip', 'skip-break', undefined, false, 'skip-break')}` : ''}`;
@@ -182,7 +193,7 @@ function todayAcorns(status, open) {
 }
 function today(acornsOpen = false) {
   const s = state().status, g = guidance();
-  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div>${todayAcorns(s, acornsOpen)}</header><section class="today-stage"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${s.phase !== 'idle' || g.situation === 'working' ? `<div class="timer"><span id="timer-countdown">${shownCountdown(s)}</span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}</div></section>${dayPath(s)}<div class="today-footnote"><span><b>${html(s.workingMinutesToday || 0)}</b> min working</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div>${todayAcorns(s, acornsOpen)}</header><section class="today-stage"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${!['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp') ? `<div class="timer"><span id="timer-countdown">${shownCountdown(s)}</span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}</div></section>${s.dayEndedAt ? todayReflection() : ''}${dayPath(s)}<div class="today-footnote"><span><b>${html(s.workingMinutesToday || 0)}</b> min working</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -504,13 +515,25 @@ document.addEventListener('click', event => {
   const planDay = event.target.closest('[data-plan-day]');
   if (planDay) { flushPlanDraft(); state().selectPlanDay(planDay.dataset.planDay); render(); return; }
   const pageButton = event.target.closest('[data-page]');
-  if (pageButton) { if (profileMenu) profileMenu.open = false; flushPlanDraft(); state().setPage(pageButton.dataset.page); dispatch('navigate', state().page); render(); return; }
+  if (pageButton) { if (pageButton.hasAttribute('data-plan-tomorrow')) state().selectPlanDay('tomorrow'); if (profileMenu) profileMenu.open = false; flushPlanDraft(); state().setPage(pageButton.dataset.page); dispatch('navigate', state().page); render(); return; }
   if (event.target.closest('#open-meetings')) { state().setUI({ meetingEditor: true }); meetingDialog(); return; }
   if (event.target.closest('#close-meetings') || (event.target.id === 'modal-backdrop' && !state().status.returnPrompt)) { closeMeetings(); return; }
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const name = button.dataset.action;
+  if (name === 'edit-today-reflection' || name === 'cancel-today-reflection') {
+    state().setUI({ todayReflectionDraft: name === 'edit-today-reflection' ? state().status.todayReflection || '' : null });
+    state().clearDirty('today-reflection-input'); state().deferRender(false); render(); return;
+  }
+  if (name === 'save-today-reflection') {
+    const input = document.getElementById('today-reflection-input');
+    const note = input?.value.trim();
+    if (note) dispatch('save-reflection', { note, dayKey: input.dataset.dayKey }).then(result => {
+      if (result) { state().setUI({ todayReflectionDraft: null }); state().clearDirty('today-reflection-input'); state().deferRender(false); render(); }
+    });
+    return;
+  }
   if (name === 'edit-reflection') { state().setUI({ reflectionDraft: state().status.savedReflection ?? '' }); render(); document.getElementById('reflection-input')?.focus(); return; }
   if (name === 'cancel-reflection-edit') { state().setUI({ reflectionDraft: null }); render(); return; }
   if (name === 'save-reflection') { const value = document.getElementById('reflection-input')?.value.trim(); if (value) { state().setUI({ reflectionDraft: null }); state().clearDirty('reflection-input'); state().deferRender(false); dispatch(name, value); } return; }
@@ -520,7 +543,7 @@ document.addEventListener('click', event => {
     if (state().status.developmentMode && state().status.phase !== 'idle' && remaining > 0) dispatch('dev-advance', { minutes: (remaining + 1) / 60 });
     return;
   }
-  if (name === 'snooze-break') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
+  if (name === 'snooze-break' || name === 'snooze-end-day') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
   if (name === 'start-focus' && !state().status.dayPlans?.[state().status.todayKey]?.baseline) {
     dispatch(name, { planDraft: state().planDrafts[state().status.todayKey] }); return;
   }
@@ -563,6 +586,7 @@ document.addEventListener('input', event => {
   }
   if (event.target.id) state().markDirty(event.target.id);
   if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
+  if (event.target.id === 'today-reflection-input') state().setUI({ todayReflectionDraft: event.target.value });
   if (event.target.id === 'reflection-input') state().setUI({ reflectionDraft: event.target.value });
   if (event.target.id === 'meeting-name') state().setUI({ meetingDraft: event.target.value });
 });
@@ -570,6 +594,7 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && state().meetingEditor) closeMeetings();
   if (event.key === 'Escape') document.querySelector('#today-acorns[open]')?.removeAttribute('open');
   if (event.key === 'Escape') document.querySelector('.profile-menu[open]')?.removeAttribute('open');
+  if (event.key === 'Enter' && event.target.id === 'today-reflection-input') { event.preventDefault(); document.getElementById('save-today-reflection')?.click(); }
   if (event.key === 'Enter' && event.target.id === 'reflection-input') { event.preventDefault(); document.getElementById('save-reflection')?.click(); }
 });
 document.addEventListener('contextmenu', event => {

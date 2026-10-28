@@ -364,6 +364,7 @@ test('short away time remains a break but does not reset the focus cycle', () =>
 
 test('continued activity ends an inferred break at the first return and credits the next focus minute', () => {
   const { core } = temporaryCore();
+  setLocalClock(core, 9, 0);
   const first = core.action('start-focus');
   core.action('away');
   core.action('advance', 10);
@@ -384,6 +385,7 @@ test('continued activity ends an inferred break at the first return and credits 
 
 test('an activity lapse stops automatic return until activity continues again', () => {
   const { core } = temporaryCore();
+  setLocalClock(core, 9, 0);
   core.action('start-focus'); core.action('away'); core.action('advance', 10);
   core.action('return');
   core.action('advance', .5);
@@ -403,7 +405,7 @@ test('an activity lapse stops automatic return until activity continues again', 
 
 test('sleep time becomes a live inferred break, including across restart', () => {
   const { core, dbPath } = temporaryCore();
-  core.action('wall-jump', -30);
+  setLocalClock(core, 9, 0);
   core.action('start-focus');
   core.action('sleep');
   core.action('advance', 20);
@@ -414,6 +416,7 @@ test('sleep time becomes a live inferred break, including across restart', () =>
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
   assert.equal(reopened.status().inferredBreakActive, true);
   assert.equal(reopened.status().suspended, true);
+  setLocalClock(reopened, 10, 0);
   const returned = reopened.action('return');
   assert.ok(returned.returnPrompt);
   const focusing = reopened.action('confirm-return');
@@ -463,6 +466,7 @@ test('a started break counts sleep across a same-day restart', () => {
 
 test('an explicit break automatically ends after sustained return activity', () => {
   const { core } = temporaryCore();
+  setLocalClock(core, 9, 0);
   core.action('start-focus'); core.action('start-break');
   core.action('away'); core.action('advance', 4);
   const prompt = core.action('return');
@@ -548,6 +552,7 @@ test('new day bounds stay between 7 AM and 9 PM in 15-minute steps', () => {
 
 test('focus and confirmed break grant once and persist after restart', () => {
   const { dbPath, statusPath, core } = temporaryCore();
+  setLocalClock(core, 9, 0);
   core.action('start-focus'); core.action('advance', 60);
   assert.equal(core.status().breakDue, true);
   core.action('start-break');
@@ -979,5 +984,102 @@ test('a rejected event write leaves the committed timer and plan in place', () =
   assert.equal(core.status().phase, 'focus');
   assert.equal(core.status().events.filter(event => event.kind === 'focusEnded').length, 0);
   database.exec('DROP TRIGGER reject_events');
+  database.close(); core.close();
+});
+
+function setLocalClock(core, hour, minute = 0) {
+  const current = new Date(core.status().currentWallTimeISO);
+  const target = new Date(current); target.setHours(hour, minute, 0, 0);
+  return core.action('wall-jump', (target - current) / 60000);
+}
+
+test('planned finish replaces focus, break, idle, and inferred return guidance with end day', () => {
+  for (const phase of ['focus', 'break', 'idle', 'away']) {
+    const { core } = temporaryCore();
+    setLocalClock(core, 16);
+    core.action('start-focus');
+    if (phase === 'break') core.action('start-break');
+    if (phase === 'idle') core.action('end-focus');
+    if (phase === 'away') core.action('away');
+    core.action('advance', 60);
+    if (phase === 'away') core.action('return');
+    const due = core.status();
+    assert.equal(due.todaySituation, 'afterDay', phase);
+    assert.equal(due.guidance.action.type, 'endDay');
+    assert.equal(due.breakDue, false);
+    assert.equal(due.returnPrompt, null);
+    const ended = core.action('end-day');
+    assert.equal(ended.phase, 'idle');
+    assert.equal(ended.todaySituation, 'dayEnded');
+    assert.equal(ended.inferredBreakActive, false);
+    assert.equal(ended.events.filter(event => event.kind === 'dayEnded').length, 1);
+    if (phase === 'break') assert.equal(ended.events.filter(event => event.kind === 'breakConfirmed').length, 1);
+    core.close();
+  }
+});
+
+test('end day snooze preserves the plan and active session, persists, and prompts again', () => {
+  const { core, dbPath } = temporaryCore();
+  setLocalClock(core, 16);
+  const started = core.action('start-focus');
+  core.action('advance', 60);
+  const snoozed = core.action('snooze-end-day', { minutes: 15 });
+  assert.equal(snoozed.todaySituation, 'wrappingUp');
+  assert.equal(snoozed.timer.sessionID, started.timer.sessionID);
+  assert.equal(snoozed.plan.end, started.plan.end);
+  assert.equal(snoozed.dayPlans[snoozed.todayKey].revisionCount, 0);
+  assert.equal(snoozed.breakDue, false);
+  assert.throws(() => core.action('snooze-end-day', { minutes: 7 }), /five-minute/);
+  core.close();
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  setLocalClock(reopened, 17, 5);
+  assert.equal(reopened.status().dayEndSnoozedUntil, snoozed.dayEndSnoozedUntil);
+  assert.equal(reopened.status().todaySituation, 'wrappingUp');
+  assert.equal(reopened.action('advance', 11).todaySituation, 'afterDay');
+  reopened.close();
+});
+
+test('ended day ignores presence and session commands across restart, then resets tomorrow', () => {
+  const { core, dbPath, statusPath } = temporaryCore();
+  setLocalClock(core, 16);
+  core.action('start-focus'); core.action('advance', 60);
+  const ended = core.action('end-day');
+  assert.ok(ended.focusMinutesToday >= 60);
+  assert.equal(JSON.parse(readFileSync(statusPath)).phase, 'idle');
+  const eventCount = ended.events.length;
+  for (const action of ['away', 'return', 'lock', 'unlock', 'sleep', 'wake', 'sleep-wake', 'start-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'end-day']) core.action(action);
+  core.action('advance', 10); core.action('tick', 600);
+  assert.equal(core.status().events.length, eventCount);
+  assert.equal(core.status().workingMinutesToday, ended.workingMinutesToday);
+  assert.deepEqual(core.status().actualTimeline, ended.actualTimeline);
+  const dayKey = ended.todayKey;
+  core.action('save-reflection', { dayKey, note: 'A steady day. Tomorrow, take breaks sooner.' });
+  core.close();
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  assert.equal(reopened.status().dayEndedAt, ended.dayEndedAt);
+  assert.equal(reopened.status().todayReflection, 'A steady day. Tomorrow, take breaks sooner.');
+  assert.equal(reopened.status().phase, 'idle');
+  const tomorrow = reopened.action('wall-jump', 24 * 60);
+  assert.equal(tomorrow.dayEndedAt, null);
+  assert.equal(tomorrow.dayEndSnoozedUntil, null);
+  assert.equal(tomorrow.savedReflection, 'A steady day. Tomorrow, take breaks sooner.');
+  assert.equal(reopened.action('start-focus').phase, 'focus');
+  reopened.close();
+});
+
+test('end day and snooze install no state or partial rewards when their transaction fails', () => {
+  const { core, dbPath } = temporaryCore();
+  setLocalClock(core, 16);
+  core.action('start-focus'); core.action('advance', 60);
+  const database = new DatabaseSync(dbPath);
+  database.exec("CREATE TRIGGER reject_day BEFORE INSERT ON events WHEN NEW.kind IN ('dayEnded', 'dayEndSnoozed') BEGIN SELECT RAISE(ABORT, 'write rejected'); END");
+  const before = core.status();
+  assert.throws(() => core.action('end-day'), /write rejected/);
+  assert.equal(core.status().dayEndedAt, null);
+  assert.equal(core.status().phase, 'focus');
+  assert.deepEqual(core.status().events, before.events);
+  assert.throws(() => core.action('snooze-end-day'), /write rejected/);
+  assert.equal(core.status().dayEndSnoozedUntil, null);
+  database.exec('DROP TRIGGER reject_day');
   database.close(); core.close();
 });

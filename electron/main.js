@@ -34,7 +34,7 @@ const initialProfile = development ? 'testing' : 'personal';
 let activeProfile = initialProfile;
 const rendererActions = new Set([
   'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'snooze-break',
-  'skip-break', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
+  'skip-break', 'end-day', 'snooze-end-day', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile', 'purchase', 'preview-rewards',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database',
   'dev-scenario', 'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake',
@@ -71,7 +71,7 @@ function appStatus() {
   const { events: _events, ...state } = core.status();
   return {
     ...state,
-    activity: activity.status(),
+    activity: state.dayEndedAt ? { ...activity.status(), state: 'inactive', idleSeconds: null } : activity.status(),
     appActive: Boolean(window?.isFocused()),
     dockIconActive: app.dock?.isVisible() ?? false,
     publicationEpoch, publicationNumber,
@@ -95,12 +95,14 @@ function closeBreakNotification() {
 
 function showBreakReminder(notice) {
   closeBreakNotification();
-  const actions = notice.kind === 'timer'
+  const actions = notice.kind === 'endDay'
+    ? [['End day', 'end-day'], ['Snooze 5 min', 'snooze-end-day']]
+    : notice.kind === 'timer'
     ? [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break'], ['Skip', 'skip-break']]
     : [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break']];
   const prompt = new Notification({
-    title: 'Time for a real break',
-    body: notice.kind === 'timer' ? 'Your focus time is up. Take a break, snooze, or skip.' : 'Your day plan suggests a break now. Take a break or snooze.',
+    title: notice.kind === 'endDay' ? 'Time to end your day' : 'Time for a real break',
+    body: notice.kind === 'endDay' ? 'You’ve reached your planned finish. End your day, or snooze to wrap up.' : notice.kind === 'timer' ? 'Your focus time is up. Take a break, snooze, or skip.' : 'Your day plan suggests a break now. Take a break or snooze.',
     actions: actions.map(([label]) => ({ type: 'button', text: label })),
     groupId: 'cozy-focus-break-reminder',
   });
@@ -110,6 +112,7 @@ function showBreakReminder(notice) {
     if (!breakReminder.isCurrent(notice.key, appStatus())) return showToday();
     const action = actions[event.actionIndex ?? index]?.[1];
     if (action) execute(action);
+    if (action === 'end-day') showToday();
   });
   prompt.on('close', () => {
     if (activeBreakNotification?.prompt === prompt) activeBreakNotification = null;
@@ -127,12 +130,12 @@ function publish() {
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
   if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow();
   lastReturnPromptSince = state.returnPrompt?.since || null;
-  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
+  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
   const notice = breakReminder.next({ ...state, notificationsEnabled: state.notificationsEnabled && (development || Notification.isSupported()) });
   if (activeBreakNotification && !breakReminder.isCurrent(activeBreakNotification.key, state)) closeBreakNotification();
   if (notice && development) lastBreakReminderPreview = notice;
   if (notice && !development) showBreakReminder(notice);
-  if (state.breakCompleteSequence > lastBreakCompleteSequence && !development && state.notificationsEnabled && Notification.isSupported()) {
+  if (state.breakCompleteSequence > lastBreakCompleteSequence && !state.dayEnding && !development && state.notificationsEnabled && Notification.isSupported()) {
     const complete = new Notification({ title: 'Break complete', body: 'Open the app to confirm your break.' });
     complete.on('click', showWindow);
     complete.show();

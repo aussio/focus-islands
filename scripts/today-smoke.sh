@@ -40,4 +40,40 @@ assert changed["timerTargetSeconds"] == target
 assert changed["focusLength"] == 40 and changed["breakLength"] == 10
 status("end-focus")
 print("PASS plan guidance, suggested timer target, and active target preservation")
+status("navigate", "today")
+status("start-focus")
+status("activity-sample", 0)
+due = status("advance", 150)
+assert due["todaySituation"] == "afterDay" and not due["breakDue"]
+assert status()["lastBreakReminderPreview"]["kind"] == "endDay"
+status("ui-fill", {"selector": "#snooze-minutes", "text": "15"})
+snoozed = status("ui-click", "#snooze-end-day")
+assert snoozed["todaySituation"] == "wrappingUp"
+assert snoozed["phase"] == "focus"
+assert datetime.fromisoformat(snoozed["plan"]["end"].replace("Z", "+00:00")) == datetime.fromisoformat(end)
+assert status("advance", 16)["todaySituation"] == "afterDay"
+result = json.loads(subprocess.run([str(control), "screenshot"], check=True, capture_output=True, text=True).stdout)
+print("End-day prompt screenshot:", result["screenshot"])
+ended = status("ui-click", "#end-day")
+assert ended["phase"] == "idle" and ended["dayEndedAt"] and ended["returnPrompt"] is None
+status("ui-fill", {"selector": "#today-reflection-input", "text": "A good day. More time outside tomorrow."})
+saved = status("ui-click", "#save-today-reflection")
+assert saved["todayReflection"] == "A good day. More time outside tomorrow."
+assert status("start-focus")["phase"] == "idle"
+assert status("sleep-wake")["phase"] == "idle"
+status("quit")
+subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
+reopened = status()
+assert reopened["dayEndedAt"] == ended["dayEndedAt"] and reopened["phase"] == "idle"
+assert reopened["todayReflection"] == saved["todayReflection"]
+status("ui-click", "#edit-today-reflection")
+status("ui-fill", {"selector": "#today-reflection-input", "text": "A good day, with room for a longer walk."})
+assert status("ui-click", "#save-today-reflection")["todayReflection"] == "A good day, with room for a longer walk."
+result = json.loads(subprocess.run([str(control), "screenshot"], check=True, capture_output=True, text=True).stdout)
+print("Ended-day reflection screenshot:", result["screenshot"])
+status("ui-click", "#plan-tomorrow")
+assert status()["page"] == "plan"
+assert status("wall-jump", 24 * 60)["savedReflection"] == "A good day, with room for a longer walk."
+assert status()["dayEndedAt"] is None
+print("PASS end-day guidance, snooze, reflection editing, restart, and next-day reset")
 PY

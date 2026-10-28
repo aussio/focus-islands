@@ -19,10 +19,17 @@ function nextFocusDescription(blocks, date) {
   if (ms(next.start) < date) return `${next.title || label[next.kind]} is scheduled until ${time(next.end)}.`;
   return `${next.title || label[next.kind]} is next at ${time(next.start)}.`;
 }
+function dayEndGuidance(plan, nowDate, endedAt = null, snoozedUntil = null) {
+  if (endedAt) return guidance('dayEnded', 'Your day is done', 'Enjoy your evening. Activity tracking and reminders are quiet until tomorrow.');
+  const now = ms(nowDate);
+  if (!plan || !sameDay(plan.day, now) || now < ms(plan.end)) return null;
+  if (snoozedUntil && now < ms(snoozedUntil)) return guidance('wrappingUp', 'A little time to wrap up', `We’ll remind you to end your day at ${time(snoozedUntil)}.`, { type: 'endDay', until: snoozedUntil });
+  return guidance('afterDay', 'Time to end your day', 'You’ve reached your planned finish. End your day, or snooze for a little time to wrap up.', { type: 'endDay' });
+}
 function scheduled(plan, blocks, now) {
   if (!plan) return guidance('noPlan', 'Ready when you are', 'Start a focus session or create a plan for today.', { type: 'editPlan' });
   if (now < ms(plan.start)) return guidance('beforeDay', `Your day starts at ${time(plan.start)}`, 'Your schedule is ready. Start when your day begins, or adjust your plan.', { type: 'editPlan' });
-  if (now >= ms(plan.end)) return guidance('afterDay', "You've reached the end of your plan", 'Adjust your finish time to extend today’s plan.', { type: 'editPlan' });
+  if (now >= ms(plan.end)) return dayEndGuidance(plan, now);
   const block = blocks.find(item => ms(item.start) <= now && now < ms(item.end));
   if (block?.kind === 'meeting') return guidance('working', block.title || 'Working', `Meeting until ${time(block.end)}.`, { type: 'working', until: block.end });
   if (!block) return guidance('pause', 'No activity scheduled now', 'Check your plan for what comes next.', { type: 'editPlan' });
@@ -39,7 +46,7 @@ function todayGuidance(plan, blocks, actual, nowDate, timer) {
   const now = ms(nowDate);
   if (plan && !sameDay(plan.day, now)) plan = null;
   const schedule = scheduled(plan, blocks, now);
-  if (timer.phase === 'idle') return schedule;
+  if (timer.phase === 'idle' || schedule.situation === 'afterDay') return schedule;
   const isFocus = timer.phase === 'focus';
   if (isFocus && timer.isDue && schedule.situation === 'working') return schedule;
   const title = timer.isSleeping ? (isFocus ? 'Focus is paused' : 'Your break is paused') : timer.isDue ? (isFocus ? 'Time for a real break' : 'Break complete') : (isFocus ? 'Focus in progress' : 'Break in progress');
@@ -56,4 +63,4 @@ function todayGuidance(plan, blocks, actual, nowDate, timer) {
   } else if (plan && !isFocus && now >= ms(plan.start) && now < ms(plan.end)) context = nextFocusDescription(blocks, now + remaining);
   return guidance(isFocus ? 'runningFocus' : 'runningBreak', snoozedFocus ? 'Focus extended' : title, context, null, isFocus ? proposedBreak(plan, blocks, now) : null);
 }
-module.exports = { todayGuidance };
+module.exports = { todayGuidance, dayEndGuidance };
