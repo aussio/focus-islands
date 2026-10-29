@@ -130,7 +130,10 @@ function publish() {
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
   if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow();
   lastReturnPromptSince = state.returnPrompt?.since || null;
-  if (tray) tray.setTitle(`${state.activity.state === 'inactive' ? '😴' : '😊'}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
+  if (tray) {
+    tray.setTitle(`${state.profile === 'testing' ? '🧪' : state.activity.state === 'inactive' ? '😴' : '😊'}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
+    tray.setToolTip(`Cozy Focus Pet · ${state.profile === 'testing' ? 'Testing' : 'Personal'} profile`);
+  }
   const notice = breakReminder.next({ ...state, notificationsEnabled: state.notificationsEnabled && (development || Notification.isSupported()) });
   if (activeBreakNotification && !breakReminder.isCurrent(activeBreakNotification.key, state)) closeBreakNotification();
   if (notice && development) lastBreakReminderPreview = notice;
@@ -190,8 +193,8 @@ function showWindow() {
 
 function makeTray() {
   tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle('😊');
-  tray.setToolTip('Cozy Focus Pet');
+  tray.setTitle(activeProfile === 'testing' ? '🧪' : '😊');
+  tray.setToolTip(`Cozy Focus Pet · ${activeProfile === 'testing' ? 'Testing' : 'Personal'} profile`);
   tray.on('click', () => window.isVisible() ? window.hide() : showWindow());
   tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate([
     { label: `${appStatus().profile === 'testing' ? 'Testing' : 'Personal'} profile`, enabled: false },
