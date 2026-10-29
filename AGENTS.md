@@ -26,3 +26,5 @@ If the user's `chrome-agents` Chrome DevTools MCP connection is available, use i
 ## Code boundaries
 
 Core timer, planning, event storage, and rewards are in `electron/core/`; the menu bar shell is in `electron/main.js`, and the window UI is in `electron/renderer/`. Preserve append-only event replay, unique reward grants, and profile-separated databases. The extension reads only a short-lived phase lease, never browsing content or history.
+
+Game work (islands, helpers, art, spending, long-term progress): read [game/AGENTS.md](game/AGENTS.md) first.
