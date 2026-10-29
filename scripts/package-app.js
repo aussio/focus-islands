@@ -33,9 +33,12 @@ async function main() {
     platform: 'darwin', arch: process.arch, electronVersion: manifest.devDependencies.electron,
     electronZipDir: cachedElectronZip(manifest.devDependencies.electron),
     appBundleId: 'local.cozyfocuspet.app', overwrite: true,
-    extendInfo: { LSUIElement: true, NSUserNotificationAlertStyle: 'alert' },
+    extendInfo: { LSUIElement: true },
   });
   const app = path.join(bundles[0], 'CozyFocusPet.app');
+  const displayName = spawnSync('/usr/libexec/PlistBuddy',
+    ['-c', 'Set :CFBundleDisplayName Cozy Focus Pet', path.join(app, 'Contents', 'Info.plist')], { stdio: 'inherit' });
+  if (displayName.status !== 0) throw new Error('Could not set the app display name.');
   const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
   if (signed.status !== 0) throw new Error('Local app signing failed.');
   const verified = spawnSync('codesign', ['--verify', '--deep', app], { stdio: 'inherit' });

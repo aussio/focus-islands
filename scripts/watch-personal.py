@@ -67,6 +67,12 @@ def main(root, app_bundle):
                 import shutil
                 shutil.rmtree(current_build)
             os.replace(next_build, current_build)
+            built_app = current_build / f"CozyFocusPet-darwin-{os.uname().machine}/CozyFocusPet.app"
+            installed = subprocess.run((str(root / "scripts/install-personal-bundle.sh"), str(built_app)))
+            if installed.returncode:
+                app = launch(root, app_bundle)
+                print("Could not install the update. The previous Personal app was reopened.", file=sys.stderr)
+                continue
             app = launch(root, app_bundle)
             print("Reloaded Personal app. Local data was kept.", flush=True)
         return 0

@@ -18,7 +18,7 @@ New plans default to 9 am–5 pm, with 60-minute focus windows and 10-minute bre
 
 At the planned finish, Today offers **End day** or a 5–60 minute snooze to wrap up. This takes priority over focus, break, and return prompts. End day closes the current session, keeps its recorded time and eligible rewards, and rests the companion until tomorrow, including after a restart. An optional “How did today feel?” reflection saves to today and appears in Yesterday the next day. Snoozing the finish reminder keeps the current session and saved plan unchanged.
 
-With Notifications enabled, the Personal app sends a macOS notification when a running focus timer is due or the live day forecast suggests a break while no timer is running. It repeats a reminder about every five minutes while the break is still due, and waits until the Mac is active and unlocked. At the planned finish, notifications offer End day or Snooze instead. Clicking opens Today; notification actions can start or snooze the break, and a due focus timer also offers Skip. Development runs calculate reminders for checks but do not show system notifications.
+With Visual reminders enabled, the Personal app brings Today forward and shows a short, click-through pixel confetti burst on every connected display when a break first becomes due. If the break is still due, a large shaking ⏰ enters from the top-right of each display about every five minutes, grows to roughly a quarter-screen footprint, then shrinks away. Reduced Motion removes the shaking and falling animations. Reminders wait until the Mac is active and unlocked; a scheduled meeting defers a due break reminder until it ends. At the planned finish, Today opens and later reminders use the clock. No macOS desktop notifications are sent.
 
 ## Run Personal
 
@@ -31,7 +31,7 @@ scripts/run-personal.sh
 
 The launcher opens the Electron app in **Personal**. The paw in the menu bar opens or hides the window. The app has no Dock icon. Right-click the paw and choose **Quit Cozy Focus Pet** to stop it. `scripts/run-personal.sh --watch` checks source changes and restarts the app after a successful check.
 To load updated code, quit from the paw menu and run `scripts/run-personal.sh` again. A focus or break session restarted on the same day keeps its session and recorded timer progress. Time while the app was closed is paused unless a recorded away interval is open; that interval continues as a break until return. A normal quit saves a final progress checkpoint. A session left open from a previous day closes at its last recorded checkpoint on launch.
-The local app bundle is `.build/ElectronBuild/CozyFocusPet-darwin-<architecture>/CozyFocusPet.app`. The build signs it locally for macOS notification actions. It is not installed in Applications.
+`run-personal.sh` builds, signs, and installs the app at `/Applications/Cozy Focus Pet.app` before launching it. The installation does not change the Personal database.
 
 Personal history stays at `~/Library/Application Support/CozyFocusPet/events.sqlite`. Settings can switch to a separate normal Testing profile while idle. A later normal launch starts in Personal again. The development launch below cannot enter Personal.
 
@@ -52,6 +52,8 @@ Use the checks that match the change. For a small UI change, drive just that flo
 On Today in the development app, drag anywhere on Your day path forward in 30-second steps. Releasing it advances the simulated clock; focus and break timers continue ticking from the new time. While a timer runs, **To focus end** or **To break end** advances precisely to its due point. The controls are available only in development mode and change Testing history.
 
 `scripts/run-dev.sh` is the background launch entry point; `scripts/dev-control.sh` sends commands to the app after it starts. The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. Both smoke scripts run hidden and default to separate disposable instances (`today-smoke` and `ui-smoke`); they reset only their own instance. Screenshots come from the app's own Electron window.
+
+For a packaging regression, `COZY_FOCUS_INSTANCE=packaged-check scripts/run-dev.sh --reset --hidden-window --packaged` builds and launches the signed bundle in an isolated Testing instance. Use the same instance with `dev-control.sh status` and `quit`.
 
 Use [development-tools/forecast](development-tools/forecast/README.md) to render a manually supplied day plan and history as a local HTML forecast preview. The tool contains no bundled scenario data and does not open a profile database.
 

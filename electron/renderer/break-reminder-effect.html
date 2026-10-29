@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Break reminder effect</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; pointer-events: none; }
+    #effect { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
+    .piece { position: absolute; width: var(--size); height: var(--size); background: var(--color);
+      box-shadow: 3px 3px 0 rgba(43, 70, 52, .2); opacity: 0;
+      animation: fall var(--duration) ease-in var(--delay) forwards; }
+    @keyframes fall {
+      0% { opacity: 0; transform: translate3d(0, -32px, 0) rotate(0deg); }
+      8%, 75% { opacity: 1; }
+      100% { opacity: 0; transform: translate3d(var(--drift), 115vh, 0) rotate(var(--turn)); }
+    }
+    .clock { position: absolute; top: 18vh; right: 6vw; width: min(48vw, 58vh); height: min(48vw, 58vh);
+      transform-origin: 85% 15%;
+      filter: drop-shadow(0 18px 18px rgba(43, 70, 52, .22));
+      animation: clock-reminder 3.4s both; }
+    @keyframes clock-reminder {
+      0% { opacity: 0; transform: translate3d(55vw, -55vh, 0) scale(.18) rotate(-20deg); }
+      20% { opacity: 1; transform: translate3d(0, 0, 0) scale(.82) rotate(7deg); }
+      36% { transform: translate3d(-1vw, 1vh, 0) scale(1) rotate(-9deg); }
+      43% { transform: translate3d(1vw, -1vh, 0) scale(1.08) rotate(9deg); }
+      50% { transform: translate3d(-1vw, 1vh, 0) scale(1.12) rotate(-8deg); }
+      57% { transform: translate3d(1vw, -1vh, 0) scale(1.08) rotate(8deg); }
+      68% { transform: translate3d(0, 0, 0) scale(1) rotate(0); }
+      82% { opacity: 1; transform: translate3d(0, 0, 0) scale(.8) rotate(0); }
+      100% { opacity: 0; transform: translate3d(55vw, -55vh, 0) scale(.12) rotate(20deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .piece { animation: none; opacity: .85; }
+      .clock { animation: clock-reduced 3.4s both; }
+      @keyframes clock-reduced {
+        0%, 100% { opacity: 0; }
+        15%, 85% { opacity: 1; }
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="effect" aria-hidden="true"></div>
+  <script src="break-reminder-effect.js"></script>
+</body>
+</html>

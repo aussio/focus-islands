@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, Notification, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, powerMonitor, screen } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
@@ -8,7 +8,8 @@ const { createBreakReminder } = require('./break-reminders');
 
 const development = process.env.COZY_FOCUS_DEV === '1';
 const support = path.join(os.homedir(), 'Library', 'Application Support', 'CozyFocusPet');
-const repository = fs.realpathSync(path.resolve(__dirname, '..'));
+const repository = fs.realpathSync(development && process.env.COZY_FOCUS_DEV_REPOSITORY
+  ? process.env.COZY_FOCUS_DEV_REPOSITORY : path.resolve(__dirname, '..'));
 const devInstance = process.argv.find(argument => argument.startsWith('--cozy-instance='))?.slice('--cozy-instance='.length) || 'default';
 if (development && !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(devInstance)) throw new Error('Invalid development instance name.');
 const devState = devInstance === 'default'
@@ -44,7 +45,6 @@ let core;
 let window;
 let tray;
 let quitting = false;
-let lastBreakCompleteSequence = 0;
 let lastReturnPromptSince = null;
 let lastBreakReminderPreview = null;
 let publicationEpoch = 0;
@@ -52,7 +52,9 @@ let publicationNumber = 0;
 let controlProcessing = false;
 const activity = createActivityDetector(development ? 5 : 120);
 const breakReminder = createBreakReminder();
-let activeBreakNotification = null;
+let lastBreakAlertKey = null;
+const reminderWindows = new Set();
+let reminderTimer = null;
 let screenLocked = false;
 let systemSuspended = false;
 let activityOverrideUntil = 0;
@@ -81,47 +83,41 @@ function appStatus() {
   };
 }
 
-function showToday() {
-  execute('navigate', 'today');
-  showWindow();
+function revealTodayForReminder(key) {
+  setTimeout(() => {
+    if (!breakReminder.isCurrent(key, appStatus())) return;
+    execute('navigate', 'today');
+    if (window && !window.isDestroyed()) window.showInactive();
+  }, 750);
 }
 
-function closeBreakNotification() {
-  if (!activeBreakNotification) return;
-  const { prompt } = activeBreakNotification;
-  activeBreakNotification = null;
-  prompt.close();
+function closeReminderEffect() {
+  if (reminderTimer) clearTimeout(reminderTimer);
+  reminderTimer = null;
+  for (const overlay of reminderWindows) if (!overlay.isDestroyed()) overlay.close();
+  reminderWindows.clear();
 }
 
-function showBreakReminder(notice) {
-  closeBreakNotification();
-  const actions = notice.kind === 'endDay'
-    ? [['End day', 'end-day'], ['Snooze 5 min', 'snooze-end-day']]
-    : notice.kind === 'timer'
-    ? [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break'], ['Skip', 'skip-break']]
-    : [['Start break', 'start-break'], ['Snooze 5 min', 'snooze-break']];
-  const prompt = new Notification({
-    title: notice.kind === 'endDay' ? 'Time to end your day' : 'Time for a real break',
-    body: notice.kind === 'endDay' ? 'You’ve reached your planned finish. End your day, or snooze to wrap up.' : notice.kind === 'timer' ? 'Your focus time is up. Take a break, snooze, or skip.' : 'Your day plan suggests a break now. Take a break or snooze.',
-    actions: actions.map(([label]) => ({ type: 'button', text: label })),
-    groupId: 'cozy-focus-break-reminder',
-  });
-  activeBreakNotification = { prompt, key: notice.key };
-  prompt.on('click', showToday);
-  prompt.on('action', (event, index) => {
-    if (!breakReminder.isCurrent(notice.key, appStatus())) return showToday();
-    const action = actions[event.actionIndex ?? index]?.[1];
-    if (action) execute(action);
-    if (action === 'end-day') showToday();
-  });
-  prompt.on('close', () => {
-    if (activeBreakNotification?.prompt === prompt) activeBreakNotification = null;
-  });
-  prompt.on('failed', (_event, error) => {
-    if (activeBreakNotification?.prompt === prompt) activeBreakNotification = null;
-    console.error('Break notification failed:', error);
-  });
-  prompt.show();
+function showReminderEffect(effect) {
+  closeReminderEffect();
+  for (const display of screen.getAllDisplays()) {
+    const { x, y, width, height } = display.bounds;
+    const overlay = new BrowserWindow({
+      x, y, width, height, show: false, frame: false, transparent: true,
+      focusable: false, skipTaskbar: true, hasShadow: false, resizable: false, movable: false,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    overlay.setIgnoreMouseEvents(true, { forward: true });
+    overlay.setAlwaysOnTop(true, 'floating');
+    overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    reminderWindows.add(overlay);
+    overlay.on('closed', () => reminderWindows.delete(overlay));
+    overlay.loadFile(path.join(__dirname, 'renderer', 'break-reminder-effect.html'), { query: { effect } })
+      .then(() => { if (!overlay.isDestroyed()) overlay.showInactive(); })
+      .catch(error => { console.error('Could not show reminder effect:', error); if (!overlay.isDestroyed()) overlay.close(); });
+  }
+  reminderTimer = setTimeout(closeReminderEffect, 3500);
+  return reminderWindows.size;
 }
 
 function publish() {
@@ -134,21 +130,23 @@ function publish() {
     tray.setTitle(`${state.profile === 'testing' ? '🧪' : state.activity.state === 'inactive' ? '😴' : '😊'}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
     tray.setToolTip(`Cozy Focus Pet · ${state.profile === 'testing' ? 'Testing' : 'Personal'} profile`);
   }
-  const notice = breakReminder.next({ ...state, notificationsEnabled: state.notificationsEnabled && (development || Notification.isSupported()) });
-  if (activeBreakNotification && !breakReminder.isCurrent(activeBreakNotification.key, state)) closeBreakNotification();
-  if (notice && development) lastBreakReminderPreview = notice;
-  if (notice && !development) showBreakReminder(notice);
-  if (state.breakCompleteSequence > lastBreakCompleteSequence && !state.dayEnding && !development && state.notificationsEnabled && Notification.isSupported()) {
-    const complete = new Notification({ title: 'Break complete', body: 'Open the app to confirm your break.' });
-    complete.on('click', showWindow);
-    complete.show();
+  const notice = breakReminder.next(state);
+  if (notice) {
+    const first = notice.key !== lastBreakAlertKey;
+    lastBreakAlertKey = notice.key;
+    const effect = first ? (notice.kind === 'endDay' ? null : 'confetti') : 'clock';
+    if (development) lastBreakReminderPreview = { ...notice, effect };
+    else {
+      if (effect) showReminderEffect(effect);
+      if (first) revealTodayForReminder(notice.key);
+    }
   }
-  lastBreakCompleteSequence = state.breakCompleteSequence || 0;
   return state;
 }
 
 function execute(name, value) {
   if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
+  if (name === 'dev-confetti' || name === 'dev-clock') return { ...publish(), reminderDisplayCount: showReminderEffect(name === 'dev-clock' ? 'clock' : 'confetti') };
   if (name === 'export-json' || name === 'backup-database') return saveUserCopy(name);
   if (name === 'switch-profile') {
     if (development || !['personal', 'testing'].includes(value)) throw new Error('Profile switch unavailable');
@@ -162,16 +160,20 @@ function execute(name, value) {
       activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
       publicationEpoch++;
       publicationNumber = 0;
-      lastBreakCompleteSequence = 0;
       lastReturnPromptSince = null;
       lastBreakReminderPreview = null;
-      closeBreakNotification();
+      lastBreakAlertKey = null;
+      closeReminderEffect();
       breakReminder.reset();
     }
     return publish();
   }
   core.action(name, value);
-  if (name === 'save-preferences') activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
+  if (['start-break', 'start-long-break', 'snooze-break', 'skip-break', 'end-day'].includes(name)) closeReminderEffect();
+  if (name === 'save-preferences') {
+    activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
+    if (!core.status().notificationsEnabled) closeReminderEffect();
+  }
   return publish();
 }
 
@@ -270,6 +272,16 @@ async function processControl() {
         fs.writeFileSync(screenshot, image.toPNG());
         const renderedPage = await window.webContents.executeJavaScript('document.querySelector("h1")?.textContent || document.querySelector("#today-guidance")?.textContent || ""');
         result = { ok: true, screenshot, renderedPage, status: appStatus() };
+      } else if (request.action === 'confetti-screenshot' || request.action === 'clock-screenshot') {
+        const effect = request.action === 'clock-screenshot' ? 'clock' : 'confetti';
+        const displayCount = showReminderEffect(effect);
+        await new Promise(resolve => setTimeout(resolve, effect === 'clock' ? 1500 : 400));
+        const overlay = [...reminderWindows][0];
+        if (!overlay) throw new Error('No display is available for the reminder effect.');
+        const image = await overlay.webContents.capturePage();
+        const screenshot = path.join(devState, `${effect}-${Date.now()}.png`);
+        fs.writeFileSync(screenshot, image.toPNG());
+        result = { ok: true, screenshot, displayCount, status: appStatus() };
       } else if (request.action === 'status') {
         result = { ok: true, status: appStatus() };
       } else if (request.action === 'activity-sample') {
@@ -331,7 +343,7 @@ async function processControl() {
         window.hide(); result = { ok: true, status: appStatus() };
       } else {
         if (typeof request.action !== 'string' || request.action.length > 64) throw new Error('Invalid command');
-        result = { ok: true, status: execute(request.action, request.value) };
+        result = { ok: true, status: await execute(request.action, request.value) };
       }
     } catch (error) { result = { ok: false, error: String(error.message || error), status: appStatus() }; }
     fs.writeFileSync(path.join(controlDir, `${request.id}.response`), JSON.stringify(result));
@@ -391,6 +403,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   quitting = true;
+  closeReminderEffect();
   if (core) {
     try { core.action('flush-plan'); core.action('publish-idle'); core.close(); } catch (error) { console.error(error); }
   }
