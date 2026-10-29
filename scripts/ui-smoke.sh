@@ -102,7 +102,7 @@ meeting_slots = [(item["start"], item["end"]) for item in resized]
 status("save-reflection", "A pause helped yesterday.")
 status("navigate", "today")
 today_image = call("screenshot")
-assert today_image["renderedPage"] == "Your little corner of today"
+assert today_image["renderedPage"] == today_image["status"]["todayGuidance"]["title"]
 print("Today screenshot:", today_image["screenshot"])
 status("start-focus")
 stability = call("input-stability")

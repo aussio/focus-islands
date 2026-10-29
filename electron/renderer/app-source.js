@@ -1,4 +1,5 @@
 import { dayPath } from './day-path.js';
+import { gardenScene } from './garden-scene.js';
 import { appStore } from './state.js';
 
 const pages = [
@@ -111,21 +112,36 @@ function previewTimeDrag(clientX) {
   slider.dataset.scrubbing = 'true';
   updateDayPathTime(state().status, Number(slider.value));
 }
-function presenceEmoji() {
-  return '<div class="presence-emoji" role="img" aria-label="Happy: recent computer activity">😊</div>';
+function activityLabel(status) {
+  if (status.dayEndedAt) return 'Day complete';
+  if (status.activity?.state === 'inactive') return 'Away from computer';
+  if (status.activity?.state !== 'active') return 'Activity unavailable';
+  return 'Activity detected';
 }
 function activityMeter() {
   if (!showActivityMeter()) return '';
   return '<div class="activity-meter"><span class="activity-meter-label">Checking activity…</span><div class="activity-meter-track" role="progressbar" aria-label="Time until away" aria-valuemin="0"><span class="activity-meter-fill"></span></div></div>';
 }
 function updatePresenceDisplay() {
-  const activity = state().status.activity || {};
-  const ended = Boolean(state().status.dayEndedAt);
+  const status = state().status;
+  const activity = status.activity || {};
+  const ended = Boolean(status.dayEndedAt);
   const away = ended || activity.state === 'inactive';
-  document.querySelectorAll('.presence-emoji').forEach(node => {
-    node.textContent = away ? '😴' : '😊';
-    node.setAttribute('aria-label', ended ? 'Resting: day ended' : away ? 'Sleeping: likely away from the computer' : 'Happy: recent computer activity');
-  });
+  const badge = document.getElementById('activity-status');
+  if (badge) {
+    badge.dataset.state = ended ? 'ended' : activity.state || 'unknown';
+    badge.querySelector('.activity-status-text').textContent = activityLabel(status);
+  }
+  const resting = away || status.inferredBreakActive || status.phase === 'rest' || status.phase === 'break';
+  document.querySelector('.today-stage')?.classList.toggle('is-resting', resting);
+  const garden = document.querySelector('.today-garden');
+  if (garden) {
+    garden.querySelector('.garden-state').textContent = ended ? 'DAY COMPLETE' : resting ? 'REST' : 'FOCUS';
+    const note = !ended && !resting && status.breakMinutesToday > 0 ? 'A little rest made room for a new bloom.' : '';
+    garden.querySelector('.garden-note').textContent = note;
+    garden.querySelector('.garden-note').hidden = !note;
+    garden.setAttribute('aria-label', ended ? 'Pixel garden resting after the day ended' : resting ? 'Pixel garden resting beneath a dim sky' : 'Pixel garden with a cottage, acorn tree, flowers, path, and fox');
+  }
   const threshold = activity.inactiveAfterSeconds || 5;
   const elapsed = activity.idleSeconds;
   const progress = elapsed === null || elapsed === undefined ? (away ? 1 : 0) : Math.min(1, Math.max(0, elapsed / threshold));
@@ -146,20 +162,20 @@ function navigation() {
   const profile = html(profileKey.replace(/^./, c => c.toUpperCase()));
   const badge = document.getElementById('profile-badge');
   if (badge.dataset.profile !== profileKey) {
-    badge.innerHTML = `<details class="profile-menu"><summary><span>◉ ${profile} profile</span><span class="profile-chevron" aria-hidden="true">⌄</span></summary><div class="profile-dropdown"><button data-page="settings" id="profile-settings">⚙ Settings</button></div></details>`;
+    badge.innerHTML = `<details class="profile-menu"><summary aria-label="${profile} profile menu" title="${profile} profile"><span class="profile-mark" aria-hidden="true">◉</span><span class="profile-name">${profile} profile</span><span class="profile-chevron" aria-hidden="true">⌄</span></summary><div class="profile-dropdown"><button data-page="settings" id="profile-settings">⚙ Settings</button></div></details>`;
     badge.dataset.profile = profileKey;
   }
   const settingsButton = document.getElementById('profile-settings');
   if (state().page === 'settings') settingsButton.setAttribute('aria-current', 'page');
   else settingsButton.removeAttribute('aria-current');
-  document.getElementById('navigation').innerHTML = pages.map(([key, icon, name]) => `<button class="nav-button ${state().page === key ? 'active' : ''}" data-page="${key}" id="nav-${key}" ${state().page === key ? 'aria-current="page"' : ''}><span class="nav-icon">${icon}</span>${name}</button>`).join('');
+  document.getElementById('navigation').innerHTML = pages.map(([key, icon, name]) => `<button class="nav-button ${state().page === key ? 'active' : ''}" data-page="${key}" id="nav-${key}" aria-label="${name}" title="${name}" ${state().page === key ? 'aria-current="page"' : ''}><span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${name}</span></button>`).join('');
 }
 function guidance() {
   const s = state().status;
   if (s.todayGuidance || s.guidance) return s.todayGuidance || s.guidance;
-  if (s.phase === 'focus') return { title: s.breakDue ? 'Time for a break' : 'Focus in progress', detail: s.breakDue ? 'Start your break, snooze, or skip.' : 'Your focus timer is running.' };
+  if (s.phase === 'focus') return { title: s.breakDue ? 'Time for a break' : 'Focus in progress', detail: s.breakDue ? 'Start your break, snooze, or skip.' : '' };
   if (s.phase === 'rest' || s.phase === 'break') return { title: 'Break in progress', detail: 'Step away from the computer for your break.' };
-  return { title: 'Ready when you are.', detail: 'Start a focus session or create a plan for today.', action: 'focus' };
+  return { title: 'Start your day', detail: 'Start a focus session or create a plan for today.', action: 'focus' };
 }
 function snoozeControl(action, label) {
   return `<div class="snooze-control"><label for="snooze-minutes">Snooze <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="Snooze minutes">${actionButton(label, action, undefined, false, action)}</div>`;
@@ -167,7 +183,7 @@ function snoozeControl(action, label) {
 function todayReflection() {
   const saved = state().status.todayReflection || '';
   const editing = state().todayReflectionDraft !== null || !saved;
-  return card(`<div class="card-head">${section('How did today feel?')}${saved && !editing ? actionButton('Edit reflection', 'edit-today-reflection', undefined, false, 'edit-today-reflection') : ''}</div>${editing ? `<p class="muted">What felt good? What would you like to do differently tomorrow? A reflection is optional.</p><input class="text-input" id="today-reflection-input" data-day-key="${html(state().status.todayKey)}" aria-label="Today’s reflection" placeholder="A thought to carry into tomorrow…" value="${html(state().todayReflectionDraft ?? saved)}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-today-reflection', undefined, false, 'cancel-today-reflection') : ''}${actionButton('Save reflection', 'save-today-reflection', undefined, false, 'save-today-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`}`);
+  return card(`<div class="card-head">${section('How did today feel?')}${saved && !editing ? actionButton('Edit reflection', 'edit-today-reflection', undefined, false, 'edit-today-reflection') : ''}</div>${editing ? `<p class="muted">Reflection is optional.</p><input class="text-input" id="today-reflection-input" data-day-key="${html(state().status.todayKey)}" aria-label="Today’s reflection" placeholder="Write a reflection…" value="${html(state().todayReflectionDraft ?? saved)}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-today-reflection', undefined, false, 'cancel-today-reflection') : ''}${actionButton('Save reflection', 'save-today-reflection', undefined, false, 'save-today-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`}`);
 }
 function todayActions(g) {
   const s = state().status;
@@ -191,9 +207,25 @@ function todayAcorns(status, open) {
   const entries = status.todayRewardEntries || [];
   return `<details class="today-acorns" id="today-acorns" ${open ? 'open' : ''}><summary aria-label="${html(status.balance ?? 0)} acorns available, ${html(status.todayAcornsEarned ?? 0)} earned today. Show acorn activity"><span class="acorn-star" aria-hidden="true">✦</span><span class="acorn-balance">${html(status.balance ?? 0)} <small>acorns</small></span><span class="acorn-today">+${html(status.todayAcornsEarned ?? 0)} today</span><span class="acorn-chevron" aria-hidden="true">⌄</span></summary><div class="acorn-dropdown"><h2>Acorns earned today</h2>${entries.length ? `<div class="acorn-entries">${entries.map(entry => `<div class="acorn-entry"><span>${html(entry.activity)}<small>${html(clock(entry.occurredAt))}</small></span><b>+${html(entry.amount)}</b></div>`).join('')}</div>` : '<p class="acorn-empty">No acorns earned yet today.</p>'}<div class="acorn-total"><span>Earned today</span><b>+${html(status.todayAcornsEarned ?? 0)}</b></div><div class="acorn-total available"><span>Available balance</span><b>${html(status.balance ?? 0)}</b></div></div></details>`;
 }
+function todayUpNext(status) {
+  if (!status.plan || status.dayEndedAt) return '';
+  const now = date(status.currentWallTimeISO || status.currentWallTime || Date.now()).getTime();
+  const blocks = status.forecastTimeline || status.plannedTimeline || [];
+  const next = blocks.find(item => !item.actual && date(item.start).getTime() > now && date(item.end).getTime() > now);
+  if (!next) return '';
+  const kind = itemKind(next);
+  const title = next.title || ({ focus: 'Focus', break: 'Break', meeting: 'Meeting' }[kind] || 'Time');
+  const duration = mins(next.start, next.end);
+  return `<section class="today-up-next" aria-label="Up next on your live day path"><span class="up-next-icon" aria-hidden="true">▦</span><div class="up-next-copy"><strong>Up next: ${html(title)}</strong><p>${html(duration)} min</p></div><span class="up-next-time">${html(clock(next.start))}</span></section>`;
+}
 function today(acornsOpen = false) {
   const s = state().status, g = guidance();
-  return `<div class="today-page"><header class="today-head"><div><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><h1>Your little corner of today</h1></div>${todayAcorns(s, acornsOpen)}</header><section class="today-stage"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${!['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp') ? `<div class="timer"><span id="timer-countdown">${shownCountdown(s)}</span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}<p class="today-detail">${html(g.detail || '')}</p><div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div class="today-companion"><div class="companion-sun"></div>${presenceEmoji()}</div></section>${s.dayEndedAt ? todayReflection() : ''}${dayPath(s)}<div class="today-footnote"><span><b>${html(s.workingMinutesToday || 0)}</b> min working</span><span><b>${html(s.breakMinutesToday || 0)}</b> min of real breaks</span><button data-page="history">See your rhythm →</button></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+  const resting = Boolean(s.dayEndedAt || s.inferredBreakActive || s.phase === 'rest' || s.phase === 'break' || s.activity?.state === 'inactive');
+  const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
+  return `<div class="today-page">
+    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text">${html(activityLabel(s))}</span></span>${todayAcorns(s, acornsOpen)}</div></header>
+    <section class="today-stage ${resting ? 'is-resting' : ''} ${s.breakMinutesToday > 0 ? 'has-breaks' : ''}" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown">${shownCountdown(s)}</span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div>${gardenScene({ resting, hasBreaks: s.breakMinutesToday > 0, ended: Boolean(s.dayEndedAt) })}</section>
+    ${todayUpNext(s)}${s.dayEndedAt ? todayReflection() : ''}${dayPath(s)}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -232,7 +264,7 @@ function selectedPlan() {
   const ended = state().planDay === 'today' && record.current &&
     new Date(s.currentWallTimeISO || Date.now()) >= new Date(record.current.end);
   const timeline = state().planDay === 'tomorrow' ? record.suggestedTimeline || [] :
-    ended ? s.plannedTimeline || [] : s.forecastTimeline || [];
+    !record.current ? s.defaultDayPath?.timeline || [] : ended ? s.plannedTimeline || [] : s.forecastTimeline || [];
   return { key, date, record, plan, timeline, ended, bounds: state().planBounds[key] || {} };
 }
 function plan() {
@@ -251,7 +283,7 @@ function plan() {
   const bounds = card(`${section('Plan settings')}<div class="inline-fields"><label class="field"><span>Start</span><select id="day-start">${startChoices(startValue)}</select></label><label class="field"><span>Finish</span><select id="day-end">${finishChoices(endValue)}</select></label><label class="field"><span>Focus · min</span><input type="number" id="focus-length" min="5" max="120" step="5" value="${view.plan.focusMinutes}"></label><label class="field"><span>Break · min</span><input type="number" id="break-length" min="5" max="60" step="5" value="${view.plan.breakMinutes}"></label></div>${planFeedback}`);
   const meetingCard = `<button class="card meeting-link" id="open-meetings" style="display:block;width:100%;text-align:left;border-color:rgba(64,74,59,.07);color:inherit;cursor:pointer">${section('Meetings')}${meetings}<span class="green" style="font-size:11px">Open day calendar ↗</span></button>`;
   const hasDraft = Boolean(state().planDrafts[view.key]);
-  const timelineTitle = state().planDay === 'tomorrow' ? 'Suggested timeline' : view.ended ? 'Saved plan' : 'Live forecast';
+  const timelineTitle = state().planDay === 'tomorrow' || !view.record.current ? 'Suggested timeline' : view.ended ? 'Saved plan' : 'Live forecast';
   const timelineNote = hasDraft && view.record.current ? '<p class="small-note">Updating this forecast from your latest changes…</p>' : '';
   const timeline = card(`${section(timelineTitle)}${timelineNote}${view.timeline.length ? calendar(view.timeline, view.record.current?.start || view.plan.start, view.record.current?.end || view.plan.end) : empty(view.record.current ? 'No time remains in this plan.' : 'Enter your start and finish to see suggested focus and break times.')}`);
   return `${header('Shape your day', `Plan for ${shortDate(view.date)}.`)}${dayButtons}${reflectionCard}${bounds}${meetingCard}${timeline}`;
@@ -265,7 +297,7 @@ function debugSettings() {
 }
 function settings() {
   const s = state().status, preview = s.rebalancePreview;
-  return `${header('Settings', 'Set your usual day and break rhythm.')}${card(`${section('Preferences')}<div class="inline-fields"><label class="field"><span>Start</span><select id="settings-start">${startChoices(s.defaultStartTime || '09:00')}</select></label><label class="field"><span>Finish</span><select id="settings-end">${finishChoices(s.defaultEndTime || '17:00')}</select></label><label class="field"><span>Focus · min</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Break · min</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><p class="small-note">Used for new days. Your saved plans keep their times.</p><div class="inline-fields"><label class="field"><span>Activity delay · sec</span><input type="number" id="settings-activity-delay" min="1" max="3600" step="1" value="${s.activityDelaySeconds ?? 120}"></label></div><p class="small-note">Your companion appears away after this much idle time.</p><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Notifications</label><div class="settings-save-row">${actionButton('Save settings', 'save-preferences', undefined, true, 'save-settings')}<span id="settings-save-feedback" class="settings-save-feedback ${settingsSaveFeedback?.error ? 'error' : ''}" role="status" aria-live="polite">${html(settingsSaveFeedback?.message || '')}</span></div>`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
+  return `${header('Settings', 'Default schedule and break settings.')}${card(`${section('Preferences')}<div class="inline-fields"><label class="field"><span>Start</span><select id="settings-start">${startChoices(s.defaultStartTime || '09:00')}</select></label><label class="field"><span>Finish</span><select id="settings-end">${finishChoices(s.defaultEndTime || '17:00')}</select></label><label class="field"><span>Focus · min</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Break · min</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><p class="small-note">Used for new days. Your saved plans keep their times.</p><div class="inline-fields"><label class="field"><span>Activity delay · sec</span><input type="number" id="settings-activity-delay" min="1" max="3600" step="1" value="${s.activityDelaySeconds ?? 120}"></label></div><p class="small-note">Today shows Away from computer after this much idle time.</p><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Notifications</label><div class="settings-save-row">${actionButton('Save settings', 'save-preferences', undefined, true, 'save-settings')}<span id="settings-save-feedback" class="settings-save-feedback ${settingsSaveFeedback?.error ? 'error' : ''}" role="status" aria-live="polite">${html(settingsSaveFeedback?.message || '')}</span></div>`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
 }
 function meetingDialog() {
   const view = selectedPlan(), meetings = view.plan.meetings || [], meeting = meetings.find(x => x.id === state().selectedMeeting);
@@ -508,6 +540,16 @@ function meetingDrop(event) {
   upsertMeeting({ id: drag.meeting?.id, title: drag.meeting?.title || 'Meeting', start, end });
 }
 document.addEventListener('click', event => {
+  if (event.target.closest('#sidebar-toggle')) {
+    const collapsed = document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
+    const toggle = document.getElementById('sidebar-toggle');
+    document.getElementById('sidebar').inert = collapsed;
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    toggle.querySelector('span').textContent = collapsed ? '›' : '‹';
+    return;
+  }
   const acornDetails = document.querySelector('#today-acorns[open]');
   if (acornDetails && !event.target.closest('#today-acorns')) acornDetails.open = false;
   const profileMenu = document.querySelector('.profile-menu[open]');

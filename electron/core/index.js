@@ -450,13 +450,15 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   }
   function committedView(instant) {
     const todayKey = dayKey(instant.wall);
-    const key = `${todayKey}:${store.lastSequence()}:${previewFocusCredits}:${previewBreakBonus}`;
+    const key = `${todayKey}:${store.lastSequence()}:${previewFocusCredits}:${previewBreakBonus}:${bounds.start}:${bounds.end}:${defaultFocusLength}:${defaultBreakLength}`;
     if (key === committedCacheKey) return committedCache;
     const events = allEvents();
     const today = project(events, instant.wall, false);
     const yesterday = project(events, new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate() - 1), false);
     const tomorrowKey = dayKey(new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate() + 1));
     const todayPlanState = planForDay(events, todayKey), tomorrowPlanState = planForDay(events, tomorrowKey);
+    const defaultDayPath = todayPlanState.current ? null : { start: bounds.start, end: bounds.end,
+      timeline: suggest({ ...bounds, focusMinutes: defaultFocusLength, breakMinutes: defaultBreakLength, meetings: [] }) };
     const tomorrowBlocks = tomorrowPlanState.current ? suggest(tomorrowPlanState.current) : [];
     const actual = today.actual.sort((a, b) => ms(a.start) - ms(b.start));
     const balance = events.filter(event => ['rewardGranted', 'rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
@@ -474,7 +476,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       date: item.occurredAt, kind: item.kind,
     }));
     committedCacheKey = key;
-    committedCache = { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState,
+    committedCache = { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState, defaultDayPath,
       tomorrowBlocks, actual, balance, todayAcornsEarned, todayRewardEntries,
       unlocked, history, rebalancePreview: rebalance(events) };
     return committedCache;
@@ -482,7 +484,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   function status() {
     syncDay();
     const instant = now();
-    const { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState,
+    const { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState, defaultDayPath,
       tomorrowBlocks, actual, balance, todayAcornsEarned, todayRewardEntries,
       unlocked, history, rebalancePreview } = committedView(instant);
     const plan = currentPlan, blocks = plannedBlocks;
@@ -562,7 +564,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       todayKey, tomorrowKey, dayPlans: { [todayKey]: todayPlanState,
         [tomorrowKey]: { ...tomorrowPlanState, suggestedTimeline: tomorrowBlocks } },
       savedReflection, unlockedItems: unlocked, statusMessage: message,
-      plan, plannedTimeline: blocks, forecastTimeline: forecastCache, forecastRevision: forecastCacheKey,
+      plan, defaultDayPath, plannedTimeline: blocks, forecastTimeline: forecastCache, forecastRevision: forecastCacheKey,
       actualTimeline: liveFocus ? [...actualWithLiveAway, liveFocus] : actualWithLiveAway,
       yesterdayTimeline: yesterday.actual, yesterdayFocusMinutes: Math.floor(yesterday.focusSeconds / 60),
       yesterdayBreakMinutes: Math.floor(yesterday.breakSeconds / 60), guidance: guide, history,

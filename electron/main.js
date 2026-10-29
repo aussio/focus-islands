@@ -265,7 +265,7 @@ async function processControl() {
         const image = await window.webContents.capturePage();
         const screenshot = path.join(devState, `screenshot-${Date.now()}.png`);
         fs.writeFileSync(screenshot, image.toPNG());
-        const renderedPage = await window.webContents.executeJavaScript('document.querySelector("h1")?.textContent || ""');
+        const renderedPage = await window.webContents.executeJavaScript('document.querySelector("h1")?.textContent || document.querySelector("#today-guidance")?.textContent || ""');
         result = { ok: true, screenshot, renderedPage, status: appStatus() };
       } else if (request.action === 'status') {
         result = { ok: true, status: appStatus() };
@@ -342,7 +342,7 @@ app.whenReady().then(() => {
   activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
   activity.observe(powerMonitor.getSystemIdleTime());
   window = new BrowserWindow({
-    width: 980, height: 700, minWidth: 790, minHeight: 590, show: false,
+    width: 1200, height: 900, minWidth: 790, minHeight: 590, show: false,
     title: 'Cozy Focus Pet', backgroundColor: '#f4eee4',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });

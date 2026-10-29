@@ -181,6 +181,24 @@ test('a fresh day opens on Today without starting a session or requiring a plan'
   assert.equal(new Date(status.dayEnd).getHours(), 17);
   assert.equal(status.defaultFocusLength, 60);
   assert.equal(status.defaultBreakLength, 10);
+  assert.equal(status.dayPlans[status.todayKey].current, undefined);
+  assert.equal(status.defaultDayPath.start, status.dayStart);
+  assert.equal(status.defaultDayPath.end, status.dayEnd);
+  assert.ok(status.defaultDayPath.timeline.some(block => block.kind === 'focus'));
+  assert.ok(status.defaultDayPath.timeline.some(block => block.kind === 'break'));
+  assert.equal(status.events.length, 0);
+  const updated = core.action('save-preferences', { startTime: '08:30', endTime: '16:45', focusMinutes: 35, breakMinutes: 5 });
+  assert.equal(new Date(updated.defaultDayPath.start).getHours(), 8);
+  assert.equal(new Date(updated.defaultDayPath.start).getMinutes(), 30);
+  assert.equal(new Date(updated.defaultDayPath.end).getHours(), 16);
+  assert.equal(updated.defaultDayPath.timeline[0].kind, 'focus');
+  assert.equal(updated.events.length, 0);
+  const now = new Date();
+  const midmorning = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0);
+  core.action('wall-jump', (midmorning - now) / 60000);
+  const started = core.action('start-focus');
+  assert.equal(started.defaultDayPath, null);
+  assert.equal(started.dayPlans[started.todayKey].current.provenance, 'generated-default');
   core.close();
 });
 

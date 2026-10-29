@@ -8,13 +8,13 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand"><span class="leaf">✦</span> cozy focus</div>
+  <div class="app-shell sidebar-collapsed">
+    <aside id="sidebar" class="sidebar" inert>
       <div id="profile-badge" class="profile-badge"></div>
       <nav id="navigation" aria-label="Main navigation"></nav>
-      <div class="local-note"><span class="local-dot"></span> Stored on this Mac</div>
+      <div class="local-note" title="Stored on this Mac"><span class="local-dot"></span><span class="local-note-text">Stored on this Mac</span></div>
     </aside>
+    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Expand sidebar" aria-controls="sidebar" aria-expanded="false" title="Expand sidebar"><span aria-hidden="true">›</span></button>
     <main id="content" class="content" aria-live="polite"></main>
   </div>
   <div id="dialog-root"></div>

@@ -129,7 +129,7 @@ await sleep(1200);
 await navigate(cdp, destination);
 const redirected = await waitForRedirect(cdp, 'focus redirect');
 assert.equal(redirected.split('#').slice(1).join('#'), destination);
-assert.equal(await cdp.evaluate('document.title'), 'A little focus pause · Cozy Focus Pet');
+assert.equal(await cdp.evaluate('document.title'), 'Focus site pause · Cozy Focus Pet');
 for (let attempt = 0; attempt < 50; attempt++) {
   if (await cdp.evaluate('document.readyState === "complete" && !!document.getElementById("continue") && !document.getElementById("continue").disabled')) break;
   if (attempt === 49) throw new Error('Nudge page did not become ready');
