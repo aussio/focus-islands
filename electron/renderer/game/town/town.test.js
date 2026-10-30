@@ -150,6 +150,10 @@ test('checkTown and compareTowns find broken worlds', () => {
   const pad = world.things.find(t => t.pad);
   const moved = { ...broken, islands: world.islands, things: world.things.map(t => (t === pad ? { ...t, yaw: t.yaw + 0.5 } : t)) };
   assert.ok(compareTowns(world, moved).some(text => text.includes(`${pad.id} changed its yaw`)));
+  // A pad turned away from its front (its door no longer looks onto the lane).
+  const facing = world.things.find(t => t.pad && !t.coast);
+  const turned = { ...broken, islands: world.islands, things: world.things.map(t => (t === facing ? { ...t, yaw: t.yaw + Math.PI } : t)) };
+  assert.deepEqual(checkTown(turned), [`${facing.id} faces 180 degrees away from its front`]);
   const bridge = world.bridges[0];
   const inland = home.land.find(p => home.grid.neighbours[p].every(q => home.land.includes(q)) && home.lanes.includes(p));
   const foot = { ...broken, islands: world.islands, bridges: world.bridges.map(b => (b === bridge ? { ...b, from: { ...b.from, point: inland } } : b)) };

@@ -5,6 +5,8 @@
 //   (the underside within 6), and coast points move only near land that came or went;
 // - every key reads back to a land point (lane pieces to a lane point), and no vertex is NaN;
 // - lane tops have no cracks: every edge of a lane's top is shared by two top triangles or sits on a rim;
+// - a lane's edge runs on smoothly where an open corner meets the piece next to it (no knob, notch or
+//   flared star at dead ends and on the outside of turns);
 // - the coast loop starts at the same place when far-away land changes;
 // - triangle counts for the biggest saved day-180 island (printed, for the report).
 import test from 'node:test';
@@ -25,7 +27,7 @@ const { parseTown } = await import('./world.js');
 const { makeModelContext } = await import('./build.js');
 const { buildGround } = await import('./ground.js');
 const { buildLanes } = await import('./lanes.js');
-const { pointOfKey } = await import('./pieces.js');
+const { cornerPiece, pointOfKey } = await import('./pieces.js');
 
 const STATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../development-tools/game-gallery/states/town');
 const shared = { materials: createMaterials(), blobMaterial: new THREE.MeshBasicMaterial(), blobPlane: new THREE.PlaneGeometry(1, 1) };
@@ -177,6 +179,74 @@ test('lane tops have no cracks: each top edge is shared by two top triangles or 
       assert.deepEqual(open.slice(0, 5), [], `${id}: ${open.length} lane top edges with nothing on the other side`);
     }
   }
+});
+
+// The lane's edge where an open corner (a piece with no strip toward either side) meets the piece before
+// it, measured on the drawn rim's bottom: how far the edge turns there, in degrees, positive when it turns
+// the way the outline goes round the point. A small turn either way is a smooth edge; a big negative one
+// is a notch (the old corners bulged past the strip and came back in), a big positive one a knob or a
+// star point.
+function seamTurns(drawn) {
+  const { island, log } = drawn;
+  const { grid, lanes } = island;
+  const t = TOWN.laneWidth;
+  const angle = (u, v) => Math.atan2(u[0] * v[1] - u[1] * v[0], u[0] * v[0] + u[1] * v[1]);
+  const minus = (a, b) => [a[0] - b[0], a[1] - b[1]];
+  const targets = new Map();
+  const aim = (o, r) => {
+    if (!lanes.has(o) || lanes.has(r) || !grid.neighbours[o].includes(r)) return;
+    if (!targets.has(o)) targets.set(o, new Set());
+    targets.get(o).add(r);
+  };
+  for (const door of island.doors) aim(door.outside, door.point);
+  for (const thing of island.things) if (thing.pad && thing.front !== null) for (const r of thing.points) aim(thing.front, r);
+  // An open piece's rim bottom, in order round its point from the side toward next.
+  const outline = c => {
+    const p = grid.points[c.s], from = minus(c.at(t, 0), p);
+    const sense = Math.sign(angle(from, minus(c.at(0, t), p)));
+    const seen = new Map();
+    for (const v of log.get(`lane:${c.key}`) ?? []) {
+      const [x, y, z] = v.split(',').map(Number);
+      if (y < 0) seen.set(`${x},${z}`, [x, z]);
+    }
+    return [...seen.values()].map(q => ({ q, a: angle(from, minus(q, p)) * sense })).sort((m, n) => m.a - n.a).map(e => e.q);
+  };
+  const turns = [];
+  for (const o of lanes) {
+    const linked = q => lanes.has(q) || (targets.get(o)?.has(q) ?? false);
+    for (const cell of grid.around[o]) {
+      const c = cornerPiece(grid, cell, grid.cells[cell].indexOf(o));
+      if (linked(c.next) || linked(c.prev)) continue;
+      const mine = outline(c);
+      // Where the edge comes from: the strip's outer edge in the piece across the side toward next, or
+      // that piece's own outline when it is open too.
+      const across = grid.around[o].find(e => e !== cell && grid.cells[e].includes(c.next));
+      const d = cornerPiece(grid, across, grid.cells[across].indexOf(o));
+      const far = d.next === c.next ? d.prev : d.next;
+      const before = linked(far) ? (far === d.next ? d.at(1, t) : d.at(t, 1)) : outline(d).at(-2);
+      const p = grid.points[o], [first, second] = mine;
+      const sense = Math.sign(angle(minus(first, p), minus(mine.at(-1), p)));
+      const turn = angle(minus(first, before), minus(second, first)) * sense * 180 / Math.PI;
+      turns.push({ key: `lane:${c.key}`, point: o, turn });
+    }
+  }
+  return turns;
+}
+
+test('lane edges run on smoothly where an open corner meets the next piece', () => {
+  const worlds = SAMPLE_NAMES.map(name => sampleTown(name));
+  const saved = savedDay180();
+  if (saved) worlds.push(saved);
+  let seams = 0;
+  for (const world of worlds) {
+    for (const [id, drawn] of draw(world).islands) {
+      const turns = seamTurns(drawn);
+      seams += turns.length;
+      const bad = turns.filter(s => s.turn < -10 || s.turn > 45).map(s => `${s.key} at point ${s.point}: ${s.turn.toFixed(0)} degrees`);
+      assert.deepEqual(bad.slice(0, 5), [], `${id}: ${bad.length} lane edges with a kink where pieces meet`);
+    }
+  }
+  assert.ok(seams > 50, `only ${seams} open corners measured`);
 });
 
 test('the coast starts at the same place when land changes far away', () => {

@@ -15,6 +15,7 @@ import { deckLine, SKY_GAP, FOOT_ROOM } from './sky.js';
 const BLOCK_SHARE = 0.3;
 const OVER_LAND = 0.3; // a deck closer than this to a land point passes over that island's land
 const NEAR_FOOT = FOOT_ROOM; // ...except this close to its own feet, where it starts on land
+const FACING = 0.01; // how far a pad may turn from its front, in radians (yaws are kept to 4 places)
 
 export function checkTown(world) {
   const problems = checkShape(world);
@@ -73,6 +74,12 @@ function checkIsland(island, things, bridges, say) {
     if (!t.pad) continue;
     if (!lane[t.front]) say(`${t.id}'s front isn't a lane`);
     else if (!t.points.some(p => neighbours[p].includes(t.front))) say(`${t.id}'s front isn't next to it`);
+    // ...and faces it, so its door looks onto the lane (coast buildings face the sky instead).
+    else if (!t.coast) {
+      const [dx, dz] = [grid.points[t.front][0] - t.at[0], grid.points[t.front][1] - t.at[1]];
+      const off = Math.atan2(Math.sin(t.yaw) * dz - Math.cos(t.yaw) * dx, Math.sin(t.yaw) * dx + Math.cos(t.yaw) * dz);
+      if (Math.abs(off) > FACING) say(`${t.id} faces ${Math.round(Math.abs(off) * 180 / Math.PI)} degrees away from its front`);
+    }
   }
   for (const bridge of bridges) for (const end of [bridge.from, bridge.to]) {
     if (end.island !== id) continue;

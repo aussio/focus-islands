@@ -24,7 +24,7 @@ export const midpoint = (grid, i, j) => [(grid.points[i][0] + grid.points[j][0])
 
 // The corner piece of point cells[cell][k], with its bend from the unit square into the cell.
 //   at(a, b) => [x, z]; at3(a, b, y) => [x, y, z]; dir(a, b, da, db) => the world direction of a small
-//   step (da, db) from (a, b), as [x, 0, z].
+//   step (da, db) from (a, b), as [x, 0, z]; unit([x, z]) => [a, b], the way back from at.
 export function cornerPiece(grid, cell, k) {
   const q = grid.cells[cell];
   const s = q[k], next = q[(k + 1) % 4], opp = q[(k + 2) % 4], prev = q[(k + 3) % 4];
@@ -35,7 +35,22 @@ export function cornerPiece(grid, cell, k) {
   ];
   const at3 = (a, b, y) => { const [x, z] = at(a, b); return [x, y, z]; };
   const dir = (a, b, da, db) => { const p = at(a, b), r = at(a + da * 0.01, b + db * 0.01); return [r[0] - p[0], 0, r[1] - p[1]]; };
-  return { cell, k, s, next, opp, prev, at, at3, dir, key: `${cell}:${k}` };
+  // Newton steps on the bend: a few are plenty, as a piece is only gently bent.
+  const unit = ([x, z]) => {
+    const ea = [p10[0] - p00[0], p10[1] - p00[1]], eb = [p01[0] - p00[0], p01[1] - p00[1]];
+    const twist = [p00[0] - p10[0] + p11[0] - p01[0], p00[1] - p10[1] + p11[1] - p01[1]];
+    let a = 0, b = 0;
+    for (let i = 0; i < 8; i++) {
+      const [px, pz] = at(a, b), fx = px - x, fz = pz - z;
+      const ja = [ea[0] + b * twist[0], ea[1] + b * twist[1]], jb = [eb[0] + a * twist[0], eb[1] + a * twist[1]];
+      const det = ja[0] * jb[1] - ja[1] * jb[0];
+      if (Math.abs(det) < 1e-12) break;
+      a -= (fx * jb[1] - fz * jb[0]) / det;
+      b -= (ja[0] * fz - ja[1] * fx) / det;
+    }
+    return [a, b];
+  };
+  return { cell, k, s, next, opp, prev, at, at3, dir, unit, key: `${cell}:${k}` };
 }
 
 // Every corner piece of one point: one per cell around it.
@@ -192,7 +207,8 @@ export class PieceSink {
 // A flat-topped slab piece with a soft sloped rim, drawn in a corner piece's unit square.
 //   poly: its outline, [a, b] points going counter-clockwise (a right, b up), star-shaped from poly[0].
 //   seams[i]: the edge from poly[i] to poly[i + 1] is shared with the same slab in the next piece, so it
-//   gets no rim; next to a seam, the rim slides along it so neighbouring pieces meet.
+//   gets no rim; next to a seam, the rim's top edge starts exactly w along the seam, whatever the angle
+//   the outline leaves the seam at, so the pieces on both sides of a seam always meet.
 //   y: the top's height; low: where the rim meets the ground; w: the rim's width in piece units.
 export function rimmedSlab(mesh, c, poly, seams, { y, low = -0.004, w, top, rim }) {
   const n = poly.length;
@@ -206,10 +222,9 @@ export function rimmedSlab(mesh, c, poly, seams, { y, low = -0.004, w, top, rim 
       const k = Math.max(0.3, 1 + n0[0] * n1[0] + n0[1] * n1[1]);
       return [v[0] + w * (n0[0] + n1[0]) / k, v[1] + w * (n0[1] + n1[1]) / k];
     }
-    // Slide along the seam: back along the edge coming in, or on along the edge going out.
-    const u = s0 ? [-d0[0], -d0[1]] : d1, normal = s0 ? n1 : n0;
-    const along = w / Math.max(0.3, u[0] * normal[0] + u[1] * normal[1]);
-    return [v[0] + u[0] * along, v[1] + u[1] * along];
+    // Slide w along the seam: back along the edge coming in, or on along the edge going out.
+    const u = s0 ? [-d0[0], -d0[1]] : d1;
+    return [v[0] + u[0] * w, v[1] + u[1] * w];
   });
   for (let i = 1; i < n - 1; i++) mesh.tri(c.at3(...inner[0], y), c.at3(...inner[i], y), c.at3(...inner[i + 1], y), top, UP);
   for (let i = 0; i < n; i++) {
