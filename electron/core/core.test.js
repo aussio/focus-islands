@@ -18,6 +18,16 @@ const { openStore } = require('./store');
 const { Timer } = require('./timer');
 const { project, suggest, forecast } = require('./planning');
 
+// The core reads the computer's clock. So that no result depends on when the suite runs, every test
+// starts at a fixed local time: 9:00 AM on Wednesday 21 October 2026, a plain day with no clock change
+// nearby. Tests move time with the core's advance and wall-jump actions. (Starting from the real clock
+// made runs after about 10:45 PM cross midnight partway through a test, and fail.)
+const pinnedTime = (hour, minute = 0) => new Date(2026, 9, 21, hour, minute).getTime();
+test.beforeEach(() => test.mock.timers.enable({ apis: ['Date'], now: pinnedTime(9) }));
+test.afterEach(() => test.mock.timers.reset());
+// Sets the computer's clock, for example before reopening a core at the moment the last one stopped.
+function setComputerClock(time) { test.mock.timers.setTime(typeof time === 'number' ? time : Date.parse(time)); }
+
 test('forecast keeps short interrupted focus in the same work rhythm', () => {
   const at = (hour, minute) => new Date(2026, 9, 23, hour, minute).toISOString();
   const plan = { start: at(9, 0), end: at(12, 0), focusMinutes: 60, breakMinutes: 10, meetings: [] };
@@ -440,6 +450,7 @@ test('sleep time becomes a live inferred break, including across restart', () =>
   assert.equal(sleeping.inferredBreakActive, true);
   assert.ok(sleeping.breakMinutesToday >= 20);
   core.close();
+  setComputerClock(sleeping.currentWallTimeISO);
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
   assert.equal(reopened.status().inferredBreakActive, true);
   assert.equal(reopened.status().suspended, true);
@@ -748,6 +759,24 @@ test('overdue focus and break keep counting, and finishing the break starts focu
   assert.ok(finished.actualTimeline.find(item => item.kind === 'break').observedSeconds >= 12 * 60);
   assert.deepEqual(finished.events.filter(event => ['breakConfirmed', 'breakEnded', 'focusStarted'].includes(event.kind)).slice(-3)
     .map(event => event.kind), ['breakConfirmed', 'breakEnded', 'focusStarted']);
+  core.close();
+});
+
+test('late in the evening, focus that runs past midnight keeps counting and still asks for a break', () => {
+  setComputerClock(pinnedTime(23, 30));
+  const { core } = temporaryCore();
+  const started = core.action('start-focus');
+  core.action('advance', 29.5);
+  // The app checks the clock every second, so it crosses midnight in small steps, not one long jump.
+  for (let step = 0; step < 4; step++) core.action('advance', 0.5);
+  const latest = core.action('advance', 29.5);
+  assert.notEqual(latest.todayKey, started.todayKey);
+  assert.equal(latest.phase, 'focus');
+  assert.equal(latest.timer.sessionID, started.timer.sessionID);
+  assert.equal(latest.reminderSequence, 1);
+  assert.match(latest.countdown, /^-/);
+  // A new day reloads the timer from its last save. Saves come every 30 seconds, so at most that much goes uncounted.
+  assert.ok(latest.timer.elapsedSeconds >= 61 * 60 - 30, latest.timer.elapsedSeconds);
   core.close();
 });
 
