@@ -156,3 +156,28 @@ body{background:#f6f8f4}
 .check-in-card[aria-busy="true"] button:disabled{opacity:1}
 .island-note{margin:0;padding:6px 11px;border-radius:12px;background:#fffdf6e6;box-shadow:0 6px 18px #1b3f311f;font-size:11px;line-height:1.35;color:#2f5b40;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 @media(max-width:840px){.today-island,.today-check-in{grid-column:1;grid-row:2}}
+
+/* Game demo panel (the demo app only): a compact bar under the island, with the demo's status, its buttons,
+   and its last few steps. It never sits over the island or the check-in card. */
+.demo-panel{display:flex;flex-direction:column;gap:11px;padding:13px 16px 14px;background:#fff;border:1px dashed #b7d2ab;border-radius:18px;box-shadow:0 12px 35px #2a482f0b;color:#18372b}
+.demo-status{display:flex;flex-direction:column;gap:3px;font-size:12px;color:#40584a}
+.demo-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 14px}
+.demo-line b{color:#18372b;font-weight:800}
+.demo-tag{font-size:10px;font-weight:850;letter-spacing:.08em;text-transform:uppercase;color:#176b4a;background:#e8f5e9;padding:2px 7px;border-radius:6px}
+.demo-phase{font-weight:750;color:#176b4a}
+.demo-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,370px);gap:16px;align-items:start}
+.demo-controls{display:flex;flex-direction:column;gap:7px;min-width:0}
+/* The group name sits in its own left column, so buttons that wrap line up under the first button. */
+.demo-group{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-left:82px}
+.demo-group-title{position:absolute;left:0;top:9px;width:76px;font-size:10px;line-height:13px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:#65766b}
+.demo-group .button{min-height:31px;padding:6px 10px;font-size:12px}
+.demo-group .button.is-busy{background:#e8f5e9;opacity:1}
+.demo-group .button.is-warning{background:#a44343;border-color:#a44343;color:#fff}
+.demo-note{margin:1px 0 0;font-size:11.5px;line-height:1.4;color:#5d7169}
+.demo-note.error{color:#a44343}
+.demo-log-box{min-width:0;padding-left:14px;border-left:1px solid #edf0e9}
+.demo-log-box h3{margin:0 0 5px;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:#65766b}
+.demo-log{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:5px;font-size:11px;line-height:1.35;color:#5d7169}
+.demo-log time{margin-right:6px;font-weight:800;color:#7b897f;font-variant-numeric:tabular-nums;white-space:nowrap}
+.demo-log li:first-child{color:#18372b}
+@media(max-width:1030px){.demo-body{grid-template-columns:1fr}.demo-log-box{padding:9px 0 0;border-left:0;border-top:1px solid #edf0e9}}

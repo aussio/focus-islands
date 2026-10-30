@@ -35,13 +35,40 @@ To load updated code, quit from the island's menu and run `scripts/run-personal.
 
 Personal history stays at `~/Library/Application Support/CozyFocusPet/events.sqlite`. The folder keeps the app's earlier name on purpose. Settings can switch to a separate normal Testing profile while idle. A later normal launch starts in Personal again. The development launch below cannot enter Personal.
 
+## Game demo
+
+To try how the island game feels without waiting through real focus time and breaks, run:
+
+```bash
+scripts/run-game-demo.sh            # pick up the demo where it stopped
+scripts/run-game-demo.sh --reset    # start fresh: day 1 morning, nothing earned
+```
+
+This opens the development app with a normal window and a 🧪 island in the menu bar. It keeps its own history in `.build/dev-instances/demo/` and never opens Personal, so the installed app can keep running. The demo starts the morning after the day you first open it, at your start time (9:00 unless you change it), and it treats you as present the whole time. It never switches to Away because you stopped typing. Closing the window hides it; the 🧪 island opens it again or quits.
+
+Below the island, Today shows a demo panel. Each button presses the same buttons and clock moves the real app uses, so the game sees exactly what it would see from a real day:
+
+- **Work 60 min** (your focus length): starts focus, or finishes a running break, which starts focus. Then it moves the clock forward one focus length, so a break is due.
+- **Break 15 min**: takes a break, which ends focus. Then it moves the clock 15 minutes and finishes the break. Focus starts again by itself.
+- **Interrupted work**: works 20 minutes, then takes a break early. The break keeps running.
+- **Interrupted break**: takes a break, if one isn't running, and comes back after 4 minutes. That is too short to count as a real break.
+- **Step away 15 min**: steps away, moves the clock 15 minutes, then presses I'm back. During focus, that time counts as a break.
+- **End the day**: ends the day, as Today's End day button does. The end-of-day card follows.
+- **Next morning**: moves the clock to tomorrow's start time. If a session is still running, the day ends first.
+- **Play a week** or **Play a month**: plays 7 or 30 steady days. Each day follows the default plan, takes real breaks, ends the day, and picks the first choice on every card. Play starts today if nothing has happened yet this morning, otherwise tomorrow.
+- **Start over**: on a second click, deletes this demo's history and begins again on day 1 with nothing earned.
+
+The buttons do not skip a check-in card. Pick on it when you like. If you keep going first, it stays and gathers what you earn next, as it does in the real app. Once the day ends, the buttons for time inside a day turn off until **Next morning**. They also refuse a step that would run past midnight. The panel's top lines show the day, time, current session, resources and town, and its list shows the last few steps.
+
+Agents test the demo with `scripts/run-dev.sh --demo --hidden-window` in their own `COZY_FOCUS_INSTANCE`, or with `scripts/demo-smoke.sh`, which clicks through the panel in a hidden app.
+
 ## Develop and verify
 
 ```bash
 npm run check:source             # quick renderer and Electron source check
 scripts/test.sh                  # core behavior changes
 scripts/build.sh                 # packaging changes or a distributable bundle
-scripts/run-dev.sh               # background Testing app
+scripts/run-dev.sh               # background Testing app (--reset, --hidden-window, --demo, --packaged)
 scripts/dev-control.sh status    # require profile=testing and appActive=false
 scripts/dev-control.sh screenshot
 scripts/dev-control.sh quit
@@ -51,7 +78,7 @@ Use the checks that match the change. For a small UI change, drive just that flo
 
 On Today in the development app, drag anywhere on Your day path forward in 30-second steps. Releasing it advances the simulated clock; focus and break timers continue ticking from the new time. While a timer runs, **To focus end** or **To break end** advances precisely to its due point. The controls are available only in development mode and change Testing history.
 
-`scripts/run-dev.sh` is the background launch entry point; `scripts/dev-control.sh` sends commands to the app after it starts. The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. Both smoke scripts run hidden and default to separate disposable instances (`today-smoke` and `ui-smoke`); they reset only their own instance. Screenshots come from the app's own Electron window.
+`scripts/run-dev.sh` is the background launch entry point; `scripts/dev-control.sh` sends commands to the app after it starts. The development app writes to `.build/dev-state/events.sqlite`. `scripts/run-dev.sh --reset` deletes only this disposable state. The smoke scripts run hidden and default to separate disposable instances (`today-smoke`, `ui-smoke` and `demo-smoke`); they reset only their own instance. Screenshots come from the app's own Electron window.
 
 For a packaging regression, `COZY_FOCUS_INSTANCE=packaged-check scripts/run-dev.sh --reset --hidden-window --packaged` builds and launches the signed bundle in an isolated Testing instance. Use the same instance with `dev-control.sh status` and `quit`.
 

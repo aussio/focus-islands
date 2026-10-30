@@ -7,6 +7,9 @@ const { createActivityDetector } = require('./activity');
 const { createBreakReminder } = require('./break-reminders');
 
 const development = process.env.COZY_FOCUS_DEV === '1';
+// The game demo (scripts/run-game-demo.sh, or scripts/run-dev.sh --demo): a development app whose Today has demo
+// buttons. It treats you as present the whole time; only its Step away button takes you away.
+const demo = development && process.argv.includes('--demo');
 const support = path.join(os.homedir(), 'Library', 'Application Support', 'CozyFocusPet');
 const repository = fs.realpathSync(development && process.env.COZY_FOCUS_DEV_REPOSITORY
   ? process.env.COZY_FOCUS_DEV_REPOSITORY : path.resolve(__dirname, '..'));
@@ -23,7 +26,8 @@ const controlDir = development ? path.join(devState, 'control') : null;
 const dbPath = development ? path.join(devState, 'events.sqlite') : path.join(support, 'events.sqlite');
 const statusPath = development ? path.join(devState, 'focus-status.json') : path.join(support, 'focus-status.json');
 if (development) {
-  for (const candidate of [controlDir, dbPath, statusPath, path.join(devState, 'preferences-testing.json'), path.join(devState, 'electron-user-data')]) {
+  for (const candidate of [controlDir, dbPath, statusPath, path.join(devState, 'preferences-testing.json'), path.join(devState, 'electron-user-data'),
+    path.join(devState, 'demo-clock.json')]) {
     let item;
     try { item = fs.lstatSync(candidate); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (item?.isSymbolicLink() || (item && fs.realpathSync(candidate) !== candidate)) {
@@ -38,7 +42,7 @@ const rendererActions = new Set([
   'skip-break', 'end-day', 'snooze-end-day', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database', 'game-check-in',
-  'dev-scenario', 'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake',
+  'dev-scenario', 'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'dev-demo',
 ]);
 
 let core;
@@ -161,8 +165,28 @@ function publish() {
   return state;
 }
 
+// Demo only: Start over closes this demo instance's database, deletes it (with its SQLite side files and the
+// demo clock), and opens a fresh one, which begins on day 1 at the usual start time. A new publication epoch
+// tells the page to drop everything it showed from the old database. Nothing outside this instance is touched.
+function startOverDemo() {
+  if (!demo) throw new Error('Start over is only for the game demo.');
+  core.close();
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, path.join(devState, 'demo-clock.json')]) fs.rmSync(file, { force: true });
+  core = createCore({ dbPath, statusPath, profile: activeProfile, development, demo });
+  activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
+  publicationEpoch++;
+  publicationNumber = 0;
+  lastReturnPromptSince = null;
+  lastBreakReminderPreview = null;
+  lastBreakAlertKey = null;
+  closeReminderEffect();
+  breakReminder.reset();
+  return publish();
+}
+
 function execute(name, value) {
   if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
+  if (name === 'dev-demo' && value === 'start-over') return startOverDemo();
   if (name === 'dev-confetti' || name === 'dev-clock') return { ...publish(), reminderDisplayCount: showReminderEffect(name === 'dev-clock' ? 'clock' : 'confetti') };
   if (name === 'export-json' || name === 'backup-database') return saveUserCopy(name);
   if (name === 'switch-profile') {
@@ -449,9 +473,9 @@ async function processControl() {
 
 app.whenReady().then(() => {
   app.dock?.hide();
-  core = createCore({ dbPath, statusPath, profile: initialProfile, development });
+  core = createCore({ dbPath, statusPath, profile: initialProfile, development, demo });
   activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
-  activity.observe(powerMonitor.getSystemIdleTime());
+  activity.observe(demo ? 0 : powerMonitor.getSystemIdleTime());
   window = new BrowserWindow({
     width: 1200, height: 900, minWidth: 790, minHeight: 590, show: false,
     title: 'Focus Islands', backgroundColor: '#f4eee4',
@@ -469,14 +493,18 @@ app.whenReady().then(() => {
     if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
     return execute(name, value);
   });
-  powerMonitor.on('suspend', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); systemSuspended = true; activity.setUnavailable(true); execute('sleep', idleSeconds); });
-  powerMonitor.on('resume', () => { systemSuspended = false; activity.setUnavailable(screenLocked); execute('wake'); });
-  powerMonitor.on('lock-screen', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); screenLocked = true; activity.setUnavailable(true); execute('lock', idleSeconds); });
-  powerMonitor.on('unlock-screen', () => { screenLocked = false; activity.setUnavailable(systemSuspended); execute('unlock'); });
+  // The demo ignores sleep and screen lock: you stay present. Its timer still pauses over a sleep, because it
+  // never counts a gap it did not see (see tick() in electron/core/index.js).
+  const onPower = (event, handler) => powerMonitor.on(event, () => { if (!demo) handler(); });
+  onPower('suspend', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); systemSuspended = true; activity.setUnavailable(true); execute('sleep', idleSeconds); });
+  onPower('resume', () => { systemSuspended = false; activity.setUnavailable(screenLocked); execute('wake'); });
+  onPower('lock-screen', () => { const idleSeconds = powerMonitor.getSystemIdleTime(); screenLocked = true; activity.setUnavailable(true); execute('lock', idleSeconds); });
+  onPower('unlock-screen', () => { screenLocked = false; activity.setUnavailable(systemSuspended); execute('unlock'); });
   setInterval(() => {
     try {
+      // The demo always reads as recent input (an agent's activity-sample still wins for its 15 seconds).
       const idleSeconds = development && Date.now() < activityOverrideUntil
-        ? activityOverrideSeconds : powerMonitor.getSystemIdleTime();
+        ? activityOverrideSeconds : demo ? 0 : powerMonitor.getSystemIdleTime();
       activity.observe(idleSeconds);
       core.action('tick', idleSeconds);
       publish();

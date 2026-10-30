@@ -37,6 +37,12 @@ At day 180 the scene draws about 590,000 triangles, about twice the old budget o
 - **Hedges.** When a full island squeezes a special building in, any free point it cuts off gets a bush (a "hedge"), so nobody has an unreachable spot. It happens twice in 180 days for one made-up person. It looks like a plain bush; it could get its own hedge model.
 - **An island with no pile and no house** sends its workers across a bridge to another island's pile. Cute, but maybe give it its own small pile.
 - The first bridge to a new island picks inward twice as often as sideways, and outward only once there are nine or more islands.
+- **Things noticed while building the game demo** (`scripts/run-game-demo.sh`). Left alone so the user can judge them by playing:
+  - a break too short to count (under 7.5 minutes) still brings a card;
+  - an end-of-day card left unpicked shows "Back from your break" the next morning;
+  - a day with focus but no real break doesn't count as an active day;
+  - after a month, resources pile up (about 1,600 wood, 71 Starlight), so spending may be too slow;
+  - after one day the island looks almost the same as the morning.
 
 ## Code tidying
 

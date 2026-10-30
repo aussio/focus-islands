@@ -32,6 +32,16 @@ const checkInSlot = document.createElement('div');
 checkInSlot.className = 'today-check-in';
 checkInSlot.id = 'today-check-in';
 let checkInKey = null;
+// The game demo's panel (the demo app only; status.demo is null everywhere else). It sits under the island, lives
+// for the whole window like the slots above, and each of its three parts is redrawn only when its markup changes.
+const demoSlot = document.createElement('section');
+demoSlot.className = 'demo-panel';
+demoSlot.id = 'demo-panel';
+demoSlot.setAttribute('aria-label', 'Game demo');
+demoSlot.innerHTML = '<div class="demo-status" id="demo-status" role="status"></div><div class="demo-body"><div class="demo-controls" id="demo-controls"></div><div class="demo-log-box"><h3>Last steps</h3><ol class="demo-log" id="demo-log"></ol></div></div>';
+const demoParts = ['status', 'controls', 'log'].map(name => [name, demoSlot.querySelector(`.demo-${name}`)]);
+const demoShown = {};
+let demoBusy = null, demoConfirmUntil = 0, demoError = '';
 const activityMeterSetting = 'cozy-focus-show-activity-meter';
 const showActivityMeter = () => localStorage.getItem(activityMeterSetting) === 'true';
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -131,6 +141,90 @@ function updateTodayLive(status) {
     if (resting) resting.textContent = String(status.breakMinutesToday || 0);
   }
   updateCheckIn(status);
+  updateDemoPanel(status);
+}
+// ---- Game demo. Each button runs one demo step in the main process: the same actions as Today's buttons and the
+// development clock, one after another (see demoStep in electron/core/index.js). Everything else is the real app.
+const demoGroups = [
+  ['In the day', [
+    ['work', s => `Work ${s.focusLength || 60} min`, s => `Start focus (or finish the running break, which starts focus), then move the clock ${s.focusLength || 60} minutes, so a break is due.`],
+    ['break', () => 'Break 15 min', () => 'Take a break (this ends focus), move the clock 15 minutes, then Finish break. Focus starts again by itself.'],
+    ['work-interrupted', () => 'Interrupted work', () => 'Work 20 minutes, then take a break early, before the focus target. The break keeps running.'],
+    ['break-interrupted', () => 'Interrupted break', () => 'Take a break, move the clock 4 minutes, then Finish break early. That is too short to count as a real break.'],
+    ['away', () => 'Step away 15 min', () => "Leave the computer for 15 minutes, then press I'm back. During focus, the time away counts as a break."],
+  ]],
+  ['Days', [
+    ['end-day', () => 'End the day', () => "End the day now, as Today's End day button does. The end-of-day card follows."],
+    ['next-morning', () => 'Next morning', () => "Move the clock to tomorrow's start time. A session that is still running ends with the day first."],
+  ]],
+  ['Jumps', [
+    ['week', () => 'Play a week', () => 'Play 7 steady days: follow the plan, take real breaks, end each day, and pick the first choice on every card. Starts today if nothing has happened yet this morning, otherwise tomorrow.'],
+    ['month', () => 'Play a month', () => 'Play 30 steady days the same way. This takes a few seconds.'],
+    ['start-over', () => 'Start over', () => "Delete this demo's history and begin again on day 1 at the start time, with nothing earned."],
+  ]],
+];
+const demoInDay = new Set(['work', 'break', 'work-interrupted', 'break-interrupted', 'away', 'end-day']);
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+function demoStatusLine(s) {
+  const game = s.game || {}, minutes = seconds => Math.floor((Number(seconds) || 0) / 60);
+  const elapsed = minutes(s.timer?.elapsedSeconds), target = minutes(s.timerTargetSeconds);
+  const phase = s.dayEndedAt ? 'Day done' : s.inferredBreakActive ? 'Away, counting as a break'
+    : s.phase === 'focus' ? `Focus ${elapsed} of ${target} min${s.breakDue ? ' · break due' : ''}`
+      : s.phase === 'break' ? `Break ${elapsed} of ${target} min` : 'No session running';
+  const onHand = amountList(game.onHand), waiting = amountList(game.waiting);
+  const buildings = (game.islands || []).reduce((sum, island) => sum + (island.buildings?.length || 0), 0);
+  const town = [plural((game.islands || []).length, 'island'), plural(buildings, 'building'), plural((game.helpers || []).length, 'helper'),
+    plural(game.checkIns || 0, 'check-in'), plural(game.activeDays || 0, 'active day')];
+  return `<div class="demo-line"><span class="demo-tag">Game demo</span><b>Day ${html(s.demo.day)}</b><span>${html(clock(s.currentWallTimeISO))}</span><span class="demo-phase">${html(phase)}</span></div>
+    <div class="demo-line"><span>On hand: <b>${html(onHand.join(' · ') || 'nothing yet')}</b></span>${waiting.length ? `<span>Waiting to collect: <b>${html(waiting.join(' · '))}</b></span>` : ''}</div>
+    <div class="demo-line"><span>${html(town.join(' · '))}</span></div>`;
+}
+function demoControls(s) {
+  const confirming = Date.now() < demoConfirmUntil;
+  const groups = demoGroups.map(([title, steps]) => `<div class="demo-group" role="group" aria-label="${html(title)}"><span class="demo-group-title">${html(title)}</span>${steps.map(([step, label, hint]) => {
+    const off = Boolean(demoBusy) || (demoInDay.has(step) && Boolean(s.dayEndedAt));
+    const warn = step === 'start-over' && confirming;
+    return `<button class="button${step === demoBusy ? ' is-busy' : ''}${warn ? ' is-warning' : ''}" type="button" data-demo-step="${step}" title="${html(hint(s))}"${off ? ' disabled' : ''}>${html(warn ? 'Click again to wipe' : label(s))}</button>`;
+  }).join('')}</div>`).join('');
+  const note = demoError || (demoBusy ? (demoBusy === 'week' ? 'Playing 7 days…' : demoBusy === 'month' ? 'Playing 30 days…' : 'Fast-forwarding…')
+    : confirming ? 'Click Start over again within 5 seconds to delete this demo and begin again.'
+      : s.dayEndedAt ? `The day is done. ${s.game?.checkIn ? 'Pick on the card when you like, then press' : 'Press'} Next morning.`
+        : s.game?.checkIn ? 'A card is waiting on the island. Pick on it when you like. If you keep going first, it stays and gathers what you earn next, as in the real app.' : '');
+  return `${groups}${note ? `<p class="demo-note${demoError ? ' error' : ''}" id="demo-note">${html(note)}</p>` : ''}`;
+}
+function demoLogItems(s) {
+  return (s.demo.log || []).slice(-4).reverse().map(entry => `<li><time>${entry.day ? `Day ${html(entry.day)} · ` : ''}${html(clock(entry.at))}</time><span>${html(entry.text)}</span></li>`).join('');
+}
+function updateDemoPanel(status) {
+  if (!status.demo) return;
+  const parts = { status: demoStatusLine(status), controls: demoControls(status), log: demoLogItems(status) };
+  for (const [name, node] of demoParts) {
+    if (demoShown[name] === parts[name]) continue;
+    demoShown[name] = parts[name];
+    node.innerHTML = parts[name];
+  }
+}
+async function runDemoStep(step) {
+  if (demoBusy) return;
+  demoError = '';
+  // Start over asks for a second click, so one stray click can't wipe the demo.
+  if (step === 'start-over' && Date.now() >= demoConfirmUntil) {
+    demoConfirmUntil = Date.now() + 5000;
+    updateDemoPanel(state().status);
+    setTimeout(() => updateDemoPanel(state().status), 5100);
+    return;
+  }
+  demoConfirmUntil = 0;
+  demoBusy = step;
+  updateDemoPanel(state().status);
+  try { await state().command('dev-demo', step); }
+  catch (error) {
+    demoError = (error.message || String(error)).replace(/^Error invoking remote method 'cozy:action': Error: /, '');
+    state().setUI({ error: null });
+  } finally {
+    demoBusy = null;
+    updateDemoPanel(state().status);
+  }
 }
 // ---- Sky island check-in. Amounts can have fractions; the page shows whole numbers and hides zeros.
 const resourceLabels = { wood: ['wood', 'wood'], stone: ['stone', 'stone'], planks: ['plank', 'planks'],
@@ -322,13 +416,15 @@ function islandMood(status) {
   if (status.inferredBreakActive || status.activity?.state === 'inactive') return 'away';
   return 'focus';
 }
-// Hands the island its game and mood only when the game's saved order, the profile, or the mood changes.
+// Hands the island its game and mood only when the game's saved order, the database, or the mood changes. A new
+// publication epoch means another database (a profile switch, or the game demo's Start over), where the same
+// saved order can mean a different town.
 function showIsland(status, mood) {
-  const game = status.game ?? null;
-  const key = `${status.profile}|${game?.change ?? 'none'}|${mood}`;
+  const game = status.game ?? null, database = `${status.profile}:${status.publicationEpoch ?? 0}`;
+  const key = `${database}|${game?.change ?? 'none'}|${mood}`;
   if (key === islandShownKey) return;
   islandShownKey = key;
-  try { window.cozyGame?.show({ game, mood, profile: status.profile }); } catch (error) { console.error('Sky island could not update:', error); }
+  try { window.cozyGame?.show({ game, mood, profile: database }); } catch (error) { console.error('Sky island could not update:', error); }
 }
 function navigation() {
   const s = state().status;
@@ -396,7 +492,7 @@ function today() {
   return `<div class="today-page">
     <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span></div></header>
     <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div data-island-slot></div><div data-check-in-slot></div></section>
-    <div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+    ${s.demo ? '<div data-demo-slot></div>' : ''}<div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -496,6 +592,7 @@ function render() {
     updateTodayLive(state().status);
     content.querySelector('[data-island-slot]')?.replaceWith(islandSlot);
     content.querySelector('[data-check-in-slot]')?.replaceWith(checkInSlot);
+    content.querySelector('[data-demo-slot]')?.replaceWith(demoSlot);
   }
   content.scrollTop = scroll;
   updatePresenceDisplay();
@@ -741,6 +838,8 @@ document.addEventListener('click', event => {
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
   const checkInButton = event.target.closest('#today-check-in [data-check-in-pick]');
   if (checkInButton) { tapCheckIn(checkInButton); return; }
+  const demoButton = event.target.closest('#demo-panel [data-demo-step]');
+  if (demoButton) { if (!demoButton.disabled) runDemoStep(demoButton.dataset.demoStep); return; }
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const name = button.dataset.action;

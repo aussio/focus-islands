@@ -1247,3 +1247,175 @@ test('end day and snooze install no state or partial records when their transact
   database.exec('DROP TRIGGER reject_day');
   database.close(); core.close();
 });
+
+// ---- The game demo (scripts/run-game-demo.sh). Its buttons send 'dev-demo' steps that press the real actions.
+function demoCore(folder = tempFolder('cozy-demo-test-')) {
+  const dbPath = join(folder, 'events.sqlite'), statusPath = join(folder, 'focus-status.json');
+  return { folder, dbPath, core: createCore({ dbPath, statusPath, profile: 'testing', development: true, demo: true }) };
+}
+const demoStep = (core, step) => core.action('dev-demo', step);
+const demoMorning = day => new Date(2026, 9, 21 + day, 9).toISOString();
+const kinds = (status, kind) => status.events.filter(event => event.kind === kind);
+// The saved records with their ids made plain and times in whole seconds (the session clock also counts the
+// few real milliseconds a test takes), so two databases can be compared. The dice on a check-in card depend
+// on the island's own id, so only that a card was collected is compared, not what it rolled.
+function plainRecords(events) {
+  const ids = new Map();
+  const plain = text => text?.replace(/[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/gi, id => {
+    if (!ids.has(id)) ids.set(id, `id-${ids.size + 1}`);
+    return ids.get(id);
+  });
+  return events.map(event => ({ kind: event.kind, occurredAt: event.occurredAt, source: event.source, uniqueKey: plain(event.uniqueKey),
+    payload: event.kind === 'gameCheckedIn' ? null
+      : JSON.parse(plain(JSON.stringify(event.payload ?? null)), (key, value) => /Seconds$/.test(key) ? Math.round(value) : value) }));
+}
+// Runs the same moments twice: once with demo buttons and once with the real actions, then compares the records.
+function demoMatchesManual(steps, manual) {
+  const demo = demoCore().core, real = demoCore().core;
+  let shown;
+  for (const step of steps) shown = demoStep(demo, step);
+  for (const [name, value] of manual) real.action(name, value);
+  assert.deepEqual(plainRecords(demo.status().events), plainRecords(real.status().events));
+  real.close();
+  return { demo, shown };
+}
+
+test('the game demo starts the next morning on day 1, waits for real idle time, and reopens where it stopped', () => {
+  const { folder, core } = demoCore();
+  let status = core.status();
+  assert.equal(status.currentWallTimeISO, demoMorning(1));
+  assert.equal(status.demo.day, 1);
+  assert.deepEqual(status.events.map(event => event.kind), ['gameStarted']);
+  assert.equal(status.events[0].occurredAt, demoMorning(1));
+  assert.equal(status.activityDelaySeconds, 120, 'no switch to Away after a few seconds without input');
+  assert.match(status.demo.log.at(-1).text, /New demo/);
+  demoStep(core, 'work');
+  status = demoStep(core, 'next-morning');
+  assert.equal(status.currentWallTimeISO, demoMorning(2));
+  assert.equal(status.demo.day, 2);
+  core.close();
+  // The computer's clock has not moved, yet the demo comes back at its own morning, not at its last record.
+  const reopened = demoCore(folder).core;
+  status = reopened.status();
+  assert.equal(status.currentWallTimeISO, demoMorning(2));
+  assert.equal(status.demo.day, 2);
+  assert.match(status.demo.log.at(-1).text, /reopened/);
+  reopened.close();
+});
+
+test('demo steps are refused outside the game demo', () => {
+  const personal = createCore({ dbPath: join(tempFolder('cozy-demo-personal-'), 'events.sqlite'), profile: 'personal', development: false });
+  assert.throws(() => personal.action('dev-demo', 'work'), /Development action unavailable/);
+  assert.throws(() => personal.action('demo', 'work'), /Development action unavailable/);
+  assert.deepEqual(personal.status().events.map(event => event.kind), ['gameStarted']);
+  assert.equal(personal.status().demo, null);
+  personal.close();
+  assert.throws(() => createCore({ dbPath: join(tempFolder('cozy-demo-guard-'), 'events.sqlite'), profile: 'testing', development: false, demo: true }),
+    /development app/);
+  const { core } = temporaryCore();
+  assert.throws(() => core.action('dev-demo', 'work'), /game demo/);
+  assert.deepEqual(core.status().events.map(event => event.kind), ['gameStarted']);
+  assert.equal(core.status().demo, null);
+  assert.equal(core.status().activityDelaySeconds, 5);
+  core.close();
+  const demo = demoCore().core;
+  assert.throws(() => demoStep(demo, 'dance'), /Unknown demo step/);
+  demo.close();
+});
+
+test('demo Work then Break saves what Start focus, Take a break and I\'m back save, and brings a check-in card', () => {
+  const { demo, shown } = demoMatchesManual(['work', 'break'], [['start-focus'], ['advance', 60], ['start-break'], ['advance', 15], ['finish-break']]);
+  assert.equal(shown.currentWallTimeISO, new Date(2026, 9, 22, 10, 15).toISOString());
+  assert.equal(shown.phase, 'focus');
+  assert.equal(kinds(shown, 'focusStarted').at(-1).payload.reason, 'afterBreak');
+  assert.equal(kinds(shown, 'breakEnded').length, 1);
+  assert.equal(shown.game.checkIn.number, 1);
+  assert.equal(shown.game.checkIn.choice.kind, 'job');
+  assert.deepEqual(shown.demo.log.slice(-2).map(entry => entry.text), [
+    'Worked 60 min → break due',
+    'Break 15 min → a real break; focus started again · new card: pick a job']);
+  // Picking on the card is the real tap, and the demo notes it.
+  const card = shown.game.checkIn;
+  const picked = demo.action('game-check-in', { token: card.token, pick: card.choice.options[0].job });
+  assert.equal(picked.game.checkIns, 1);
+  assert.match(picked.demo.log.at(-1).text, /^Card 1: chose a job: \S/);
+  demo.close();
+});
+
+test('demo Interrupted work and Interrupted break stop early the way the real buttons do', () => {
+  const { demo, shown } = demoMatchesManual(['work-interrupted', 'break-interrupted'],
+    [['start-focus'], ['advance', 20], ['start-break'], ['advance', 4], ['finish-break']]);
+  assert.equal(shown.currentWallTimeISO, new Date(2026, 9, 22, 9, 24).toISOString());
+  assert.equal(Math.round(kinds(shown, 'focusEnded')[0].payload.elapsedSeconds), 20 * 60);
+  assert.equal(Math.round(kinds(shown, 'breakEnded')[0].payload.elapsedSeconds), 4 * 60);
+  assert.deepEqual(kinds(shown, 'gameGranted').find(event => event.payload.source === 'rest').payload.amounts, {}, 'a short break earns no rest');
+  assert.equal(shown.phase, 'focus');
+  assert.deepEqual(shown.demo.log.slice(-2).map(entry => entry.text.replace(/ · .*/, '')), [
+    'Worked 20 min, then took a break early (focus 20 of 60 min) → on a break now',
+    'Came back from the break after 4 min → too short to count as a real break (needs 7.5 min); focus started again']);
+  demo.close();
+});
+
+test('demo Step away during focus is the real away and I\'m back, counted as a break', () => {
+  const { demo, shown } = demoMatchesManual(['work', 'away'],
+    [['start-focus'], ['advance', 60], ['away'], ['advance', 15], ['confirm-return']]);
+  assert.equal(kinds(shown, 'awayEnded').at(-1).payload.countedAsBreak, true);
+  assert.equal(shown.currentWallTimeISO, new Date(2026, 9, 22, 10, 15).toISOString());
+  assert.match(shown.demo.log.at(-1).text, /^Stepped away 15 min, then I'm back → counted as a break; focus started again/);
+  demo.close();
+});
+
+test('demo End the day and Next morning start a new day, and time steps wait for the morning', () => {
+  const { core } = demoCore();
+  demoStep(core, 'work');
+  let status = demoStep(core, 'end-day');
+  assert.ok(status.dayEndedAt);
+  assert.ok(status.game.checkIn, 'the end of the day brings a card');
+  for (const step of ['work', 'break', 'work-interrupted', 'break-interrupted', 'away']) {
+    assert.throws(() => demoStep(core, step), /Press Next morning/);
+  }
+  assert.throws(() => demoStep(core, 'end-day'), /already done/);
+  assert.equal(kinds(core.status(), 'dayEnded').length, 1);
+  status = demoStep(core, 'next-morning');
+  assert.equal(status.currentWallTimeISO, demoMorning(2));
+  assert.equal(status.demo.day, 2);
+  assert.equal(status.dayEndedAt, null);
+  assert.equal(status.phase, 'idle');
+  assert.ok(status.game.checkIn, 'a card nobody tapped is still waiting the next morning');
+  // Next morning with focus still running ends the day first, as End the day would.
+  demoStep(core, 'work-interrupted');
+  status = demoStep(core, 'next-morning');
+  assert.equal(kinds(status, 'dayEnded').length, 2);
+  assert.equal(status.currentWallTimeISO, demoMorning(3));
+  assert.equal(status.demo.day, 3);
+  assert.match(status.demo.log.at(-1).text, /^Ended the day \(a session was running\), then moved to the next morning/);
+  core.close();
+});
+
+test('demo time steps refuse to run past midnight', () => {
+  const { core } = demoCore();
+  core.action('wall-jump', 14.5 * 60);
+  const before = core.status().events.length;
+  assert.throws(() => demoStep(core, 'work'), /past midnight/);
+  assert.equal(core.status().events.length, before);
+  assert.equal(demoStep(core, 'break-interrupted').phase, 'focus', 'four minutes still fit');
+  core.close();
+});
+
+test('demo Play a week plays seven days from an untouched morning, or from tomorrow', () => {
+  const { core } = demoCore();
+  let status = demoStep(core, 'week');
+  assert.equal(status.game.activeDays, 7);
+  assert.equal(status.game.checkIn, null);
+  assert.equal(status.currentWallTimeISO, demoMorning(8));
+  assert.equal(status.demo.day, 8, 'nothing had happened on day 1 yet, so the week is days 1 to 7');
+  assert.match(status.demo.log.at(-1).text, /^Played 7 steady days from today, picking the first choice on each of \d+ cards$/);
+  assert.equal(status.statusMessage, '');
+  // Once today has a session, the week starts tomorrow and today's running focus ends with the day.
+  demoStep(core, 'work-interrupted');
+  status = demoStep(core, 'week');
+  assert.equal(status.game.activeDays, 14, 'day 8 had focus but no real break, so the game does not count it');
+  assert.equal(status.demo.day, 16);
+  assert.match(status.demo.log.at(-1).text, /from tomorrow/);
+  core.close();
+});

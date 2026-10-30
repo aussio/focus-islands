@@ -29,15 +29,23 @@ function dateForDayKey(key) {
   if (dayKey(date) !== key) throw new Error('Choose a valid local calendar date.');
   return date;
 }
+// The start time ('09:00' unless another valid time is given) on the calendar day after `date`.
+const morningAfter = (date, startTime) => {
+  const [hour, minute] = (validTime(startTime) ? startTime : '09:00').split(':').map(Number);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, hour, minute);
+};
 const countDown = seconds => {
   const value = Number(seconds) || 0;
   const whole = Math.ceil(Math.abs(value));
   return `${value < 0 ? '-' : ''}${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}`;
 };
 
-function createCore({ dbPath, statusPath, profile = 'personal', development = false }) {
+// demo: the game demo (scripts/run-game-demo.sh), a development app with its own instance. Its clock starts on
+// a morning, it picks up where it stopped after a restart, and the demo steps below fast-forward the real app.
+function createCore({ dbPath, statusPath, profile = 'personal', development = false, demo = false }) {
   if (!dbPath) throw new Error('dbPath is required.');
   if (development && profile !== 'testing') throw new Error('Development must use Testing.');
+  if (demo && !development) throw new Error('The game demo must run as a development app.');
   let store = openStore(dbPath);
   let timer, currentPlan = null, plannedBlocks = [], latestPlanEventID = null, page = 'today', message = '', clockOffset = 0, wallOffset = 0;
   let lastCheckpoint = 0, lastTick = null, awayStartedAt = null, suspended = new Set();
@@ -48,7 +56,9 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   let defaultStartTime = '09:00', defaultEndTime = '17:00';
   let notificationsEnabled = true, savedReflection = '';
   let dayEndedAt = null, dayEndSnoozedUntil = null;
-  let activityDelaySeconds = development ? 5 : 120;
+  // The demo keeps the normal delay; its window treats you as present anyway (see electron/main.js).
+  const defaultActivityDelay = development && !demo ? 5 : 120;
+  let activityDelaySeconds = defaultActivityDelay;
   let reminderSequence = 0, breakCompleteSequence = 0;
   let forecastCacheKey = '', forecastCache = [];
   let committedCacheKey = '', committedCache = null;
@@ -137,7 +147,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         startTime: validTime(legacy.startTime) ? legacy.startTime : '09:00',
         endTime: validTime(legacy.endTime) ? legacy.endTime : '17:00',
         notificationsEnabled: legacy.notificationsEnabled ?? true,
-        activityDelaySeconds: development ? 5 : 120 });
+        activityDelaySeconds: defaultActivityDelay });
     }
     defaultFocusLength = prefs.focusMinutes; defaultBreakLength = prefs.breakMinutes;
     defaultStartTime = validStartTime(prefs.startTime) ? prefs.startTime : '09:00';
@@ -146,7 +156,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const bounds = dayBounds(instant.wall, defaultStartTime, defaultEndTime);
     focusLength = defaultFocusLength; breakLength = defaultBreakLength;
     notificationsEnabled = prefs.notificationsEnabled;
-    activityDelaySeconds = prefs.activityDelaySeconds ?? (development ? 5 : 120);
+    activityDelaySeconds = prefs.activityDelaySeconds ?? defaultActivityDelay;
     const todayPlan = planForDay(events, dayKey(instant.wall));
     currentPlan = todayPlan.current; latestPlanEventID = todayPlan.latestEventID;
     if (currentPlan) { focusLength = currentPlan.focusMinutes; breakLength = currentPlan.breakMinutes; plannedBlocks = suggest(currentPlan); }
@@ -156,6 +166,23 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     savedReflection = saved?.payload.note || '';
     writeLease();
     return bounds;
+  }
+  // The demo's clock. A fresh demo starts on the next morning at the usual start time: day 1. A saved demo picks
+  // up where it stopped: the time in demo-clock.json (saved after each step and at quit), and never before its
+  // newest record. The clock file sits next to the demo's database and is ignored once that database is empty.
+  const demoLog = [], demoClockPath = demo ? join(dirname(dbPath), 'demo-clock.json') : null;
+  function saveDemoClock() {
+    try { writeFileSync(demoClockPath, JSON.stringify({ at: now().wall.toISOString() })); }
+    catch (error) { console.error('Could not save the demo clock:', error); }
+  }
+  if (demo) {
+    const events = allEvents(), real = Date.now();
+    let stoppedAt = 0;
+    try { stoppedAt = Date.parse(JSON.parse(readFileSync(demoClockPath, 'utf8')).at) || 0; } catch { /* No saved clock yet. */ }
+    clockOffset = events.length
+      ? Math.max(0, events.reduce((latest, event) => Math.max(latest, Date.parse(event.occurredAt)), stoppedAt) - real)
+      : morningAfter(new Date(real), store.getSettings()?.startTime) - real;
+    addDemoLog(events.length ? 'Demo reopened where it stopped' : 'New demo: nothing earned yet');
   }
   let bounds = load(true);
   syncGame();
@@ -584,6 +611,141 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     page = 'today';
   }
 
+  // ---- The game demo's steps (demo app only). Each step presses the same actions as Today's buttons and the
+  // development clock, one after another, and brings the game up to date after each one, as the app does. So
+  // every step saves exactly the records the real flow would. A check-in card that is waiting stays put, as in
+  // the real app: whatever comes next is added to it. Times are in minutes.
+  const DEMO_MINUTES = { break: 15, shortWork: 20, shortBreak: 4, away: 15 };
+  function demoCard() { return committedView(now()).gameView?.checkIn || null; }
+  function demoDay(events, wall) {
+    const started = events.find(event => event.kind === 'gameStarted');
+    const midnight = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    return Math.round((midnight(wall) - midnight(started ? new Date(started.occurredAt) : wall)) / 86400000) + 1;
+  }
+  // How the break that just ended went, from its saved record, judged like the timer and the game judge it.
+  function demoBreakNote(since) {
+    const ended = allEvents().findLast(event => event.sequence > since && event.kind === 'breakEnded');
+    if (!ended) return 'no break was recorded';
+    const minutes = Math.round((Number(ended.payload?.elapsedSeconds) || 0) / 60);
+    const needed = qualifyingRestSeconds(breakLength) / 60;
+    return `${minutes >= needed ? 'a real break' : `too short to count as a real break (needs ${needed} min)`}; focus started again`;
+  }
+  function demoCardNote(tokenBefore) {
+    const card = demoCard();
+    if (!card) return '';
+    const what = card.choice?.kind === 'job' ? 'pick a job' : card.choice?.kind === 'build' ? 'pick something to build' : 'collect';
+    if (!tokenBefore) return ` · new card: ${what}`;
+    return card.token === tokenBefore ? ` · card still waiting: ${what}` : ` · the waiting card grew: ${what}`;
+  }
+  function demoStep(step) {
+    if (!demo) throw new Error('Demo steps need the game demo: scripts/run-dev.sh --demo.');
+    const run = (name, value) => scenarioStep(() => perform(name, value));
+    const since = store.lastSequence(), tokenBefore = demoCard()?.token || null;
+    // Time inside today: refused once the day is done or if it would cross midnight (the app keeps sessions
+    // inside one day). Time away that is somehow still open is closed first, as I'm back would.
+    const inDay = minutes => {
+      if (dayEndedAt) throw new Error('The day is done. Press Next morning.');
+      const wall = now().wall;
+      if (dayKey(new Date(wall.getTime() + minutes * 60000)) !== dayKey(wall)) {
+        throw new Error('That would run past midnight, which the app does not handle. Press End the day, then Next morning.');
+      }
+      if (awayStartedAt || breakAwayStartedAt) run('confirm-return');
+    };
+    // Finish break starts focus by itself; otherwise Start focus.
+    const ensureFocus = () => {
+      if (timer.state.phase === 'break') run('finish-break');
+      else if (timer.state.phase === 'idle') run('start-focus');
+    };
+    const focusNow = () => ({ worked: Math.floor(timer.state.elapsedSeconds / 60), target: Math.round(timer.state.targetSeconds / 60) });
+    message = '';
+    let text;
+    switch (step) {
+      case 'work': {
+        const minutes = focusLength;
+        inDay(minutes);
+        ensureFocus();
+        run('advance', minutes);
+        const { worked, target } = focusNow();
+        text = `Worked ${minutes} min → ${timer.state.isDue ? 'break due' : 'focus running'}${worked === target ? '' : ` (focus ${worked} min, target ${target})`}`;
+        break;
+      }
+      case 'break':
+        inDay(DEMO_MINUTES.break);
+        if (timer.state.phase !== 'break') run('start-break');
+        run('advance', DEMO_MINUTES.break);
+        run('finish-break');
+        text = `Break ${DEMO_MINUTES.break} min → ${demoBreakNote(since)}`;
+        break;
+      case 'work-interrupted': {
+        inDay(DEMO_MINUTES.shortWork);
+        ensureFocus();
+        run('advance', DEMO_MINUTES.shortWork);
+        const { worked, target } = focusNow();
+        run('start-break');
+        text = `Worked ${DEMO_MINUTES.shortWork} min, then took a break${worked < target ? ' early' : ''} (focus ${worked} of ${target} min) → on a break now`;
+        break;
+      }
+      case 'break-interrupted':
+        inDay(DEMO_MINUTES.shortBreak);
+        if (timer.state.phase !== 'break') run('start-break');
+        run('advance', DEMO_MINUTES.shortBreak);
+        run('finish-break');
+        text = `Came back from the break after ${DEMO_MINUTES.shortBreak} min → ${demoBreakNote(since)}`;
+        break;
+      case 'away': {
+        inDay(DEMO_MINUTES.away);
+        const during = timer.state.phase;
+        run('away');
+        run('advance', DEMO_MINUTES.away);
+        run('confirm-return');
+        const counted = allEvents().findLast(event => event.sequence > since && event.kind === 'awayEnded')?.payload?.countedAsBreak;
+        text = `Stepped away ${DEMO_MINUTES.away} min, then I'm back → ${during === 'focus'
+          ? counted ? 'counted as a break; focus started again' : 'too short to count as a break; focus went on'
+          : during === 'break' ? demoBreakNote(since) : 'nothing was running, so it is not a break'}`;
+        break;
+      }
+      case 'end-day':
+        if (dayEndedAt) throw new Error('The day is already done. Press Next morning.');
+        run('end-day');
+        text = 'Ended the day';
+        break;
+      case 'next-morning': {
+        const running = !dayEndedAt && timer.state.phase !== 'idle';
+        if (running) run('end-day');
+        const wall = now().wall;
+        const planned = planForDay(allEvents(), dayKey(morningAfter(wall))).current?.start;
+        const morning = planned ? new Date(planned) : morningAfter(wall, defaultStartTime);
+        run('advance', (morning - wall) / 60000);
+        text = `${running ? 'Ended the day (a session was running), then moved' : 'Moved'} to the next morning`;
+        break;
+      }
+      case 'week': case 'month': {
+        // The game-week and game-month scenarios' steady days. They start today when nothing has happened yet
+        // this morning (as after Next morning or a fresh start), otherwise tomorrow, and end on the next morning.
+        const days = step === 'week' ? 7 : 30, wall = now().wall, key = dayKey(wall);
+        const freshToday = !dayEndedAt && timer.state.phase === 'idle' && wall.getHours() < 12 && !allEvents()
+          .some(event => ['focusStarted', 'breakStarted'].includes(event.kind) && dayKey(new Date(event.occurredAt)) === key);
+        let taps = 0;
+        for (let day = 0; day < days; day++) {
+          if (day || !freshToday) scenarioNextMorning();
+          taps += scenarioDay();
+        }
+        scenarioNextMorning();
+        text = `Played ${days} steady days from ${freshToday ? 'today' : 'tomorrow'}, picking the first choice on each of ${taps} cards`;
+        break;
+      }
+      default: throw new Error(`Unknown demo step: ${step}`);
+    }
+    addDemoLog(text + demoCardNote(tokenBefore));
+    saveDemoClock();
+    page = 'today';
+  }
+  function addDemoLog(text) {
+    const wall = now().wall;
+    demoLog.push({ at: wall.toISOString(), day: demoDay(allEvents(), wall), text });
+    if (demoLog.length > 12) demoLog.splice(0, demoLog.length - 12);
+  }
+
   function committedView(instant) {
     const todayKey = dayKey(instant.wall);
     const key = `${todayKey}:${store.lastSequence()}:${bounds.start}:${bounds.end}:${defaultFocusLength}:${defaultBreakLength}`;
@@ -696,13 +858,14 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       yesterdayTimeline: yesterday.actual, yesterdayFocusMinutes: Math.floor(yesterday.focusSeconds / 60),
       yesterdayBreakMinutes: Math.floor(yesterday.breakSeconds / 60), guidance: guide, history,
       events, notificationsEnabled, activityDelaySeconds, game: gameView,
-      todayGuidance: guide, canSwitchProfiles: !development, developmentMode: development };
+      todayGuidance: guide, canSwitchProfiles: !development, developmentMode: development,
+      demo: demo ? { day: demoDay(events, instant.wall), log: demoLog.slice(-6) } : null };
   }
   // Runs one command, then writes any game records it made due (also after a failed command, since
   // some commands save in steps), then returns the status. A tick returns nothing.
   function action(name, value) {
     if (!development && ['advance', 'wall-jump', 'away', 'return', 'sleep-wake', 'scenario', 'dev-scenario',
-      'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'day-time'].includes(name)) {
+      'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'day-time', 'demo', 'dev-demo'].includes(name)) {
       throw new Error('Development action unavailable.');
     }
     let showStatus;
@@ -774,7 +937,12 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
       case 'today-break': start('break', breakLength * 60); break;
       case 'save-plan': savePlan(value); break;
-      case 'game-check-in': checkIn(value); break;
+      case 'game-check-in':
+        if (checkIn(value) && demo) {
+          const { number, built, job } = allEvents().findLast(event => event.kind === 'gameCheckedIn').payload;
+          addDemoLog(`Card ${number}: ${built ? `built ${built.name}` : job ? `chose a job: ${game.JOBS[job.job]?.name || job.job}` : 'collected'}`);
+        }
+        break;
       case 'flush-plan': break;
       case 'upsert-meeting': case 'meeting-window': case 'revise-meeting': {
         const meeting = typeof value === 'object' ? value : {};
@@ -863,6 +1031,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         if (value === 'completed-day' || value === 'completedDay') { if (timer.state.phase === 'focus') endFocus(); if (timer.state.phase === 'break') finishBreak(false); start('focus', focusLength * 60); perform('advance', focusLength); start('break', breakLength * 60); perform('advance', breakLength); finishBreak(false); page = 'history'; }
         break;
       }
+      case 'demo': case 'dev-demo': demoStep(String(value?.step ?? value ?? '')); break;
       case 'dev-advance': return perform('advance', value);
       case 'dev-away': return perform('away');
       case 'dev-return': return perform('return');
@@ -899,6 +1068,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
     }
     writeLease('idle');
+    if (demo) saveDemoClock();
     store.close();
   }
   return { status, action, exportJSON, backup, close };

@@ -10,14 +10,22 @@ electron_app="$repo_root/node_modules/electron/dist/Electron.app"
 reset=false
 window_mode=background
 packaged=false
+# --demo: the game demo, with demo buttons on Today (see README "Game demo").
+# --visible-window: a normal window in front, for scripts/run-game-demo.sh only. Agents never use it.
+app_options=()
 for option in "$@"; do
   case "$option" in
     --reset) reset=true ;;
     --hidden-window) window_mode=hidden ;;
+    --visible-window) window_mode=visible ;;
+    --demo) app_options=(--demo) ;;
     --packaged) packaged=true ;;
-    *) echo "Usage: $0 [--reset] [--hidden-window] [--packaged]" >&2; exit 2 ;;
+    *) echo "Usage: $0 [--reset] [--hidden-window] [--demo] [--packaged]" >&2; exit 2 ;;
   esac
 done
+# Only a visible window may come to the front.
+open_options=(-g -n)
+if [[ "$window_mode" == visible ]]; then open_options=(-n); fi
 if [[ "$packaged" == true ]]; then
   launcher="${COZY_FOCUS_PACKAGED_APP:-$repo_root/.build/ElectronBuild/CozyFocusPet-darwin-$(uname -m)/CozyFocusPet.app}"
   executable="$launcher/Contents/MacOS/CozyFocusPet"
@@ -33,11 +41,12 @@ root = sys.argv[1]
 state = sys.argv[2]
 for path in (os.path.join(root, ".build"), os.path.dirname(state), state, os.path.join(state, "control"),
              os.path.join(state, "events.sqlite"), os.path.join(state, "status.json"),
-             os.path.join(state, "preferences-testing.json"), os.path.join(state, "electron-user-data")):
+             os.path.join(state, "preferences-testing.json"), os.path.join(state, "electron-user-data"),
+             os.path.join(state, "demo-clock.json")):
     if os.path.islink(path):
         raise SystemExit(f"Development state contains a symbolic link: {path}")
 PY
-for pid in $(pgrep -f "$executable.*--(background|hidden)-window --cozy-instance=$instance$" || true); do
+for pid in $(pgrep -f "$executable.*--(background|hidden|visible)-window( --demo)? --cozy-instance=$instance$" || true); do
   if kill -0 "$pid" 2>/dev/null; then
     COZY_FOCUS_INSTANCE="$instance" "$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || kill "$pid" 2>/dev/null || true
     for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
@@ -64,10 +73,12 @@ if [[ "$packaged" == false && ! -x "$electron" ]]; then
 fi
 if [[ ! -x "$executable" ]]; then echo "Development app executable is missing." >&2; exit 1; fi
 if [[ "$packaged" == true ]]; then
-  open -g -n -a "$launcher" --env "COZY_FOCUS_DEV=1" --env "COZY_FOCUS_DEV_REPOSITORY=$repo_root" \
-    --args "--$window_mode-window" "--cozy-instance=$instance"
+  open "${open_options[@]}" -a "$launcher" --env "COZY_FOCUS_DEV=1" --env "COZY_FOCUS_DEV_REPOSITORY=$repo_root" \
+    --args "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--cozy-instance=$instance"
 else
-  open -g -n -a "$launcher" --env "COZY_FOCUS_DEV=1" \
-    --args "$repo_root" "--$window_mode-window" "--cozy-instance=$instance"
+  open "${open_options[@]}" -a "$launcher" --env "COZY_FOCUS_DEV=1" \
+    --args "$repo_root" "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--cozy-instance=$instance"
 fi
-printf 'Launched Testing app. Database: %s\n' "$state/events.sqlite"
+kind=''
+if [[ ${#app_options[@]} -gt 0 ]]; then kind=' (game demo)'; fi
+printf 'Launched Testing app%s. Database: %s\n' "$kind" "$state/events.sqlite"
