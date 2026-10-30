@@ -48,6 +48,7 @@ function gameState(events, ctx = {}) {
   const prepared = play.prepare(state, facts, env);
   const plan = ctx.planFor && ctx.todayKey ? ctx.planFor(ctx.todayKey) : null;
   env.typical = { focusMinutes: (plan && plan.focusMinutes) || 60, breakMinutes: (plan && plan.breakMinutes) || 10 };
+  env.todayKey = ctx.todayKey;
   return play.viewState(state, facts, prepared, env);
 }
 

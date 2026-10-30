@@ -692,12 +692,20 @@ function viewState(state, facts, prepared, env) {
       nextUp: draft.choice ? null : teaser(work, rules, blueprints, typical),
       choice: viewChoice(draft.choice, work, blueprints) };
   }
+  // What today's check-ins collected, surprise gifts included. Spending isn't taken off.
+  const today = empty();
+  for (const { payload } of facts.checkIns || []) {
+    if (!env.todayKey || payload.dayKey !== env.todayKey) continue;
+    addInto(today, payload.collected);
+    if (payload.surprise) addInto(today, payload.surprise.gifts);
+  }
   const last = state.last;
   return {
     rulesVersion: rules.rulesVersion,
     change: facts.newestGameSequence,
     onHand: rounded(state.onHand),
     waiting: rounded(waiting),
+    today: rounded(today),
     islands: state.islands.map(island => ({ id: island.id, name: island.name, kind: island.kind, size: island.size,
       land: island.land, golden: island.golden, ring: island.ring, angle: island.angle, lift: island.lift,
       buildings: island.buildings.map(b => ({ ...b })) })),

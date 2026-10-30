@@ -880,3 +880,27 @@ test('the game state shows each island\'s place and lift, and links with their t
     assert.ok(sky.neighboursOf(link.to, state.islands).some(n => n.id === link.from), `${link.id} joins neighbours`);
   }
 });
+
+test("today: what today's check-ins collected, gifts included and spending not taken off; it starts at zero each day", () => {
+  const h = setup().start();
+  const nothing = state => Object.values(state.today).every(amount => amount === 0);
+  h.focus(60); h.rest(10); h.grants();
+  assert.ok(nothing(h.state()), 'a waiting card is not counted until it is collected');
+  const records = [h.checkIn(h.state().checkIn.choice.options[0].job)];
+  h.focus(60); h.rest(10); h.grants();
+  const card = h.state().checkIn;
+  assert.equal(card.choice?.kind, 'build');
+  records.push(h.checkIn(card.choice.options[0].blueprint));
+  const expected = {};
+  for (const { payload } of records) {
+    for (const amounts of [payload.collected, payload.surprise?.gifts]) {
+      for (const [resource, amount] of Object.entries(amounts || {})) expected[resource] = (expected[resource] || 0) + amount;
+    }
+  }
+  const after = h.state();
+  for (const resource of Object.keys(after.today)) assert.ok(Math.abs(after.today[resource] - (expected[resource] || 0)) < 0.01, resource);
+  assert.ok(after.onHand.wood < after.today.wood, 'the building was paid for out of what was on hand, not out of today');
+  h.nextDay();
+  assert.ok(nothing(h.state()));
+  assert.equal(h.state().onHand.wood, after.onHand.wood);
+});
