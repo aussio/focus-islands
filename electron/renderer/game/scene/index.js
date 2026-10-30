@@ -13,8 +13,10 @@
 // - The camera moves slowly to where a new world should be seen. It jumps instead on the first world, on
 //   resize, with reduced motion, and while hidden or off screen. After a lost drawing context comes back,
 //   every island is built again. A world that isn't a town draws as an empty sky (scene/core.js).
-// - Between check-ins the camera sways and drifts (scene/drift.js). It turns slowly up to 14° left and
-//   right of north and back, one whole swing every 150 s, even with only one island. With other islands it
+// - Between check-ins the camera sways and drifts (scene/drift.js). It turns slowly up to 45° left and
+//   right of north and back, one whole swing every 480 s, even with only one island. It turns around the
+//   middle of what it shows, along an ellipse fitted to the islands' shape, so the zoom stays the same
+//   facing north and the town fills the picture about the same at every turn. With other islands it
 //   also rests on the busy view, then slowly pulls back to the whole group now and then, visits each other
 //   island framed whole, and comes home. Where it is depends only on the clock (the trips on the time since
 //   the world last changed, the turn on the time since the first world), so nothing is drawn while hidden;

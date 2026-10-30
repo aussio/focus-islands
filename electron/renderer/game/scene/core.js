@@ -46,28 +46,26 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) 
   // The camera (decision 6). It frames view.island whole if helpers there stay at least 18 px tall with a
   // boost of at most 1.4; otherwise view.points and 4 steps around them. ease: move there slowly.
   // Between check-ins it drifts (stage.aim's wide and others): out to the whole group, to each other
-  // island framed whole, and back. With the sway (the default style) it also turns slowly, and every
-  // framing, the helpers' size check included, holds over the whole swing. restart: start the drift again
-  // from its rest (false on a resize).
+  // island framed whole, and back. With the sway (the default style) it also turns slowly around each
+  // view's look point; every view is framed facing north, the same in every style. restart: start the
+  // drift again from its rest (false on a resize).
   let aimed = null;
   const aim = (ease = false, { restart = true } = {}) => {
     if (!town || !model) return;
     const aspect = size[0] / Math.max(1, size[1]);
     const top = Math.max(LOWEST_TOP, Math.min(TOP, 1 - 2 * clearTop / Math.max(1, size[1])));
-    const boostAt = (points, yaws) => HELPER_MIN_PX / Math.max(1e-3, HELPER_HEIGHT * pixelsPerUnit(fitView(points, aspect, { top, yaws }).distance, size[1]));
+    const boostAt = points => HELPER_MIN_PX / Math.max(1e-3, HELPER_HEIGHT * pixelsPerUnit(fitView(points, aspect, { top }).distance, size[1]));
     const view = model.view;
     const id = view.island ?? model.islands[0]?.id ?? null;
     let points = id ? town.framePoints(id) : [];
     if (!view.island) points = model.islands.flatMap(i => town.framePoints(i.id));
     if (!points.length) points = SKY_POINTS;
-    // Whole or close is chosen facing north, so the sway (which frames a little wider for its swing) never
-    // changes which view a town gets.
     let close = false;
-    if (view.island && boostAt(points, [0]) > TOWN_MAX_BOOST) {
+    if (view.island && boostAt(points) > TOWN_MAX_BOOST) {
       const near = town.closePoints(view.island, view.ids.length ? view.ids : [town.islands.get(view.island)?.island.plaza].filter(p => p >= 0), CLOSE_STEPS);
       if (near.length) { points = near; close = true; }
     }
-    actors.setScale(Math.min(TOWN_MAX_BOOST, Math.max(1, boostAt(points, stage.fitYaws))));
+    actors.setScale(Math.min(TOWN_MAX_BOOST, Math.max(1, boostAt(points))));
     const others = model.islands.filter(i => i.id !== id).map(i => town.framePoints(i.id)).filter(list => list.length);
     const wide = model.islands.flatMap(i => town.framePoints(i.id));
     stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [], top, wide, others, restart });
@@ -144,14 +142,9 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) 
     settle() { return stage.settle(); },
     get moving() { return stage.moving; },
     // How the camera behaves between check-ins: sway (default), drift or still (stage.js CAMERA_STYLES).
-    // A change starts the drift again and eases to the busy view; turning the sway on or off also frames
-    // again, since the sway fits every view over its whole swing.
+    // A change starts the drift again and eases to the busy view (framed the same in every style).
     get cameraStyle() { return stage.style; },
-    set cameraStyle(style) {
-      const was = stage.style, yaws = stage.fitYaws;
-      stage.style = style;
-      if (stage.style !== was && stage.fitYaws !== yaws && town && model) aim(true);
-    },
+    set cameraStyle(style) { stage.style = style; },
     // Pixels kept clear across the top of the picture. A change frames again at once.
     get clearTop() { return clearTop; },
     set clearTop(pixels) {

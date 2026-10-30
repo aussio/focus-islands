@@ -14,9 +14,11 @@
 //   moveSize(a, b)                         how big a move looks: screen widths panned plus doublings zoomed
 //   samePlace(a, b)                        true when two poses would look alike on screen
 //   swayYaw(seconds)                       the "sway" style's slow turn left and right, in radians
+//   swayPose(pose, turn)                   the pose turned that far around its look point, on its ellipse
 //
-// A pose is { at: [x, y, z], distance, elevation, yaw }: the look point, the camera's distance from it,
-// its angle above the horizon and its turn from looking north (radians; 0 is north).
+// A pose is { at: [x, y, z], distance, elevation, yaw, oval }: the look point, the camera's distance from
+// it, its angle above the horizon, its turn from looking north (radians; 0 is north) and, optionally, the
+// ellipse the camera follows when the sway turns it (see swayPose).
 
 export const DRIFT = {
   home: 60, // seconds resting on the busy view, after every world change and between trips
@@ -27,7 +29,9 @@ export const DRIFT = {
   nearest: 0.9, // another island is never framed closer than this share of home's distance
 };
 const PEAK = 1.875; // smootherstep's fastest speed, as a share of its average
-export const SWAY = { degrees: 14, seconds: 150 }; // the "sway" style: ±14° over a 150 s swing
+// The "sway" style: ±45° over a 480 s swing. At its fastest (passing north) it turns 2π × 45° / 480 s,
+// about 0.59° a second: the same speed as the first sway's ±14° over 150 s, just for longer.
+export const SWAY = { degrees: 45, seconds: 480 };
 
 // Smootherstep: starts and stops with no speed and no sudden push, for the long drift moves.
 export const gentle = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * t * (t * (t * 6 - 15) + 10));
@@ -37,6 +41,7 @@ export const blendPose = (a, b, k) => ({
   distance: a.distance * Math.pow(b.distance / a.distance, k),
   elevation: a.elevation + (b.elevation - a.elevation) * k,
   yaw: (a.yaw ?? 0) + ((b.yaw ?? 0) - (a.yaw ?? 0)) * k,
+  ...(a.oval || b.oval ? { oval: [0, 1].map(i => (a.oval?.[i] ?? 0) + ((b.oval?.[i] ?? 0) - (a.oval?.[i] ?? 0)) * k) } : {}),
 });
 
 // Screen widths panned (a frame is about 0.6 of the camera's distance across) plus doublings of zoom.
@@ -96,3 +101,10 @@ export function driftPose(route, seconds) {
 
 // The sway style's yaw: a slow swing to each side and back, starting (and passing) at north.
 export const swayYaw = (seconds, sway = SWAY) => (seconds > 0 ? Math.sin(2 * Math.PI * seconds / sway.seconds) * sway.degrees * Math.PI / 180 : 0);
+
+// How far the camera sits, as a share of the pose's own distance, when the sway turns it `turn` radians
+// around the look point. Seen from above, its path is an ellipse around the look point (the stage fits it
+// to the islands' shape: stage.js shapeOval): 1 / scale² = 1 + q (cos 2·turn − 1) + r sin 2·turn, so the
+// scale is exactly 1 facing the pose's own way. No oval is a circle (scale 1 at every turn).
+export const ovalScale = (oval, turn) => (oval ? 1 / Math.sqrt(1 + oval[0] * (Math.cos(2 * turn) - 1) + oval[1] * Math.sin(2 * turn)) : 1);
+export const swayPose = (pose, turn) => ({ ...pose, yaw: (pose.yaw ?? 0) + turn, distance: pose.distance * ovalScale(pose.oval, turn) });

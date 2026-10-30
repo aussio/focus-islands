@@ -208,7 +208,7 @@ async function swayPictures(tools, entry, size, { moods = ['focus', 'break'], ba
     core.setWorld(entry.world);
     const route = core.stage.route;
     const atHome = s => !route || driftPose(route, s) === route.home;
-    const find = sign => { for (let s = 0; s < 20000; s += 0.5) if (Math.abs(swayYaw(s) - sign * SWAY.degrees * Math.PI / 180) < 1e-4 && atHome(s)) return s; return null; };
+    const find = sign => { for (let s = 0; s < 20000; s += 0.5) if (Math.abs(swayYaw(s) - sign * SWAY.degrees * Math.PI / 180) < 1e-6 && atHome(s)) return s; return null; };
     const list = grid ?? tools.grid(band ? 'gallery-today' : 'gallery-wide');
     for (const [sign, words] of SWAY_TURNS) {
       const seconds = find(sign);
@@ -225,7 +225,7 @@ async function swayPictures(tools, entry, size, { moods = ['focus', 'break'], ba
     }
   } finally { core.dispose(); }
 }
-const SWAY_NOTE = `The sway is the default camera: the view turns slowly up to ${SWAY.degrees}° left and right of north and back, one whole swing every ${SWAY.seconds} s, even with one island (with more, it also takes the drift's trips). Every framing holds over the whole swing. These are the busy view at each end of the swing and at its middle, to check join walls, the north coast, shadows, the sun's side and models' backs.`;
+const SWAY_NOTE = `The sway is the default camera: the view turns slowly up to ${SWAY.degrees}° left and right of north and back, one whole swing every ${SWAY.seconds} s, even with one island (with more, it also takes the drift's trips). Each view turns around its own middle, along an ellipse fitted to the islands' shape: facing north it is framed exactly as without the sway, and near the ends of the swing an edge may slip out of the picture. These are the busy view at each end of the swing and at its middle, to check join walls, the north coast, shadows, the sun's side and models' backs.`;
 const SWAY_BIG = [1400, 846];
 
 export default {

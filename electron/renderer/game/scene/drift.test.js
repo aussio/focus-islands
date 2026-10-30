@@ -2,7 +2,7 @@
 // visited, and the same time always giving the same pose.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DRIFT, SWAY, blendPose, driftPose, gentle, moveSize, planDrift, samePlace, swayYaw } from './drift.js';
+import { DRIFT, SWAY, blendPose, driftPose, gentle, moveSize, ovalScale, planDrift, samePlace, swayPose, swayYaw } from './drift.js';
 
 const pose = (x, z, distance, y = 0) => ({ at: [x, y, z], distance, elevation: 0.8, yaw: 0 });
 const home = pose(0, 0, 30);
@@ -86,4 +86,26 @@ test('the sway turns at most its set amount each way, from north', () => {
   let low = 0, high = 0;
   for (let s = 0; s < SWAY.seconds * 2; s += 0.25) { low = Math.min(low, swayYaw(s)); high = Math.max(high, swayYaw(s)); }
   assert.ok(Math.abs(high - most) < 1e-3 && Math.abs(low + most) < 1e-3);
+  // Wide but slow: at its fastest (passing north) it turns about 0.59° a second, as the first ±14° sway did.
+  let fastest = 0;
+  for (let s = 0; s < SWAY.seconds; s += 0.25) fastest = Math.max(fastest, Math.abs(swayYaw(s + 0.25) - swayYaw(s)) / 0.25);
+  const degrees = fastest * 180 / Math.PI;
+  assert.ok(Math.abs(degrees - 0.59) < 0.01, `turns ${degrees.toFixed(3)}° a second at its fastest`);
+});
+
+test('the sway turns a pose around its look point, along its ellipse', () => {
+  const home = { ...pose(3, 1, 20), oval: [0.3, -0.1] };
+  assert.equal(ovalScale(home.oval, 0), 1, 'facing its own way, the camera sits at the pose\'s distance');
+  assert.equal(ovalScale(undefined, 0.7), 1, 'no oval: a circle');
+  const turned = swayPose(home, 0.5);
+  assert.deepEqual(turned.at, home.at, 'it turns around the look point');
+  assert.equal(turned.yaw, 0.5);
+  assert.ok(Math.abs(turned.distance - 20 * ovalScale(home.oval, 0.5)) < 1e-12);
+  // The path is an ellipse: 1 / distance² is A + B cos 2θ + C sin 2θ for any turn.
+  const inv = t => 1 / ovalScale(home.oval, t) ** 2;
+  for (const t of [0.2, 0.9, -1.3]) assert.ok(Math.abs(inv(t) - (1 - 0.3 + 0.3 * Math.cos(2 * t) - 0.1 * Math.sin(2 * t))) < 1e-12);
+  // Trips blend the ellipse too, so the sway goes on smoothly during a move.
+  const other = { ...pose(9, 1, 30), oval: [-0.1, 0.2] };
+  assert.deepEqual(blendPose(home, other, 0.5).oval.map(v => Math.round(v * 1e9) / 1e9), [0.1, 0.05]);
+  assert.equal('oval' in blendPose(pose(0, 0, 10), pose(1, 0, 10), 0.5), false);
 });
