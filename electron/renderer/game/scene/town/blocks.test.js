@@ -8,6 +8,9 @@
 //   changed (storeys, colour or door).
 // - Every house draws one door, on its door block, in the cell beside its lane point.
 // - No block goes over 3 storeys, and nothing is drawn above the third storey's roof and chimney.
+// - The small looks (window boxes, chimney nests, chimney smoke) come at about their share, the same for
+//   the same id; smoke is never on a nest, follows scene time, rests at time 0, shows only in the evening
+//   moods, casts no shadow and stays under its cap. With every look on, the ceiling and keys still hold.
 // Runs in Node with Three.js; nothing is rendered.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,7 +31,7 @@ const { TOWN, createMaterials } = await import('../style.js');
 const { cornerPiece, pointOfKey } = await import('./pieces.js');
 const { parseTown } = await import('./world.js');
 const { makeModelContext } = await import('./build.js');
-const { buildBlocks, planRoofs, roofLift } = await import('./blocks.js');
+const { LOOKS, SMOKE, buildBlocks, hasLook, planRoofs, roofLift } = await import('./blocks.js');
 
 const NEAR = 2; // grid steps a changed block piece may be from a changed block
 const MAX_FLOORS = 3;
@@ -251,4 +254,104 @@ test('blocks: no block goes over 3 storeys', () => {
       }
     }
   }
+});
+
+// ---------- The small looks: window boxes, chimney nests, chimney smoke ----------
+
+// Draws one island's blocks alone with every part kept. { log, meshes, made }
+function drawLooks(island, model = null) {
+  const log = new Map();
+  const made = makeModelContext({ materials, blobMaterial: new THREE.MeshBasicMaterial(), blobPlane: new THREE.PlaneGeometry(1, 1), model, island, log });
+  buildBlocks(made.ctx, island);
+  const meshes = made.finish();
+  return { log, meshes, made, smoke: made.ctx.root.children.find(node => node.name === 'chimney-smoke') ?? null };
+}
+const withLooks = (looks, fn) => {
+  const saved = { ...LOOKS };
+  Object.assign(LOOKS, looks);
+  try { return fn(); } finally { Object.assign(LOOKS, saved); }
+};
+const matrices = mesh => [...mesh.instanceMatrix.array].map(v => v.toFixed(6)).join(',');
+
+test('looks: window boxes, nests and smoke come at about their share, the same for the same id', () => {
+  for (const look of Object.keys(LOOKS)) {
+    let yes = 0;
+    for (let n = 0; n < 2000; n++) {
+      const has = hasLook(look, `isle-${n}`, n % 37);
+      assert.equal(hasLook(look, `isle-${n}`, n % 37), has, `${look}: isle-${n} changed its mind`);
+      if (has) yes++;
+    }
+    assert.ok(Math.abs(yes / 2000 - LOOKS[look]) < 0.035, `${look}: ${(100 * yes / 2000).toFixed(1)}% for a chance of ${(100 * LOOKS[look]).toFixed(1)}%`);
+  }
+  // On the real towns, about 1 in 4 windows has a box.
+  let windows = 0, boxes = 0;
+  for (const [, model] of realModels()) {
+    for (const island of housed(model)) {
+      for (const key of drawBlocks(island, model).log.keys()) {
+        if (/:window:[AB]$/.test(key)) windows++;
+        if (/:box:[AB]$/.test(key)) boxes++;
+      }
+    }
+  }
+  if (windows) assert.ok(boxes / windows > 0.15 && boxes / windows < 0.35, `${boxes} boxes on ${windows} windows`);
+});
+
+test('looks: with every look on, nothing goes above the ceiling and the keys hold', () => {
+  const ceiling = MAX_FLOORS * TOWN.storey + TOWN.roofRise + 0.25;
+  withLooks({ box: 1, nest: 1, smoke: 1 }, () => {
+    for (const [name, model] of allModels()) {
+      for (const island of housed(model)) {
+        const { log, meshes, smoke } = drawLooks(island, model);
+        for (const key of log.keys()) assert.match(key, /^block:\d+:[0-3]:[0-2]:[a-z]+(:[A-Z])?$/, `${name} ${island.id}: odd key ${key}`);
+        assert.ok([...log.keys()].some(key => key.includes(':box:')) || ![...log.keys()].some(key => key.includes(':window:')), `${name} ${island.id}: windows but no boxes`);
+        assert.equal(smoke, null, `${name} ${island.id}: smoke from a chimney with a nest`);
+        for (const mesh of meshes) {
+          const array = mesh.geometry.attributes.position.array;
+          for (let i = 1; i < array.length; i += 3) assert.ok(array[i] <= ceiling, `${name} ${island.id}: something is drawn at ${array[i].toFixed(2)}, above ${ceiling.toFixed(2)}`);
+        }
+      }
+    }
+  });
+});
+
+test('looks: chimney smoke follows scene time, rests at time 0, shows only in the evening and stays capped', () => {
+  let seen = 0;
+  for (const [name, model] of allModels()) {
+    for (const island of housed(model)) {
+      const { chimneys } = planRoofs(island);
+      const smoking = [...chimneys.keys()].filter(s => !hasLook('nest', island.id, s) && hasLook('smoke', island.id, s));
+      const a = drawLooks(island, model), b = drawLooks(island, model);
+      if (!smoking.length) { assert.equal(a.smoke, null, `${name} ${island.id}: smoke with no smoking chimney`); continue; }
+      seen++;
+      const label = `${name} ${island.id}`;
+      assert.equal(a.smoke.count, Math.min(smoking.length, SMOKE.chimneys) * SMOKE.puffs, `${label}: ${a.smoke.count} puffs`);
+      assert.equal(a.smoke.castShadow, false, `${label}: the smoke casts a shadow`);
+      assert.ok(!a.meshes.includes(a.smoke), `${label}: the smoke is in the batch`);
+      const built = matrices(a.smoke);
+      for (const t of [0, 2.5, 31, 600]) {
+        for (const fn of a.made.dynamic) fn(t);
+        for (const fn of b.made.dynamic) fn(t);
+        assert.equal(matrices(a.smoke), matrices(b.smoke), `${label}: different at ${t} s`);
+      }
+      for (const fn of a.made.dynamic) fn(4);
+      assert.notEqual(matrices(a.smoke), built, `${label}: the smoke did not move`);
+      for (const fn of a.made.dynamic) fn(0);
+      assert.equal(matrices(a.smoke), built, `${label}: not back at the built pose at 0 s`);
+      for (const [mood, shown] of [['focus', false], ['break', true], ['away', true], ['done', true]]) {
+        for (const fn of a.made.moodHooks) fn(mood, {});
+        assert.equal(a.smoke.visible, shown, `${label}: smoke ${shown ? 'hidden' : 'shown'} in ${mood}`);
+      }
+    }
+  }
+  assert.ok(seen > 0, 'some island has smoking chimneys');
+
+  // Every chimney smoking: no island goes over the cap.
+  withLooks({ nest: 0, smoke: 1 }, () => {
+    for (const [name, model] of allModels()) {
+      for (const island of housed(model)) {
+        const { smoke } = drawLooks(island, model);
+        if (smoke) assert.ok(smoke.count <= SMOKE.chimneys * SMOKE.puffs, `${name} ${island.id}: ${smoke.count} puffs`);
+      }
+    }
+  });
 });

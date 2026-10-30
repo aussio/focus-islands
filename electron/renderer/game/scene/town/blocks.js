@@ -49,10 +49,20 @@
 // just behind that block's roof) has windows only when it faces the camera's side: seen side-on from
 // Today, their boxes stick out past the corner board as a ragged pale strip along the lower roof.
 //
+// Small looks (look only; nothing is saved), each picked by hashString on the thing's own id with its own
+// pick name, so the rolls above never change (chances in LOOKS, which tests and the gallery may change):
+// - window boxes: about 1 in 4 windows gets a wooden box of flowers under its sill (key ...:box:<side>);
+// - nests: about 1 in 6 chimneys has a twig nest on its cap (in the chimney's own piece);
+// - smoke: about 3 in 5 chimneys without a nest send up a few soft puffs in the evening moods (break,
+//   away, and fainter at night in done), none by day. The puffs share one instanced mesh per island,
+//   rise slowly with scene time (ctx.dynamic), stand still at time 0 and never cast shadows. At most
+//   SMOKE.chimneys chimneys per island smoke. They are not in the piece log or the triangle stats.
+//
 // What a piece draws depends only on points within two grid steps of its own: its four cell points, the
 // arms of its point (which look at its neighbours and the cells around it) and the door of its point.
 import * as THREE from 'three';
 import { P, TOWN, HOUSE_LOOKS } from '../style.js';
+import { hashString } from '../ground.js';
 import { roll } from '../../town/grid.js';
 import { PieceSink, cornerPiece, frameBox, midpoint, parts, shade, wallFrame } from './pieces.js';
 
@@ -67,6 +77,15 @@ const CHANCE = { window: 0.88, chimney: 0.24, attic: 0.55 };
 const UP = [0, 1, 0], DOWN = [0, -1, 0];
 const AO = { ground: 0, height: 0.32, min: 0.6 };
 const FACING = 0.4; // a wall faces the camera's side when its outward way points at least this much south
+// Chances of the small looks, and their pick names (hashString of the parts and the name).
+export const LOOKS = { box: 1 / 4, nest: 1 / 6, smoke: 3 / 5 };
+const LOOK_NAMES = { box: 'window-box', nest: 'chimney-nest', smoke: 'chimney-smoke' };
+export const hasLook = (look, ...parts) => hashString(`${parts.join(':')}:${LOOK_NAMES[look]}`) < LOOKS[look];
+// Chimney smoke: at most this many chimneys per island, puffs each, seconds per puff, how high a puff
+// rises, and its strength per mood (0: none).
+export const SMOKE = { chimneys: 8, puffs: 3, seconds: 9, rise: 0.55, opacity: { focus: 0, break: 0.6, away: 0.5, done: 0.32 } };
+const SMOKE_COLOUR = { focus: '#f4eef6', break: '#fde8ee', away: '#e6e4f0', done: '#b8bfe6' };
+const BREEZE = 0.35; // the windmills' wind (models/making.js WIND): smoke leans away from it
 
 const edgeKey = (i, j) => (i < j ? `${i}:${j}` : `${j}:${i}`);
 const byNumber = (a, b) => a - b;
@@ -177,6 +196,7 @@ export function buildBlocks(ctx, island) {
   const plan = planRoofs(island);
   const sink = new PieceSink(ctx);
   const fl = p => floors.get(p) ?? 0;
+  const smoke = []; // chimney tops that smoke
   for (const s of [...floors.keys()].sort(byNumber)) {
     const block = {
       id: island.id, s, top: fl(s), fl, grid,
@@ -184,6 +204,7 @@ export function buildBlocks(ctx, island) {
       arms: plan.arms.get(s) ?? new Set(),
       door: plan.doors.get(s),
       chimney: plan.chimneys.get(s),
+      smoke,
     };
     if (block.door !== undefined) {
       const cells = grid.around[s].filter(cell => grid.cells[cell].includes(block.door));
@@ -195,6 +216,7 @@ export function buildBlocks(ctx, island) {
     }
   }
   sink.flush();
+  if (smoke.length) addSmoke(ctx, island.id, smoke.slice(0, SMOKE.chimneys));
 }
 
 // The four parts of a corner piece as [a0, a1, b0, b1], cut at the wall line.
@@ -259,7 +281,13 @@ function blockPiece(sink, c, level, block) {
     if (length < 0.15 || roll('window', id, c.s, c.cell, level, e.side) >= CHANCE.window) continue;
     sink.begin(`${key}:window:${e.side}`);
     const frame = wallFrame(p, q, level * H, out);
-    smallWindow(sink, frame, length / 2, H * 0.54, Math.min(0.12, length * 0.45), 0.16);
+    const w = Math.min(0.12, length * 0.45);
+    smallWindow(sink, frame, length / 2, H * 0.54, w, 0.16);
+    if (hasLook('box', id, key, e.side)) {
+      sink.begin(`${key}:box:${e.side}`);
+      const pick = hashString(`${id}:${key}:${e.side}:window-box-colour`);
+      windowBox(sink, frame, length / 2, H * 0.54, w, 0.16, pick);
+    }
   }
   if (level === 0 && block.door !== undefined && block.doorCell === c.cell) {
     const face = wallFace(block.grid, c.s, block.door);
@@ -300,7 +328,9 @@ function blockPiece(sink, c, level, block) {
   // ---- A chimney ----
   if (block.chimney === c.cell) {
     sink.begin(`${key}:chimney`);
-    chimney(sink, c, y1, look);
+    const nest = hasLook('nest', id, c.s);
+    const top = chimney(sink, c, y1, look, nest);
+    if (!nest && hasLook('smoke', id, c.s)) block.smoke.push({ s: c.s, top });
   }
 }
 
@@ -406,7 +436,8 @@ function atticWindow(sink, frame, y) {
 }
 
 // A chimney standing out of the roof a little off its middle, in the wall colour with a white cap.
-function chimney(sink, c, y1, look) {
+// nest: a twig nest sits on the cap instead of the dark flue. Returns the top's middle [x, y, z].
+function chimney(sink, c, y1, look, nest = false) {
   const o = c.at3(0.42, 0.42, y1);
   const u = unit(c.dir(0.42, 0.42, 1, 0));
   const frame = { o, u, n: [u[2], 0, -u[0]] };
@@ -414,5 +445,82 @@ function chimney(sink, c, y1, look) {
   const height = RISE + 0.1;
   frameBox(mesh, frame, [-0.04, 0.04], [0, height], [-0.04, 0.04], shade(look.wall, 0.92), 'fklr');
   frameBox(mesh, frame, [-0.052, 0.052], [height, height + 0.03], [-0.052, 0.052], P.trim, 'fklrtd');
-  frameBox(mesh, frame, [-0.028, 0.028], [height + 0.03, height + 0.031], [-0.028, 0.028], '#5d4f66', 't');
+  if (nest) chimneyNest(sink, frame, height + 0.03);
+  else frameBox(mesh, frame, [-0.028, 0.028], [height + 0.03, height + 0.031], [-0.028, 0.028], '#5d4f66', 't');
+  return [o[0], o[1] + height + 0.031, o[2]];
+}
+
+// A twig nest on a chimney's cap at y: a wide, faceted bowl a little wider than the cap, a dark hollow
+// and two twigs poking out. Its top stays 0.045 above the cap, under the blocks' ceiling.
+const NEST = { brown: '#a8774f', dark: '#6b4a34' };
+function chimneyNest(sink, frame, y) {
+  const at = new THREE.Matrix4().makeTranslation(frame.o[0], frame.o[1] + y, frame.o[2]);
+  sink.geometry(new THREE.CylinderGeometry(0.078, 0.056, 0.045, 7).translate(0, 0.0215, 0).applyMatrix4(at), 'facet', NEST.brown);
+  sink.geometry(new THREE.CircleGeometry(0.056, 7).rotateX(-Math.PI / 2).translate(0, 0.0445, 0).applyMatrix4(at), 'matte', NEST.dark);
+  const twigs = sink.mesh('matte');
+  frameBox(twigs, { ...frame, o: [frame.o[0], frame.o[1] + y, frame.o[2]] }, [-0.1, 0.03], [0.028, 0.04], [0.035, 0.047], P.log, 'ftlr');
+  frameBox(twigs, { ...frame, o: [frame.o[0], frame.o[1] + y, frame.o[2]] }, [0.04, 0.052], [0.022, 0.034], [-0.095, 0.0], P.log, 'ftlr');
+}
+
+// A wooden window box under a window's sill (x, y, w, h as in smallWindow), with a green strip of
+// leaves and three chunky flowers along its front, in two colours picked by pick (0..1).
+function windowBox(sink, frame, x, y, w, h, pick) {
+  const f = 0.022;
+  const x0 = x - w / 2 - f - 0.012, x1 = x + w / 2 + f + 0.012;
+  const sill = y - h / 2 - f * 1.1; // the sill's underside
+  const main = P.flower[1 + Math.floor(pick * 4) % 4], other = P.flower[Math.floor(pick * 20) % 5];
+  const matte = sink.mesh('matte');
+  frameBox(matte, frame, [x0, x1], [sill - 0.05, sill + 0.012], [0, 0.075], P.log, 'ftlrd');
+  frameBox(matte, frame, [x0 + 0.008, x1 - 0.008], [sill + 0.012, sill + 0.036], [0.012, 0.068], P.leaf[0], 'ftlr');
+  [main, other === main ? P.flower[0] : other, main].forEach((hex, k) => {
+    const xc = x0 + (k + 0.5) * (x1 - x0) / 3;
+    frameBox(matte, frame, [xc - 0.022, xc + 0.022], [sill + 0.024, sill + 0.06 - (k % 2) * 0.008], [0.03, 0.078], hex, 'ftlr');
+  });
+}
+
+// ---------- Chimney smoke ----------
+
+// Soft puffs that rise slowly from chimney tops ([{ s, top }]) in the evening moods: one instanced mesh
+// for the island, its puffs sharing one small shape (freed with the island). Each puff grows as it rises,
+// leans with the breeze and shrinks away; each chimney starts its puffs at its own turn. update(0) is the
+// built pose.
+export function addSmoke(ctx, id, tops) {
+  if (!tops.length) return null;
+  const puffShape = new THREE.IcosahedronGeometry(1, 1);
+  const count = tops.length * SMOKE.puffs;
+  const material = new THREE.MeshStandardMaterial({ color: SMOKE_COLOUR.break, emissive: SMOKE_COLOUR.break, emissiveIntensity: 0.18, roughness: 1, metalness: 0, transparent: true, opacity: SMOKE.opacity.break, depthWrite: false });
+  const mesh = new THREE.InstancedMesh(puffShape, material, count);
+  mesh.name = 'chimney-smoke';
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.frustumCulled = false; // the puffs move
+  mesh.renderOrder = 2;
+  mesh.visible = false; // until a mood shows it
+  const turns = tops.map(({ s }) => hashString(`${id}:${s}:chimney-smoke-turn`));
+  const lean = [-Math.sin(BREEZE), -Math.cos(BREEZE)];
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  const update = t => {
+    const time = Number.isFinite(t) ? Math.max(0, t) : 0;
+    tops.forEach(({ top }, i) => {
+      for (let k = 0; k < SMOKE.puffs; k++) {
+        const f = (time / SMOKE.seconds + k / SMOKE.puffs + turns[i]) % 1;
+        const r = (0.045 + 0.065 * f) * Math.pow(Math.sin(Math.PI * Math.min(1, f * 1.15)), 0.6);
+        v.set(top[0] + lean[0] * f * f * 0.2, top[1] + 0.035 + f * SMOKE.rise, top[2] + lean[1] * f * f * 0.2);
+        mesh.setMatrixAt(i * SMOKE.puffs + k, m.compose(v, q, sc.set(r, r * 0.85, r)));
+      }
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  };
+  update(0);
+  ctx.root.add(mesh);
+  ctx.track(material, mesh, puffShape);
+  ctx.dynamic.push(update);
+  ctx.onMood(name => {
+    const strength = SMOKE.opacity[name] ?? 0;
+    mesh.visible = strength > 0;
+    material.opacity = strength;
+    material.color.set(SMOKE_COLOUR[name] ?? SMOKE_COLOUR.break);
+    material.emissive.set(SMOKE_COLOUR[name] ?? SMOKE_COLOUR.break);
+  });
+  return { mesh, update };
 }

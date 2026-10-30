@@ -421,6 +421,10 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
   - The underside is faceted pieces below each corner piece at those depths. It meets the slab's bottom along the rounded coast.
   - A few deep points (by roll) hang a long rock drip of up to 1.2. Roots hang from coast points (by roll).
   - A land change moves depths only within 6 steps, unlike the prototype, whose single underside tip shifted with every change.
+- **Waterfalls (`scene/town/water.js`, called from `buildGround`):** islands with a pond or a rain catcher (kind id `nursery`), and every mossy or misty island, pour a thin waterfall off the coast.
+  - The side is picked from the island id (`waterfall-side`), within about 26° of south so the sway sees it from both ends. A spot facing away, within 1.3 of a bridge foot or deck start, or within 1 of a coast building is skipped by turning further, never past about 60° from south; with no spot, there is no waterfall. So it can move when a bridge or coast building is added nearby.
+  - Its stones are logged with the slab. The water and mist are small meshes of their own (about 260 triangles plus 4 mist puffs) that move with scene time, rest at time 0, follow the mood and cast no shadow.
+  - `addWaterfall(ctx, { x, y, z, out, width, drop, seed })` is exported for reuse (a later edge spring). Tests: `water.test.js`; gallery: `views/water.js`.
 
 ### Corner pieces
 
@@ -446,6 +450,7 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
   - A thin white ridge trim runs along every ridge.
 - **Also new:** chimneys on some blocks, by roll.
 - Window and door choices use a roll for each piece, so they never shuffle.
+- **Small looks** (`LOOKS` in `blocks.js`, look-only, picked from the piece's id with a new pick name): flower boxes under about 1 in 4 windows, a nest on about 1 in 6 chimneys, and soft smoke from about 3 in 5 of the other chimneys in the break and away moods (fainter in done, none in focus), at most 8 smoking chimneys per island in one mesh. Smoke moves with scene time, rests at time 0, casts no shadow and may rise above the 2.05 height limit; it is not in the main triangle count. About 0.75% more triangles at day 180.
 
 ### Special buildings on pads
 
@@ -457,6 +462,7 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
   - Windmill sails keep the shared wind direction.
 - **Stay as models on pads:** garden, nursery, sawmill, workshop, windmill, orchard, tower, pond, great tree, grotto, quarry, beehives, forge, loom, and all five wonders.
 - **Stay as one-point things:** tree, rock, bush, flower, pile, fire, seat, mushroom, crystal, golden tree, lanterns. The flower bed sits on a pair.
+- **Rare looks** (`RARE` at the top of `models/nature.js`, plus striped sails in `models/making.js`): look-only colours and small extras on trees, rocks, mushrooms, crystals, flower spots and windmills, each picked from the thing's own id with its own pick name. Each island's first tree keeps its plain crown. With every look off the town draws exactly as before. Tests: `scene/variety.test.js`; gallery: `views/variety.js`.
 - **Became block houses:** the cottage (its model and `townHouse` were deleted in stage 2). The keeper's house inside the lighthouse and the kiosk on the airship dock stay as parts of those models.
 - **Model fixes:**
   - The edge models read `thing.coast` instead of looking at square cells (`coastFrame` in `wonders.js`).

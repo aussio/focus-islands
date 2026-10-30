@@ -15,6 +15,8 @@
 //   point sits from the coast (counted in grid steps, at most 5), the lower it hangs. So a land change
 //   reshapes it only within 6 steps. Rock drips hang under some deep points and roots under some coast
 //   points, both picked by rolls of the island and point.
+// - Islands with a pond or a rain catcher, and mossy and misty ones, pour a waterfall off the coast
+//   (water.js, its stones logged with the slab).
 //
 // framePoints: the underside's upper bulge (the points one and two steps in), for framing the camera.
 import * as THREE from 'three';
@@ -22,6 +24,7 @@ import { P, ISLAND_GRASS } from '../style.js';
 import { taperedTube } from '../ground.js';
 import { roll } from '../../town/grid.js';
 import { PieceSink, cornerPiece, midpoint } from './pieces.js';
+import { buildWaterfall } from './water.js';
 
 // The slab's rim, from the grass edge down: [out from the coast, height].
 const RIM = [[0, 0], [0.035, -0.012], [0.068, -0.04], [0.09, -0.085], [0.1, -0.14], [0.094, -0.195], [0.072, -0.245], [0.035, -0.285], [0, -0.3]];
@@ -122,6 +125,7 @@ export function buildGround(ctx, island) {
     }
   }
   sink.flush();
+  buildWaterfall(ctx, island, loops[0]); // some islands pour a waterfall off the south side (water.js)
   return { loop: loops[0] ?? [], framePoints };
 }
 
