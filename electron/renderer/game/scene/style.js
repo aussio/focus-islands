@@ -20,6 +20,30 @@ export const P = {
   root: '#c99467',
 };
 
+// Town sizes on the uneven grid (the town scene in scene/town/). Heights are world units; widths and
+// insets are in piece units, where a corner piece runs from its point (0) to the cell's middle (1).
+export const TOWN = {
+  storey: 0.5, // height of one block storey
+  roofRise: 0.25, // roof height from the eave to the ridge
+  wallInset: 0.17, // walls sit this far inside the cell edge; the roof overhangs to the edge
+  fascia: 0.05, // the white board under the eave
+  laneWidth: 0.42, // lane slab, out from its point
+  laneRise: 0.022, // lane slab height above the grass
+  laneRim: 0.07, // the lane's soft sloped rim
+  padWidth: 0.74, // stone pad under a special building
+  padRise: 0.05,
+};
+
+// Wall and roof colour pairs for block houses. house.look in the world numbers one of these.
+export const HOUSE_LOOKS = [
+  { wall: '#ffd25e', roof: '#e9553f' },
+  { wall: '#7cc8ff', roof: '#e9553f' },
+  { wall: '#ff9a85', roof: '#5b6fd6' },
+  { wall: '#fff3e2', roof: '#2fb8a5' },
+  { wall: '#b9a8f5', roof: '#f5b52e' },
+  { wall: '#8fe0b0', roof: '#e9553f' },
+];
+
 // Grass tint per island kind, so new islands read as their own place.
 export const ISLAND_GRASS = {
   home: { top: P.grass, side: P.grassSide },
