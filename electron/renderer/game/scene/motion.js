@@ -49,13 +49,16 @@ function lerpAngle(a, b, t) {
 }
 export const yawTo = (from, to) => Math.atan2(to[0] - from[0], to[1] - from[1]);
 
-// steps: [{ at | walk, anim, dur, face | yaw, tool, carry, speed, seat }]. Walk steps take as long as
-// the distance needs. offset shifts where in the loop the helper is at time 0.
+// steps: [{ at | walk, y, anim, dur, face | yaw, tool, carry, speed, seat }]. Walk steps take as long as
+// the distance needs. y is the height where the step ends (the town's islands and bridges float at
+// different heights); a step without one keeps the height before it, and a line without any stays at 0.
+// offset shifts where in the loop the helper is at time 0.
 export function timeline(steps, offset = 0) {
-  let pos = steps[0].at ?? steps[0].walk, yaw = 0, time = 0;
+  let pos = steps[0].at ?? steps[0].walk, yaw = 0, time = 0, y = steps[0].y ?? 0;
   const segments = [];
   for (const step of steps) {
     let duration = step.dur ?? 1, to = step.at ?? pos, nextYaw = yaw;
+    const nextY = step.y ?? y;
     if (step.walk) {
       to = step.walk;
       const distance = Math.hypot(to[0] - pos[0], to[1] - pos[1]);
@@ -64,12 +67,13 @@ export function timeline(steps, offset = 0) {
     }
     if (step.face && Math.hypot(step.face[0] - to[0], step.face[1] - to[1]) > 1e-4) nextYaw = yawTo(to, step.face);
     if (step.yaw !== undefined) nextYaw = step.yaw;
-    segments.push({ ...step, anim: step.anim ?? (step.walk ? 'walk' : 'idle'), start: time, duration, from: pos, to, yawFrom: yaw, yawTo: nextYaw });
-    time += duration; pos = to; yaw = nextYaw;
+    segments.push({ ...step, anim: step.anim ?? (step.walk ? 'walk' : 'idle'), start: time, duration, from: pos, to, yawFrom: yaw, yawTo: nextYaw, yFrom: y, yTo: nextY });
+    time += duration; pos = to; yaw = nextYaw; y = nextY;
   }
   segments[0].yawFrom = yaw;
   // Loop back cleanly: the first step starts from where the last one ended.
   segments[0].from = pos;
+  segments[0].yFrom = y;
   return { segments, total: Math.max(0.1, time), offset };
 }
 
@@ -102,13 +106,16 @@ export function pose(rig, segment, local, p, t, seatHeight = 0.11) {
   const show = name => { if (name && rig.tools[name]) rig.tools[name].visible = true; };
   const carry = name => { if (name && rig.items[name]) rig.items[name].visible = true; };
   rig.body.rotation.x = Math.sin(t * 1.9 + rig.seed) * 0.02;
-  if (a === 'walk') {
-    const phase = local * Math.PI * 4.2;
+  if (a === 'walk' || a === 'climb') {
+    // climb: up the water slide's stair, the same walk with a higher step and a little lean forward.
+    const climb = a === 'climb';
+    const phase = local * Math.PI * (climb ? 4.8 : 4.2);
     const s = Math.sin(phase);
-    rig.legL.rotation.x = s * 0.6;
-    rig.legR.rotation.x = -s * 0.6;
-    rig.figure.position.y = Math.abs(Math.cos(phase)) * 0.035;
+    rig.legL.rotation.x = s * (climb ? 0.75 : 0.6);
+    rig.legR.rotation.x = -s * (climb ? 0.75 : 0.6);
+    rig.figure.position.y = Math.abs(Math.cos(phase)) * (climb ? 0.09 : 0.035);
     rig.body.rotation.z = s * 0.04;
+    if (climb) rig.body.rotation.x += 0.12;
     if (segment.carry) {
       rig.armL.rotation.x = rig.armR.rotation.x = -1.15;
       rig.armL.rotation.z = -0.25; rig.armR.rotation.z = 0.25;
@@ -212,6 +219,36 @@ export function pose(rig, segment, local, p, t, seatHeight = 0.11) {
     rig.armL.rotation.z = -0.25; rig.armR.rotation.z = 0.25;
     rig.head.rotation.x = 0.25 - lift * 0.3;
     show('rod');
+  } else if (a === 'hop') {
+    // Cloud steps: crouch, jump about 0.12 (in world units, so it reads at any helper size), land.
+    const up = 0.12 / (rig.root.scale.y || 1);
+    const crouch = p < 0.2 ? smooth(p / 0.2) : p > 0.8 ? smooth((1 - p) / 0.2) : 0;
+    const air = p >= 0.2 && p <= 0.8 ? Math.sin((p - 0.2) / 0.6 * Math.PI) : 0;
+    rig.figure.position.y = air * up - crouch * 0.05;
+    rig.legL.rotation.x = rig.legR.rotation.x = -0.5 * crouch - 0.35 * air;
+    rig.body.rotation.x = 0.25 * crouch;
+    if (segment.carry) {
+      rig.armL.rotation.x = rig.armR.rotation.x = -1.15;
+      rig.armL.rotation.z = -0.25; rig.armR.rotation.z = 0.25;
+      carry(segment.carry);
+    } else {
+      rig.armL.rotation.x = rig.armR.rotation.x = 0.3 * crouch - 1.1 * air;
+      rig.armL.rotation.z = -0.35 * air; rig.armR.rotation.z = 0.35 * air;
+    }
+  } else if (a === 'slide' || a === 'splash') {
+    // Down the water slide sitting, arms up (or hugging what they carry), then a splash in the pool.
+    sitPose(rig, 1, segment.seat ?? 0.02, -1.5);
+    rig.body.rotation.x = a === 'slide' ? -0.22 : -0.05;
+    rig.head.rotation.x = a === 'slide' ? -0.2 : 0;
+    const wave = a === 'slide' ? Math.sin(local * 9) * 0.12 : Math.sin(local * 14) * 0.4 * (1 - p);
+    if (segment.carry) {
+      rig.armL.rotation.x = rig.armR.rotation.x = -1.15;
+      rig.armL.rotation.z = -0.25; rig.armR.rotation.z = 0.25;
+      carry(segment.carry);
+    } else {
+      rig.armL.rotation.x = rig.armR.rotation.x = a === 'slide' ? -2.75 : -1.6;
+      rig.armL.rotation.z = -0.35 + wave; rig.armR.rotation.z = 0.35 - wave;
+    }
   } else {
     rig.head.rotation.y = Math.sin(t * 0.8 + rig.seed) * 0.3;
     show(segment.tool);
@@ -220,6 +257,7 @@ export function pose(rig, segment, local, p, t, seatHeight = 0.11) {
 }
 
 // Places one helper for time t on its looping timeline. still: freeze at the first step (reduced motion).
+// y lifts the whole line; each step's own height (timeline y) comes on top.
 export function driveHelper(rig, line, t, { still = false, seatHeight, y = 0 } = {}) {
   if (!line) return;
   const time = still ? 0 : ((t + line.offset) % line.total + line.total) % line.total;
@@ -228,10 +266,12 @@ export function driveHelper(rig, line, t, { still = false, seatHeight, y = 0 } =
   const local = still ? (segment.still ?? 0) : time - segment.start;
   const p = segment.duration > 0 ? clamp01(local / segment.duration) : 1;
   const tt = still ? 0 : t;
-  if (still) rig.root.position.set(segment.to[0], y, segment.to[1]);
-  else rig.root.position.set(lerp(segment.from[0], segment.to[0], p), y, lerp(segment.from[1], segment.to[1], p));
+  const yFrom = segment.yFrom ?? 0, yTo = segment.yTo ?? 0;
+  if (still) rig.root.position.set(segment.to[0], y + yTo, segment.to[1]);
+  else rig.root.position.set(lerp(segment.from[0], segment.to[0], p), y + lerp(yFrom, yTo, p), lerp(segment.from[1], segment.to[1], p));
   rig.root.rotation.y = still ? segment.yawTo : lerpAngle(segment.yawFrom, segment.yawTo, smooth(clamp01(local / 0.35)));
   resetPose(rig);
   pose(rig, segment, local, p, tt, seatHeight);
   rig.anim = segment.anim;
+  rig.animP = p;
 }

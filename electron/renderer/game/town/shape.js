@@ -8,12 +8,13 @@
 //     at,        // [x, z] where the grid's middle floats in the sky
 //     lift,      // how high it floats, in world units; home 0
 //     land,      // land points, in the order they filled
-//     kept,      // sky points kept open for good (in front of bridge feet and coast buildings)
+//     kept,      // sky points kept open for good (the bays in front of coast buildings)
 //     lanes,     // lane points; lanes[0] is the plaza
 //     houses,    // [{ id, look, door: { point, outside }, blocks: [{ point, floors }] }]
-//     reach }],  // the farthest land from the grid's middle
+//     reach,     // the farthest land from the grid's middle
+//     borrowed }],  // land points the replay added beyond the state's land so something could fit (0 when all is well)
 //   things: [{ id, kind, island, points, at, yaw, scale, pad, front, coast }],
-//   bridges: [{ id, type, from: { island, point }, to: { island, point } }],  // type: see BRIDGE_TYPES
+//   bridges: [{ id, type, from: { island, point, out, clear }, to: { island, point, out, clear } }],  // type: see BRIDGE_TYPES
 //   helpers: [{ id, name, job, island }],
 //   view: { island, points },
 // }
@@ -28,8 +29,14 @@
 // - coast: { yaw, width }: the way out to the sky, and the length of the side that faces it.
 // - house.look numbers a colour pair in HOUSE_LOOKS (scene/style.js). door.point is one of the house's
 //   blocks; door.outside is the lane point it opens onto.
-// - Bridges join any two islands, and an island can have several. Each end is a lane point on the
-//   coast. A water slide's from island floats higher than its to island.
+// - Bridges join neighbours in the sky table, and an island can have several. Each end's point is its
+//   foot, a lane point on the coast: the outer end of the bridge's pier, a straight lane out along `out`
+//   (sky.js). As the island grows the pier grows, so the foot moves out along its own pier; it never
+//   moves any other way. out: the end's fixed way out to the sky, a unit direction [dx, dz] from the sky
+//   table only; it never changes. clear: how far the deck runs straight along out before it may bend. The
+//   bend (foot + out × clear) only ever moves out, so clear shrinks as the foot moves out and grows as
+//   land grows beside the deck. The deck's shape is described in sky.js. A water slide's from island
+//   floats higher than its to island.
 // - An empty world has view { island: null, points: [] }.
 import { KINDS, FOOTS, BRIDGE_TYPES } from '../kinds.js';
 
@@ -39,13 +46,15 @@ export const MAX_FLOORS = 3;
 export const emptyTown = () => ({ islands: [], things: [], bridges: [], helpers: [], view: { island: null, points: [] } });
 
 // A text key for everything drawn on one island, without its grid and without where it floats, so the
-// scene rebuilds an island only when this changes. An island that only drifts keeps its key.
+// scene rebuilds an island only when this changes. An island that only drifts keeps its key, and so do
+// both islands when a bridge is only upgraded (the bridge type is left out). A foot that moves out along
+// its pier changes the key (with its new pier lane).
 export function islandKey(world, island) {
   const it = typeof island === 'string' ? world.islands.find(i => i.id === island) : island;
   if (!it) return '';
   const { grid, at, lift, ...rest } = it;
   const things = world.things.filter(t => t.island === it.id);
-  const feet = world.bridges.flatMap(b => [b.from, b.to].filter(end => end.island === it.id).map(end => [b.id, b.type, end.point]));
+  const feet = world.bridges.flatMap(b => [b.from, b.to].filter(end => end.island === it.id).map(end => [b.id, end.point]));
   return JSON.stringify([grid?.key ?? null, rest, things, feet]);
 }
 
@@ -155,6 +164,8 @@ export function checkShape(world) {
       const home = islands.get(end?.island);
       if (!home || !home.valid(end.point)) say(`${who} has a bad end`);
       else if (!home.lanes.has(end.point)) say(`${who} foot is not a lane`);
+      if (!pair(end?.out) || Math.abs(Math.hypot(...end.out) - 1) > 1e-3) say(`${who} has a bad way out`);
+      if (!finite(end?.clear) || end.clear < 0) say(`${who} has a bad clear`);
     }
     if (bridge?.from?.island === bridge?.to?.island) say(`${who} joins an island to itself`);
     const high = islands.get(bridge?.from?.island)?.island.lift, low = islands.get(bridge?.to?.island)?.island.lift;

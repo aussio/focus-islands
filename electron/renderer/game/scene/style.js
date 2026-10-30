@@ -24,7 +24,7 @@ export const P = {
 // insets are in piece units, where a corner piece runs from its point (0) to the cell's middle (1).
 export const TOWN = {
   storey: 0.5, // height of one block storey
-  roofRise: 0.25, // roof height from the eave to the ridge
+  roofRise: 0.3, // roof height from the eave to the ridge (0.25 read flat from Today's camera)
   wallInset: 0.17, // walls sit this far inside the cell edge; the roof overhangs to the edge
   fascia: 0.05, // the white board under the eave
   laneWidth: 0.42, // lane slab, out from its point

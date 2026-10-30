@@ -12,8 +12,12 @@ const R = 2; // rounded-box segments
 const E = 0.012; // edge rounding: a sliver, not pillowy
 const seedOf = thing => hashString(thing.id) * 1000;
 const footprint = thing => [(thing.fw || 1) * CELL, (thing.fd || 1) * CELL];
-// The local side that faces the camera (world south) for each facing. Helpers stand on that side to work.
-const cameraSide = facing => [[0, 1], [-1, 0], [0, -1], [1, 0]][((facing | 0) % 4 + 4) % 4];
+// The local side that faces the camera (world south), for a model turned by yaw (any angle on the town
+// grid, quarter turns on the square one). Helpers stand on that side to work.
+const cameraSide = thing => {
+  const yaw = Number.isFinite(thing.yaw) ? thing.yaw : (thing.facing ?? 0) * Math.PI / 2;
+  return [[0, 1], [-1, 0], [0, -1], [1, 0]][((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4];
+};
 
 // Colours only these models use. Everything else comes from the shared palette P.
 const G = {
@@ -252,7 +256,7 @@ export const GROWING = {
       }
     }
     // The fence has an open gate at the front, and another on the camera side, where helpers stand.
-    const [cx, cz] = cameraSide(thing.facing);
+    const [cx, cz] = cameraSide(thing);
     const sides = [[0, 1, true], [0, -1, cx === 0 && cz === -1], [-1, 0, cx === -1], [1, 0, cx === 1]];
     for (const [x, z] of [[-fx, -fz], [fx, -fz], [-fx, fz], [fx, fz]]) fencePost(ctx, base, x, z, h);
     for (const [sx, sz, open] of sides) {

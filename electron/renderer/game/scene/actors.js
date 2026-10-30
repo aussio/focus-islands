@@ -43,9 +43,10 @@ export function createActors(scene) {
       });
     },
     // Plans routines for the mood. Needs the island built first (for routes and the fishing depth).
-    plan(model, mood, { bottomY = -1.5 } = {}) {
+    // planner: the town passes its own (town/walk.js), so Today never loads the town's code.
+    plan(model, mood, { bottomY = -1.5, planner = planHelpers } = {}) {
       extras?.dispose();
-      plans = planHelpers(model, mood);
+      plans = planner(model, mood);
       extras = restExtras(group, rigs, plans, { bottomY });
     },
     setScale(k) {

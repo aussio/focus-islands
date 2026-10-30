@@ -5,46 +5,67 @@ import { gridFor, buildGrid, canFill, roll, GRID_RINGS } from './grid.js';
 import { growthOrder, fillLand, startPoint, straightOut } from './growth.js';
 import { checkShape, islandKey, townKey, HOUSE_LOOK_COUNT, MAX_FLOORS } from './shape.js';
 import { SAMPLE_NAMES, sampleTown, sampleFilm } from './samples.js';
-import { KINDS, FOOTS } from '../kinds.js';
+import { pickFoot } from './sky.js';
+import { bayOf } from './pads.js';
+import { KINDS, FOOTS, BRIDGE_TYPES } from '../kinds.js';
 import { HOUSE_LOOKS } from '../scene/style.js';
 
 // The most land each island can hold (the rules' maxLand). Home uses the large grid.
 const MAX_LAND = { small: 320, medium: 450, large: 600, home: 600 };
 const IDS = Array.from({ length: 200 }, (_, n) => `isle-${n}`);
 
-// Kept strips cut while an island grows, as [land when cut, width]: bridges are 1 point wide, coast
-// buildings 2 or 3 (the three coast wonders). New islands get 3 bridges, home 6.
-const CUTS = {
-  island: [[50, 1], [90, 1], [120, 2], [160, 1], [200, 3], [260, 2]],
-  home: [[50, 1], [80, 1], [110, 1], [140, 2], [160, 1], [220, 3], [250, 1], [300, 2], [340, 1]],
-};
+// Kept sky cut while an island grows (the plan's "What gets tested"). Home gets 8 bridges, one along
+// each of its fixed ways out, and any other island 4 (inward, two around the ring, outward); a bridge
+// keeps no sky (its pier strip fills as lane, and its held points only wait), but its first foot must be
+// found. Each island also gets 3 coast buildings (2, 3 and 2 points wide), each with its bay of kept sky
+// (pads.js bayOf). [land when cut, way out in degrees or coast width].
+const unitOf = degrees => [Math.cos(degrees * Math.PI / 180), Math.sin(degrees * Math.PI / 180)];
+function cutsFor(id) {
+  const coast = [[140, { wide: 2 }], [220, { wide: 3 }], [300, { wide: 2 }]];
+  if (id === 'home') return [...[0, 180, 315, 135, 225, 45, 270, 90].map((a, k) => [[50, 80, 110, 160, 250, 340, 420, 500][k], { out: a }]), ...coast].sort((a, b) => a[0] - b[0]);
+  const angle = Math.floor(roll('angle', id) * 8) * 45;
+  return [...[angle + 180, angle + 112.5, angle - 112.5, angle].map((a, k) => [[40, 90, 160, 260][k], { out: a }]), ...coast].sort((a, b) => a[0] - b[0]);
+}
 
-// Grows the island, cutting kept strips straight out from its coast on the way, then fills to maxLand.
+// Grows the island, finding bridge feet and cutting coast buildings' bays on the way, then fills to
+// maxLand. Bridge feet follow the layout's rule (sky.js pickFoot); coast buildings go on a random stretch
+// of coast, their middle half a cell inland.
+const grown = new Map();
 function growWithStrips(id, size) {
+  const key = `${id}:${size}`;
+  if (grown.has(key)) return grown.get(key);
   const grid = gridFor(id, size);
   const order = growthOrder(grid, id);
   const kept = new Set();
-  const middle = grid.points[startPoint(grid)];
-  for (const [at, wide] of CUTS[id === 'home' ? 'home' : 'island']) {
-    const land = new Set(fillLand(grid, order, at, kept));
-    const coast = [...land].filter(p => grid.neighbours[p].some(n => !land.has(n)));
+  for (const [at, cut] of cutsFor(id)) {
+    const landList = fillLand(grid, order, at, kept);
+    const land = new Set(landList);
+    if (cut.out !== undefined) {
+      const foot = pickFoot(grid, landList, p => land.has(p), unitOf(cut.out), () => true);
+      assert.ok(foot, `${id}: no bridge foot toward ${cut.out}° at land ${at}`);
+      continue;
+    }
+    const coast = landList.filter(p => grid.neighbours[p].some(n => !land.has(n)));
     const tries = coast.sort((a, b) => roll('cut', id, at, a) - roll('cut', id, at, b) || a - b);
     const cutWith = width => tries.find(p => {
-      const feet = [p, ...grid.neighbours[p].filter(n => coast.includes(n))].slice(0, width);
-      if (feet.length < width) return false;
-      const way = [grid.points[p][0] - middle[0], grid.points[p][1] - middle[1]];
-      const strips = feet.map(f => straightOut(grid, f, way));
-      if (strips[0].length < 3 || strips.flat().some(q => land.has(q) || kept.has(q))) return false;
-      for (const q of strips.flat()) if (canFill(grid, q)) kept.add(q);
+      const side = [p, ...grid.neighbours[p].filter(n => coast.includes(n))].slice(0, width);
+      if (side.length < width) return false;
+      const length = Math.hypot(grid.points[p][0], grid.points[p][1]) || 1;
+      const way = [grid.points[p][0] / length, grid.points[p][1] / length];
+      if (straightOut(grid, p, way).length < 3) return false;
+      const mid = [0, 1].map(i => side.reduce((sum, q) => sum + grid.points[q][i], 0) / side.length);
+      const bay = bayOf(grid, { points: side, at: [mid[0] - way[0] * 0.45, mid[1] - way[1] * 0.45] }, side, way);
+      if (bay.some(q => land.has(q))) return false;
+      for (const q of bay) if (canFill(grid, q)) kept.add(q);
       return true;
     });
-    // A wide coast building that fits nowhere goes elsewhere, but a bridge (width 1) must always fit.
-    let cut;
-    for (let width = wide; width >= 1 && cut === undefined; width--) cut = cutWith(width);
-    assert.notEqual(cut, undefined, `${id}: no coast to cut a strip from at land ${at}`);
+    // A wide coast building that fits nowhere goes elsewhere (or not at all).
+    for (let width = cut.wide; width >= 1 && cutWith(width) === undefined; width--);
   }
   const max = MAX_LAND[id === 'home' ? 'home' : size];
-  return { grid, order, kept, max, land: fillLand(grid, order, max, kept) };
+  const result = { grid, order, kept, max, land: fillLand(grid, order, max, kept) };
+  grown.set(key, result);
+  return result;
 }
 
 // The first land count at which the land is in two pieces or has a hole, or 0 if never.
@@ -139,7 +160,7 @@ test('straight strips out to the sky always end on the rim', () => {
   }
 });
 
-test('for 200 ids of each size, the land can reach maxLand even with kept strips cut while it grows', () => {
+test('for 200 ids of each size, the land can reach maxLand even with bays cut while it grows', () => {
   for (const size of Object.keys(GRID_RINGS)) {
     let spare = Infinity;
     for (const id of IDS) {
@@ -153,7 +174,7 @@ test('for 200 ids of each size, the land can reach maxLand even with kept strips
   assert.equal(home.land.length, MAX_LAND.home);
 });
 
-test('the first n land points are one piece with no holes, with and without kept strips', () => {
+test('the first n land points are one piece with no holes, with and without bays', () => {
   for (const size of Object.keys(GRID_RINGS)) {
     for (const id of IDS) {
       const grid = gridFor(id, size);
@@ -207,14 +228,34 @@ test('the sample towns pass the shape check at every step, and cover every piece
   }
   assert.deepEqual([...seen.foots].sort(), Object.keys(FOOTS).sort());
   assert.ok([1, 2, MAX_FLOORS].every(n => seen.floors.has(n)));
-  for (const type of ['rope', 'arch', 'slide']) assert.ok(seen.types.has(type), type);
+  assert.deepEqual([...seen.types].sort(), [...BRIDGE_TYPES].sort(), 'every bridge type');
   assert.ok(seen.coast >= 2 && seen.lone >= 1 && seen.joined >= 2 && seen.golden >= 1 && seen.otherView);
   assert.ok(seen.lifts.size >= 3, 'islands at different heights');
+  assert.ok([...seen.lifts].every(lift => lift >= -0.5 && lift <= 0.5), 'lifts from -0.5 to 0.5');
   // A loop: some island is joined to two others that are joined to each other.
   const world = sampleTown('manyIslands');
   const links = world.bridges.map(b => [b.from.island, b.to.island]);
   const joined = (a, b) => links.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
   assert.ok(world.islands.some(a => world.islands.some(b => world.islands.some(c => a !== b && b !== c && a !== c && joined(a.id, b.id) && joined(b.id, c.id) && joined(a.id, c.id)))));
+  assert.ok(world.islands.some(i => links.filter(l => l.includes(i.id)).length >= 3), 'an island with three bridges');
+  const lift = id => world.islands.find(i => i.id === id).lift;
+  assert.ok(world.bridges.some(b => b.type === 'slide' && lift(b.from.island) - lift(b.to.island) >= 1 - 1e-9), 'a slide that drops the full 1.0');
+  // Clearly different sizes, home the largest.
+  const sizes = world.islands.map(i => i.land.length);
+  assert.equal(Math.max(...sizes), world.islands.find(i => i.id === 'home').land.length);
+  assert.ok(Math.max(...sizes.slice(1)) >= 1.4 * Math.min(...sizes.slice(1)));
+  // Islands float on the table's angles (multiples of 45°), and every bridge joins table neighbours:
+  // its two ways out face each other, along one angle or 112.5° around a ring.
+  const angleOf = ([x, z]) => ((Math.atan2(z, x) * 180 / Math.PI) + 360) % 360;
+  for (const island of world.islands.slice(1)) assert.ok(Math.abs(angleOf(island.at) / 45 - Math.round(angleOf(island.at) / 45)) < 1e-3, island.id);
+  let bent = 0;
+  for (const bridge of world.bridges) {
+    assert.ok(Math.abs(bridge.from.out[0] + bridge.to.out[0]) < 1e-3 && Math.abs(bridge.from.out[1] + bridge.to.out[1]) < 1e-3, bridge.id);
+    assert.ok(Math.abs(angleOf(bridge.from.out) / 22.5 - Math.round(angleOf(bridge.from.out) / 22.5)) < 1e-3, bridge.id);
+    const [a, b] = [bridge.from, bridge.to].map(end => world.islands.find(i => i.id === end.island).at);
+    if (Math.abs(Math.hypot(...a) - Math.hypot(...b)) > 0.5 && Math.min(Math.hypot(...a), Math.hypot(...b)) > 0) bent++;
+  }
+  assert.ok(bent >= 1, 'a bridge around a ring between islands at different distances');
 });
 
 test('the sample films only ever add', () => {
@@ -242,7 +283,16 @@ test('the sample films only ever add', () => {
         assert.ok(Math.abs(now.at[0] * old.at[1] - now.at[1] * old.at[0]) < 1e-3, where);
       }
       for (const thing of before.things) assert.deepEqual(after.things.find(t => t.id === thing.id), thing, `${where}: ${thing.id} moved`);
-      for (const bridge of before.bridges) assert.deepEqual(after.bridges.find(b => b.id === bridge.id), bridge, `${where}: ${bridge.id} moved`);
+      // Bridge ends never move; clear may only grow as land grows near a foot.
+      const fixed = ({ clear, ...end }) => end;
+      for (const bridge of before.bridges) {
+        const later = after.bridges.find(b => b.id === bridge.id);
+        assert.equal(later.type, bridge.type, `${where}: ${bridge.id} type`);
+        for (const side of ['from', 'to']) {
+          assert.deepEqual(fixed(later[side]), fixed(bridge[side]), `${where}: ${bridge.id} moved`);
+          assert.ok(later[side].clear >= bridge[side].clear, `${where}: ${bridge.id} clear shrank`);
+        }
+      }
     }
   }
 });

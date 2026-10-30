@@ -117,8 +117,8 @@ Thing kinds, their footprints, which job works at each, and pad and coast flags 
 - every built thing (start things, buildings, the golden sapling) keeps its points, `at`, `yaw` and `scale`
 - small natural things may vanish only where their point, or a point next to it, gets used or stops being coast; they may appear only on or next to new land
 - an island moves only outward along its own angle, and its `lift` never changes
-- a bridge's ends (`island`, `point`, `out`) never move; an upgrade changes only its `type`, and for a water slide the higher end is listed as `from`
-- `clear` may grow as land grows near a foot
+- a bridge's `island` and `out` never change; its foot moves only outward along its pier, through lane points that each sit farther out along `out`; an upgrade changes only its `type`, and for a water slide the higher end is listed as `from`
+- the deck's bend (foot + `out` × `clear`) never moves inward
 - `view` may change: that is the camera following the helpers
 
 **Scene** (`electron/renderer/game/scene/`): `createIslandScene(host)` returns `{ setWorld(world), setMood(mood), capture(), dispose() }`. Mood is `focus`, `break`, `away`, or `done`. `capture()` resolves after a fresh frame is drawn, with any camera move finished first. It stops drawing when the page is hidden or the host is off screen, and puts helpers back at their starting spots when it's shown again.
@@ -186,7 +186,7 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
   - Allowed only while fancy bridges number fewer than the islands other than home. Otherwise it falls back to seeds, like the other surprises.
   - If some neighbour pair has no link, one such pair, by roll, gets a new fancy link. Otherwise one rope bridge, by roll, gets upgraded. If there are neither, it falls back to seeds.
   - **Type by roll:** stone arch 3, water slide 3, cloud steps 3, flower arch 3, rainbow 1. A water slide needs the two islands' `lift` at least 0.25 apart; otherwise it's left out of the roll.
-  - **An upgrade changes only the type.** The link keeps its id, ends, `land` and `checkIn`, so its feet never move.
+  - **An upgrade changes only the type.** The link keeps its id, ends, `land` and `checkIn`, so the upgrade itself places nothing.
   - A new fancy link's id is `gift-<check-in number>`, and its `land` is each island's land at that check-in.
   - **Texts,** for example: "Overnight, a stone arch grew between Home island and Mossy Hollow." "The rope bridge to Flint Peak turned into a rainbow." "A water slide now runs from Flint Peak down to Home island."
 - Helpers walk every type, and the water slide works both ways (see Scene, "Helpers").
@@ -304,7 +304,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 - **Coast buildings** (lighthouse, sky waterfall, airship dock):
   - The pad's outer side must be on coast points, with at least 3 sky points straight out from it that nothing else keeps.
   - It faces the sky. Facing cost: south 0, east and west 0.7, north 2.4. North only if nothing else fits, because the camera can't see the north coast.
-  - Afterwards the strip of sky in front, as wide as the pad, becomes kept sky out to the grid's edge, so it stays on the coast for good.
+  - It needs a **bay** of sky in front: 0.4 wider than the pad's sea side on each side, widening at 35° (`BAY_ANGLE` in `town/pads.js`) up to 1.6 on each side. The bay must be all sky when the building comes and never crosses a pier; spots with shallow bays (headlands) are preferred. Afterwards the bay is kept sky, so the building stays on the coast for good. (A one-point strip read as a crack; an unlimited bay left too little room.)
   - The thing gets `coast: { yaw, width }`, so the model needs no grid.
 
 ### Lanes
@@ -337,11 +337,11 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 - **Feet:**
   - A bridge's feet are placed in the replay when its link comes up, at the link's `land`.
   - Each end's foot is its free coast point nearest the line from the grid's middle along `out` (ties: the lower number), whose strip straight out (below) meets no land. Free means not a block, pad, start thing or the golden point; an existing lane is fine.
-  - The foot becomes a lane point joined to that island's lanes. The strip of sky one point wide from the foot straight along `out` to the grid's edge (`straightOut`) becomes kept sky, so land never grows under the bridge.
-  - Feet never move. An upgrade changes only the type, so it places nothing.
+  - The foot becomes a lane point joined to that island's lanes. The points straight out from it along `out` form its **pier** (`pierOf` in `town/sky.js`). Land may grow onto the pier only in order, each point after the one inward of it, and every pier point that becomes land becomes a lane. The foot is always the pier's outermost land point, so as the island grows the foot moves out along its fixed `out`, at the end of a straight lane. Points near the deck's line ahead of the foot wait until the foot has passed them, so land never grows under a deck. (This replaced kept sky strips, which looked like cracks in the coast.)
+  - An upgrade changes only the type, so it places nothing.
   - For a water slide, the layout lists the higher island's end as `from`.
 - **The deck:**
-  - From each foot, the deck runs straight along `out` for `clear` units: past that island's land along and beside the strip, so the bend can't pass over it. `clear` grows as land grows near the strip.
+  - From each foot, the deck runs straight along `out` for `clear` units: past that island's land along and beside the pier, so the bend can't pass over it. `clear` is measured along the first foot's line, so the bend only ever moves outward; as the foot moves out, `clear` shrinks.
   - Between the two straight parts, it bends smoothly across open sky.
   - Bridges along one angle are straight. Bridges around a ring bend a little when their two islands float at different distances from home, and drift moves only the bend.
   - The deck rises or falls from one island's `lift` to the other's.
@@ -362,7 +362,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 ### Files
 
 - `grid.js`: `gridFor`, rolls.
-- `growth.js`: `growthOrder`, `fillLand`, and `straightOut` (the strip of points from a foot straight out to the grid's edge, for kept sky).
+- `growth.js`: `growthOrder`, `fillLand`, and `straightOut` (the points from one point straight out to the grid's edge, for piers and bays).
 - `shape.js`: notes on the world shape; `islandKey`, `townKey`.
 - `samples.js`: sample towns.
 - `island.js`: the per-island replay. Its helpers are in `houses.js`, `pads.js`, `lanes.js` and `nature.js`.
@@ -377,7 +377,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 
 - **`grid.test.js`:**
   - The same id and size give the same grid.
-  - For 200 ids of each size, the usable points (less room for kept strips) cover that size's `maxLand`. The strips cut on the way are 8 bridges and 3 coast buildings on home, and 4 bridges and 3 coast buildings on any other island. If home's large grid can't hold 600 land with those, home gets 10 triangles from the middle.
+  - For 200 ids of each size, the usable points (less room for bays) cover that size's `maxLand`. The bays cut on the way are 3 coast buildings on any island; bridge feet keep nothing. If home's large grid can't hold 600 land with those, home gets 10 triangles from the middle.
   - Every cell has four points.
   - The first n points of any island are one piece with no holes, also with kept points skipped.
 - **`town.test.js`:**
@@ -389,7 +389,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
     - every door's outside, pad front and bridge foot is a lane point;
     - each island's lanes connect;
     - every free point can be walked to;
-    - coast buildings have kept sky in front;
+    - coast buildings have a bay of kept sky in front;
     - islands keep 2.4 of sky between them;
     - no two decks cross, and no deck passes over any island's land;
     - every joined island can be walked to from home's plaza, over lanes and bridges;
@@ -403,7 +403,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
   - It reads the table from `electron/core/game/sky.js`. Tests may read core code; the page never does.
   - For 50 random sets of ids, fill all three rings (24 islands) at random sizes, from start land to `maxLand`, and link every neighbour pair the table allows, in a random order.
   - Every pair gets feet. No two decks cross, no deck passes over land, and islands keep 2.4 of sky.
-  - Growing one island more never moves any foot or `out`, on any island.
+  - Growing one island more never changes any `out`, and moves feet only outward along their piers.
 - **`long-run.test.js`** (real rules, see below).
 
 ## Scene

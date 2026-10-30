@@ -222,8 +222,11 @@ function hat(look, M) {
   return group;
 }
 
-// Fishing lines and sleepy Zs for whichever helpers are fishing or sleeping. Returns { update(t), dispose() }.
+// Fishing lines and sleepy Zs for whichever helpers are fishing or sleeping, and a splash for helpers
+// whose routine lands in a water slide's pool. Returns { update(t), dispose() }. A plan's own fishBottom
+// (town islands float at different heights) wins over bottomY.
 const tipPos = new THREE.Vector3(), headPos = new THREE.Vector3();
+const SPLASH_DROPS = 7;
 export function restExtras(parent, rigs, plans, { bottomY }) {
   const updates = [];
   const disposables = [];
@@ -249,10 +252,41 @@ export function restExtras(parent, rigs, plans, { bottomY }) {
         rig.rodTip.updateWorldMatrix(true, false);
         rig.rodTip.getWorldPosition(tipPos);
         parent.worldToLocal(tipPos);
-        const bottom = bottomY + Math.sin(t * 2.2 + index) * 0.04 + (rig.anim === 'reel' ? 0.3 : 0);
+        const bottom = (plan.fishBottom ?? bottomY) + Math.sin(t * 2.2 + index) * 0.04 + (rig.anim === 'reel' ? 0.3 : 0);
         geometry.attributes.position.array.set([tipPos.x, tipPos.y, tipPos.z, tipPos.x, bottom, tipPos.z]);
         geometry.attributes.position.needsUpdate = true;
         bobber.position.set(tipPos.x, bottom, tipPos.z);
+      });
+    }
+    if (plan.line?.segments?.some(segment => segment.anim === 'splash')) {
+      // Drops thrown up in a ring and a ripple spreading on the pool, while the helper splashes down.
+      const dropGeometry = new THREE.IcosahedronGeometry(0.035, 0);
+      const dropMaterial = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthWrite: false });
+      const drops = Array.from({ length: SPLASH_DROPS }, () => new THREE.Mesh(dropGeometry, dropMaterial));
+      const rippleGeometry = new THREE.RingGeometry(0.8, 1, 24);
+      rippleGeometry.rotateX(-Math.PI / 2);
+      const rippleMaterial = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      const ripple = new THREE.Mesh(rippleGeometry, rippleMaterial);
+      parent.add(ripple, ...drops);
+      disposables.push(dropGeometry, dropMaterial, rippleGeometry, rippleMaterial, ripple, ...drops);
+      updates.push(() => {
+        const on = rig.anim === 'splash';
+        ripple.visible = on;
+        for (const drop of drops) drop.visible = on;
+        if (!on) return;
+        const p = rig.animP ?? 0, k = rig.root.scale.x / HELPER_SCALE;
+        const { x, y, z } = rig.root.position;
+        const fade = Math.max(0, 1 - p * 1.15);
+        dropMaterial.opacity = 0.9 * fade;
+        rippleMaterial.opacity = 0.55 * fade;
+        drops.forEach((drop, i) => {
+          const a = (i / SPLASH_DROPS) * Math.PI * 2 + index;
+          const r = (0.06 + p * 0.3) * k;
+          drop.position.set(x + Math.sin(a) * r, y + (0.04 + Math.sin(Math.min(1, p * 1.4) * Math.PI) * (0.2 + (i % 3) * 0.05)) * k, z + Math.cos(a) * r);
+          drop.scale.setScalar(Math.sqrt(k) * (1 - p * 0.5));
+        });
+        ripple.position.set(x, y + 0.012, z);
+        ripple.scale.setScalar((0.12 + p * 0.3) * k);
       });
     }
     if (plan.rest === 'nap' || plan.rest === 'sleep') {

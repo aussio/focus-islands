@@ -13,6 +13,10 @@
 // detail, joined by ':'. For example lane:12:3, pad:12:3, block:12:3:0:wall. Things use thing:<id>.
 // pointOfKey(grid, key) reads the point back. Call ctx.piece(key) before adding a piece's geometry
 // (addPiece does it for you); withPieces(ctx, log) gives a model context that method.
+//
+// Speed: an island has thousands of pieces. PieceSink collects them into one geometry per material and
+// adds each to the batch once, logging every piece under its own key when withPieces has a log.
+// Stream C (ground, lanes, blocks) owns this file.
 import * as THREE from 'three';
 
 // The middle of the side between points i and j.
@@ -58,7 +62,7 @@ const colourCache = new Map();
 const colour = hex => { if (!colourCache.has(hex)) colourCache.set(hex, new THREE.Color(hex)); return colourCache.get(hex); };
 export const shade = (hex, k) => `#${colour(hex).clone().multiplyScalar(k).getHexString()}`;
 
-// Triangles with a colour each. Each face is turned to face its hint direction ([x, y, z]).
+// Triangles with a colour each (hex text or a THREE.Color). Each face is turned to face its hint direction ([x, y, z]).
 export class PieceMesh {
   constructor() { this.pos = []; this.col = []; }
   tri(a, b, c, hex, hint) {
@@ -67,10 +71,24 @@ export class PieceMesh {
     if (Math.hypot(nx, ny, nz) < 1e-9) return;
     if (nx * hint[0] + ny * hint[1] + nz * hint[2] < 0) [b, c] = [c, b];
     this.pos.push(...a, ...b, ...c);
-    const k = colour(hex);
+    const k = typeof hex === 'string' ? colour(hex) : hex; // a hex text or a THREE.Color
     for (let i = 0; i < 3; i++) this.col.push(k.r, k.g, k.b);
   }
   quad(a, b, c, d, hex, hint) { this.tri(a, b, c, hex, hint); this.tri(a, c, d, hex, hint); }
+  // Triangles as given (no turning), from a flat list of positions; for tubes and cones.
+  raw(positions, hex) {
+    const k = colour(hex);
+    for (let i = 0; i < positions.length; i++) this.pos.push(positions[i]);
+    for (let i = 0; i < positions.length; i += 3) this.col.push(k.r, k.g, k.b);
+  }
+  // Darkens the vertices added since `from` toward the ground, like Batch.add's ao, so walls look grounded.
+  ao(from, { ground = 0, height = 0.32, min = 0.6 } = {}) {
+    for (let i = from; i < this.pos.length; i += 3) {
+      const t = Math.min(1, Math.max(0, (this.pos[i + 1] - ground) / height));
+      const k = min + (1 - min) * t * t * (3 - 2 * t);
+      this.col[i] *= k; this.col[i + 1] *= k; this.col[i + 2] *= k;
+    }
+  }
   get empty() { return !this.pos.length; }
   geometry() {
     const g = new THREE.BufferGeometry();
@@ -122,6 +140,110 @@ export function slabPiece(c, { width, rise, fA, fB, fO, top, side }) {
   return mesh;
 }
 
+// ---------- Fast drawing: one geometry per material ----------
+// An island has thousands of pieces, so they are not added to the batch one by one. A PieceSink keeps one
+// PieceMesh per material; begin(key) starts a piece, and everything written into sink.mesh(mat) until the
+// next begin (or end) belongs to it. With a piece log (withPieces with a log), each piece's vertices are
+// logged under its key, in the same text as withPieces. flush() adds each material's mesh to ctx.batch once.
+export class PieceSink {
+  constructor(ctx) { this.ctx = ctx; this.log = ctx.pieceLog ?? null; this.meshes = new Map(); this.key = null; this.marks = null; }
+  mesh(mat) {
+    let mesh = this.meshes.get(mat);
+    if (!mesh) { mesh = new PieceMesh(); this.meshes.set(mat, mesh); }
+    return mesh;
+  }
+  begin(key) {
+    this.end();
+    this.key = key;
+    if (this.log) this.marks = new Map([...this.meshes].map(([mat, mesh]) => [mat, mesh.pos.length]));
+  }
+  end() {
+    if (this.key !== null && this.log) {
+      const list = this.log.get(this.key) ?? [];
+      const before = list.length;
+      for (const [mat, mesh] of this.meshes) {
+        const pos = mesh.pos;
+        for (let i = this.marks.get(mat) ?? 0; i < pos.length; i += 3) list.push(`${pos[i].toFixed(4)},${pos[i + 1].toFixed(4)},${pos[i + 2].toFixed(4)}`);
+      }
+      if (list.length > before) this.log.set(this.key, list);
+    }
+    this.key = null; this.marks = null;
+  }
+  // Any Three.js geometry (a tube, a cone) into the current piece, in one colour. Disposes the geometry.
+  geometry(geometry, mat, hex) {
+    const g = geometry.index ? geometry.toNonIndexed() : geometry;
+    this.mesh(mat).raw(g.attributes.position.array, hex);
+    if (g !== geometry) g.dispose();
+    geometry.dispose();
+  }
+  flush() {
+    this.end();
+    this.ctx.piece?.(null); // the merged meshes are already logged piece by piece
+    for (const [mat, mesh] of this.meshes) {
+      if (mesh.empty) continue;
+      const geometry = mesh.geometry();
+      this.ctx.batch.add(geometry, mat);
+      geometry.dispose();
+    }
+    this.meshes.clear();
+  }
+}
+
+// A flat-topped slab piece with a soft sloped rim, drawn in a corner piece's unit square.
+//   poly: its outline, [a, b] points going counter-clockwise (a right, b up), star-shaped from poly[0].
+//   seams[i]: the edge from poly[i] to poly[i + 1] is shared with the same slab in the next piece, so it
+//   gets no rim; next to a seam, the rim slides along it so neighbouring pieces meet.
+//   y: the top's height; low: where the rim meets the ground; w: the rim's width in piece units.
+export function rimmedSlab(mesh, c, poly, seams, { y, low = -0.004, w, top, rim }) {
+  const n = poly.length;
+  const unit = (p, q) => { const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l]; };
+  const inner = poly.map((v, i) => {
+    const before = (i - 1 + n) % n, s0 = seams[before], s1 = seams[i];
+    if (s0 && s1) return v;
+    const d0 = unit(poly[before], v), d1 = unit(v, poly[(i + 1) % n]);
+    const n0 = [-d0[1], d0[0]], n1 = [-d1[1], d1[0]]; // inward
+    if (!s0 && !s1) {
+      const k = Math.max(0.3, 1 + n0[0] * n1[0] + n0[1] * n1[1]);
+      return [v[0] + w * (n0[0] + n1[0]) / k, v[1] + w * (n0[1] + n1[1]) / k];
+    }
+    // Slide along the seam: back along the edge coming in, or on along the edge going out.
+    const u = s0 ? [-d0[0], -d0[1]] : d1, normal = s0 ? n1 : n0;
+    const along = w / Math.max(0.3, u[0] * normal[0] + u[1] * normal[1]);
+    return [v[0] + u[0] * along, v[1] + u[1] * along];
+  });
+  for (let i = 1; i < n - 1; i++) mesh.tri(c.at3(...inner[0], y), c.at3(...inner[i], y), c.at3(...inner[i + 1], y), top, UP);
+  for (let i = 0; i < n; i++) {
+    if (seams[i]) continue;
+    const j = (i + 1) % n, d = unit(poly[i], poly[j]);
+    const m = [(poly[i][0] + poly[j][0]) / 2, (poly[i][1] + poly[j][1]) / 2];
+    const out = c.dir(...m, d[1], -d[0]);
+    mesh.quad(c.at3(...poly[i], low), c.at3(...poly[j], low), c.at3(...inner[j], y), c.at3(...inner[i], y), rim, [out[0] * 100, 0.5, out[2] * 100]);
+  }
+}
+const UP = [0, 1, 0];
+
+// A box in a local frame: o [x, y, z] the origin, u the way along (a horizontal unit [x, 0, z]), n the
+// way out (horizontal unit, square to u). x runs along u, y up, z along n. faces: any of 'f' (front,
+// +z), 'k' (back), 't' (top), 'd' (down), 'l' (-x), 'r' (+x).
+export function frameBox(mesh, { o, u, n }, [x0, x1], [y0, y1], [z0, z1], hex, faces = 'ftlr') {
+  const P = (x, y, z) => [o[0] + u[0] * x + n[0] * z, o[1] + y, o[2] + u[2] * x + n[2] * z];
+  if (faces.includes('f')) mesh.quad(P(x0, y0, z1), P(x1, y0, z1), P(x1, y1, z1), P(x0, y1, z1), hex, n);
+  if (faces.includes('k')) mesh.quad(P(x0, y0, z0), P(x1, y0, z0), P(x1, y1, z0), P(x0, y1, z0), hex, [-n[0], 0, -n[2]]);
+  if (faces.includes('t')) mesh.quad(P(x0, y1, z0), P(x1, y1, z0), P(x1, y1, z1), P(x0, y1, z1), hex, UP);
+  if (faces.includes('d')) mesh.quad(P(x0, y0, z0), P(x1, y0, z0), P(x1, y0, z1), P(x0, y0, z1), hex, [0, -1, 0]);
+  if (faces.includes('l')) mesh.quad(P(x0, y0, z0), P(x0, y0, z1), P(x0, y1, z1), P(x0, y1, z0), hex, [-u[0], 0, -u[2]]);
+  if (faces.includes('r')) mesh.quad(P(x1, y0, z0), P(x1, y0, z1), P(x1, y1, z1), P(x1, y1, z0), hex, u);
+}
+
+// A frame on a wall line from p to q ([x, z]), at height y, facing `out` (any [x, 0, z] pointing outward).
+export function wallFrame(p, q, y, out) {
+  const dx = q[0] - p[0], dz = q[1] - p[1], l = Math.hypot(dx, dz) || 1;
+  const u = [dx / l, 0, dz / l];
+  let n = [u[2], 0, -u[0]];
+  if (n[0] * out[0] + n[2] * out[2] < 0) n = [-n[0], 0, -n[2]];
+  return { o: [p[0], y, p[1]], u, n, length: l };
+}
+
 // ---------- Piece keys ----------
 // Gives a model context (scene/build.js) ctx.piece(key). Everything added to ctx.batch after piece(key),
 // directly or through ctx.add, belongs to that piece. With a log (a Map), each piece's vertices are
@@ -129,6 +251,7 @@ export function slabPiece(c, { width, rise, fA, fB, fO, top, side }) {
 export function withPieces(ctx, log = null) {
   let current = null;
   ctx.piece = key => { current = key; };
+  ctx.pieceLog = log; // PieceSink logs straight into it, piece by piece
   if (log) {
     const add = ctx.batch.add.bind(ctx.batch);
     const v = new THREE.Vector3();

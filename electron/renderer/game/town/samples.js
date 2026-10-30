@@ -9,19 +9,24 @@
 //   sampleFilm(name)             [{ label, world }] after each step
 //
 // Between them they show lanes, a lone block, joined houses, two and three storeys, a pad of every
-// footprint, coast buildings, a golden tree, islands of different sizes at different heights, a loop
-// of bridges of several types, and a view on an island other than home.
+// footprint, coast buildings, a golden tree, islands of clearly different sizes (home the largest) at
+// heights from -0.5 to 0.5, every bridge type, an island with four bridges, two loops, a bent bridge
+// around a ring, a water slide that drops the full 1.0, and a view on an island other than home. Islands
+// sit where the sky table puts them (ring and angle), and bridges join only table neighbours, with feet
+// along their fixed ways out (sky.js).
 import { KINDS, JOB_SPOTS } from '../kinds.js';
 import { gridFor, roll, canFill } from './grid.js';
 import { growthOrder, fillLand, straightOut } from './growth.js';
 import { HOUSE_LOOK_COUNT, MAX_FLOORS } from './shape.js';
+import { placeIslands as floatIslands, wayOut, pickFoot, clearOf } from './sky.js';
 
 // Each step adds events to the end, the way check-ins would.
 //   island: a new island and its start things. land: grow to `to` points. house: a new house of
 //   `blocks` blocks (near: aim beside that house). room: one more block (join: prefer touching that
 //   house). floor: one more storey. build: a building by its kind's footprint. thing: a natural thing
-//   (where: coast | inland). bridge: a bridge of `type` between two islands (a water slide runs from
-//   the higher island down). golden: the island turns golden. An island's lift is its height.
+//   (where: coast | inland). bridge: a bridge of `type` between two sky-table neighbours (a water slide
+//   runs from the higher island down). golden: the island turns golden. An island's ring and angle are
+//   its place in the sky table, and its lift is its height.
 const SCRIPTS = {
   firstDay: [
     { label: 'Day 1: a tiny island', events: [
@@ -100,7 +105,7 @@ const SCRIPTS = {
       { do: 'helper', id: 'moss', name: 'Moss', job: 'soil', island: 'home' },
     ] },
     { label: 'A mossy island drifts in, and a rope bridge', events: [
-      { do: 'island', id: 'isle-1', kind: 'mossy', size: 'medium', land: 40, lift: 0.6 },
+      { do: 'island', id: 'isle-1', kind: 'mossy', size: 'medium', land: 40, ring: 1, angle: 0, lift: 0.5 },
       { do: 'bridge', id: 'bridge-1', type: 'rope', from: 'home', to: 'isle-1' },
       { do: 'helper', id: 'bram', name: 'Bram', job: 'wood', island: 'isle-1' },
       { do: 'helper', id: 'wren', name: 'Wren', job: 'stone', island: 'isle-1' },
@@ -118,13 +123,22 @@ const SCRIPTS = {
       { do: 'golden', island: 'isle-1' },
     ] },
     { label: 'Two more islands, and a loop of bridges', events: [
-      { do: 'island', id: 'isle-2', kind: 'rocky', size: 'small', land: 30, lift: -0.8 },
-      { do: 'island', id: 'isle-3', kind: 'meadow', size: 'medium', land: 55, lift: 1.4 },
+      { do: 'island', id: 'isle-2', kind: 'rocky', size: 'small', land: 30, ring: 1, angle: 180, lift: -0.25 },
+      { do: 'island', id: 'isle-3', kind: 'meadow', size: 'medium', land: 55, ring: 1, angle: 315, lift: -0.5 },
       { do: 'bridge', id: 'bridge-2', type: 'arch', from: 'home', to: 'isle-3' },
-      { do: 'bridge', id: 'bridge-3', type: 'slide', from: 'isle-3', to: 'isle-1' },
+      // Around the ring between islands at different distances, so it bends; it drops the full 1.0.
+      { do: 'bridge', id: 'bridge-3', type: 'slide', from: 'isle-1', to: 'isle-3' },
       { do: 'bridge', id: 'bridge-4', type: 'rainbow', from: 'home', to: 'isle-2' },
       { do: 'build', id: 'beehives', kind: 'beehives', island: 'isle-3' },
       { do: 'helper', id: 'tam', name: 'Tam', job: 'stone', island: 'isle-2' },
+    ] },
+    { label: 'A crystal island, cloud steps and a flower arch', events: [
+      { do: 'island', id: 'isle-4', kind: 'crystal', size: 'small', land: 30, ring: 1, angle: 135, lift: 0.35 },
+      { do: 'bridge', id: 'bridge-5', type: 'cloudsteps', from: 'home', to: 'isle-4' },
+      { do: 'bridge', id: 'bridge-6', type: 'flowerarch', from: 'isle-2', to: 'isle-4' },
+      { do: 'land', island: 'isle-1', to: 100 },
+      { do: 'land', island: 'isle-3', to: 70 },
+      { do: 'helper', id: 'opal', name: 'Opal', job: null, island: 'isle-4' },
     ] },
   ],
 };
@@ -142,10 +156,6 @@ export function sampleFilm(name) {
 }
 
 // ---------- The replay ----------
-const SKY_GAP = 2.4; // sky kept between islands
-const DRIFT_STEP = 0.65; // island distances grow in these steps
-// Direction from home for each new island, in degrees (+x east, +z south toward the camera).
-const DIRECTIONS = [0, 180, 315, 135, 225, 45, 270, 90];
 const START_EXTRA = { mossy: 'mushroom', rocky: 'rock', meadow: 'flower', crystal: 'crystal', misty: 'bush' };
 const round4 = v => Math.round(v * 1e4) / 1e4 + 0;
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -189,10 +199,10 @@ function replay(steps) {
   }
 
   // ---- Islands, land and the start ----
-  function newIsland({ id, kind, size, land, lift = 0 }) {
+  function newIsland({ id, kind, size, land, ring = 0, angle = null, lift = 0 }) {
     const grid = gridFor(id, size);
     const isle = {
-      id, kind, size, lift, grid, order: growthOrder(grid, id), land: [], landSet: new Set(), kept: [], keptSet: new Set(),
+      id, kind, size, ring, angle, lift, grid, order: growthOrder(grid, id), land: [], landSet: new Set(), kept: [], keptSet: new Set(),
       lanes: [], laneSet: new Set(), taken: new Map(), blockOf: new Map(), houses: [], entrances: new Set(),
       golden: -1, plaza: -1, at: [0, 0], distance: 0, newest: [], newestAt: -1,
     };
@@ -403,47 +413,27 @@ function replay(steps) {
   // ---- Islands in the sky and bridges ----
   function placeIslands() {
     const list = [...islands.values()];
-    const home = list[0];
-    const farthest = (isle, [dx, dz]) => Math.max(...isle.land.map(p => isle.grid.points[p][0] * dx + isle.grid.points[p][1] * dz));
-    list.slice(1).forEach((isle, i) => {
-      const angle = DIRECTIONS[i % DIRECTIONS.length] * Math.PI / 180;
-      const dir = [Math.cos(angle), Math.sin(angle)];
-      let need = farthest(home, dir) + farthest(isle, [-dir[0], -dir[1]]) + SKY_GAP;
-      for (const other of list.slice(1, i + 1)) {
-        const gap = reachOf(other) + reachOf(isle) + SKY_GAP;
-        const along = other.at[0] * dir[0] + other.at[1] * dir[1], aside = Math.abs(other.at[0] * dir[1] - other.at[1] * dir[0]);
-        if (aside < gap) need = Math.max(need, along + Math.sqrt(gap * gap - aside * aside));
-      }
-      isle.distance = Math.max(isle.distance, round4(Math.ceil(need / DRIFT_STEP - 1e-9) * DRIFT_STEP));
-      isle.at = [round4(dir[0] * isle.distance), round4(dir[1] * isle.distance)];
-    });
+    floatIslands(list).forEach(({ at }, i) => { list[i].at = at; });
   }
 
   function bridge({ id, type, from, to }) {
-    placeIslands();
     const a = islands.get(from), b = islands.get(to);
     if (type === 'slide' && !(a.lift > b.lift)) throw new Error(`Sample town: water slide ${id} must run downhill`);
-    const way = [b.at[0] - a.at[0], b.at[1] - a.at[1]];
-    const start = foot(a, way, a.at, b.at), end = foot(b, [-way[0], -way[1]], a.at, b.at);
-    bridges.push({ id, type, from: { island: a.id, point: start }, to: { island: b.id, point: end } });
+    const ends = [[a, wayOut(a, b)], [b, wayOut(b, a)]].map(([isle, out]) => ({ island: isle.id, point: foot(isle, out), out }));
+    bridges.push({ id, type, from: ends[0], to: ends[1] });
   }
 
-  // A bridge foot: the coast point nearest the line between the two middles, with clear sky straight
-  // out from it. It becomes a lane, and the sky in front is kept.
-  function foot(isle, way, a, b) {
+  // A bridge foot: the free coast point nearest the line from the grid's middle along the way out, whose
+  // strip straight out meets no land (sky.js). It becomes a lane, and the strip is kept sky.
+  function foot(isle, out) {
     const t = tools(isle);
-    const { grid } = isle;
-    const offLine = p => segmentDistance([grid.points[p][0] + isle.at[0], grid.points[p][1] + isle.at[1]], a, b);
-    const options = isle.land.filter(p => t.coast(p) && (t.free(p) || isle.laneSet.has(p)));
-    for (const p of sortBy(options, offLine)) {
-      const strip = straightOut(grid, p, way);
-      if (strip.length < 3 || strip.some(q => isle.landSet.has(q) || isle.keptSet.has(q))) continue;
-      if (!isle.laneSet.has(p) && !t.canJoinLane(p)) continue;
-      t.joinLane(p);
-      keep(isle, strip);
-      return p;
-    }
-    throw new Error(`Sample town: no bridge foot on ${isle.id}`);
+    const ok = p => (t.free(p) || isle.laneSet.has(p)) && (isle.laneSet.has(p) || t.canJoinLane(p));
+    const found = pickFoot(isle.grid, isle.land, t.isLand, out, ok);
+    if (!found) throw new Error(`Sample town: no bridge foot on ${isle.id}`);
+    t.joinLane(found.point);
+    t.addLane(found.point);
+    keep(isle, [...found.pier.chain, ...found.pier.hold.keys()]); // samples keep the whole pier as sky
+    return found.point;
   }
 
   // ---- The world ----
@@ -455,12 +445,19 @@ function replay(steps) {
         land: [...isle.land], kept: [...isle.kept], lanes: [...isle.lanes],
         houses: isle.houses.map(h => ({ id: h.id, look: h.look, door: { ...h.door }, blocks: h.blocks.map(b => ({ ...b })) })),
         reach: reachOf(isle),
+        borrowed: 0,
       })),
       things: things.map(t => ({ ...t, points: [...t.points], at: [...t.at], coast: t.coast && { ...t.coast } })),
-      bridges: bridges.map(b => ({ id: b.id, type: b.type, from: { ...b.from }, to: { ...b.to } })),
+      bridges: bridges.map(b => ({ id: b.id, type: b.type, from: endOf(b.from), to: endOf(b.to) })),
       helpers: helpers.map(h => ({ ...h })),
       view: viewOf(list),
     };
+  }
+
+  // A bridge end with how far its deck runs straight, from the land as it is now.
+  function endOf({ island, point, out }) {
+    const isle = islands.get(island);
+    return { island, point, out: [...out], clear: clearOf(isle.grid, isle.land, point, out) };
   }
 
   // The island with the most helpers at work (ties: the newest building, then home), and the points
@@ -619,10 +616,4 @@ function sortBy(list, score) {
   const scored = list.map(item => ({ item, k: score(item) }));
   scored.sort((a, b) => a.k - b.k || (typeof a.item === 'number' ? a.item - b.item : 0));
   return scored.map(s => s.item);
-}
-
-function segmentDistance(p, a, b) {
-  const dx = b[0] - a[0], dz = b[1] - a[1];
-  const t = Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / (dx * dx + dz * dz || 1)));
-  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dz);
 }

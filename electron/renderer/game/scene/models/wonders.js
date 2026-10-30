@@ -2,9 +2,10 @@
 // rare rewards, so each is the most delightful thing on its island while staying calm. The only motion
 // is the lighthouse beam turning, the airship bobbing and a faint shimmer on the waterfall, all slow.
 //
-// Edge kinds (lighthouse, airship, skyfall) look at the cells around their footprint to find the side
-// that faces open sky (coastFrame) and put their outward or hanging part there. With no sky next to
-// them (the gallery's small portrait island), they draw a version that stays on the grass.
+// Edge kinds (lighthouse, airship, skyfall) put their outward or hanging part on the side that faces open
+// sky (coastFrame). On the town grid the layout says which way that is (thing.coast); on the square grid
+// they look at the cells around their footprint. With no sky next to them (the gallery's small portrait
+// island), they draw a version that stays on the grass.
 import * as THREE from 'three';
 import { CELL, P } from '../style.js';
 import { Batch, place, taperedTube } from '../ground.js';
@@ -28,8 +29,16 @@ const SEEN = [0.3, 0.15, 0, 0.15]; // on a tie, prefer a side the camera can see
 // the open sky is. { frame, coast, yaw (world yaw of +z), half (half the side's length), depth (centre to
 // that side), along (middle of the open cells along the side, in frame x), span }.
 // With no sky next to the footprint, +z is the thing's back and coast is false.
+// Town things carry coast: { yaw, width } from the layout, and coastDepth (middle to the island's edge, in
+// island units) and modelScale from scene/town/pads.js. Sizes come back in the model's own units.
 export function coastFrame(ctx, thing, base) {
-  const ry = (thing.facing ?? 0) * Math.PI / 2;
+  const ry = Number.isFinite(thing.yaw) ? thing.yaw : (thing.facing ?? 0) * Math.PI / 2;
+  if (thing.coast && Number.isFinite(thing.coast.yaw)) {
+    const k = thing.modelScale || 1, yaw = thing.coast.yaw;
+    const half = ((thing.coast.width ?? 0.65) / 2 + 0.2) / k;
+    const depth = (Number.isFinite(thing.coastDepth) ? thing.coastDepth : 0.6) / k;
+    return { frame: base.clone().multiply(place(0, 0, 0, { ry: yaw - ry })), coast: true, yaw, half, depth, along: 0, span: half * 2 };
+  }
   const get = ctx.model?.get;
   let best = null;
   if (get && Number.isFinite(thing.c0) && Number.isFinite(thing.r0)) {
