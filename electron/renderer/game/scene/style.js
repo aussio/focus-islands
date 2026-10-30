@@ -70,6 +70,12 @@ export function lookFor(helper, index) {
   return { shirt: SHIRTS[index % SHIRTS.length], pants: PANTS[index % PANTS.length], ...(JOB_HATS[helper.job] ?? JOB_HATS.none) };
 }
 
+// Every mood's sun stands at least this high (degrees above the horizon). Lower, a tree's crown throws
+// its shadow clear of the tree onto open grass, and from Today's camera the trunk's shadow that joins
+// them is hidden behind the crown: a dark patch that seems to belong to nothing.
+export const SUN_MIN_ELEVATION = 48;
+export const sunElevation = ([x, y, z]) => Math.atan2(y, Math.hypot(x, z)) * 180 / Math.PI;
+
 // Moods change only the sky, the light, what glows and what helpers do. Geometry never changes.
 export const MOODS = {
   focus: {
@@ -86,7 +92,9 @@ export const MOODS = {
     gradient: [[0, '#4a4f9d'], [0.45, '#a77dc3'], [0.8, '#ffa89a'], [1, '#ffd3a0']],
     fog: '#cf9dbd', fogNear: 1.0, fogFar: 2.4,
     hemi: ['#ffc8dc', '#7c72c6', 1.05],
-    sun: { color: '#ffae7c', intensity: 1.8, dir: [-0.6, 0.5, 0.45] },
+    // From the left, about 50 degrees up (see SUN_MIN_ELEVATION); dimmer than before so flat grass
+    // stays as bright as it was when this sun stood at 34 degrees.
+    sun: { color: '#ffae7c', intensity: 1.3, dir: [-0.6, 0.9, 0.45] },
     fill: ['#ff9fb4', 0.3],
     stars: 70, moon: false, windows: 1.15, fire: 'lit', fireflies: 1,
     cloud: { color: '#ffd8e2', emissive: '#ffc4d4', glow: 0.35, opacity: 1 },
@@ -97,7 +105,7 @@ export const MOODS = {
     gradient: [[0, '#4d5894'], [0.5, '#8088b6'], [0.85, '#b4b2cc'], [1, '#d4cbd6']],
     fog: '#9fa0c2', fogNear: 1.0, fogFar: 2.4,
     hemi: ['#d6d6ee', '#6f74ad', 1.05],
-    sun: { color: '#e6d4d8', intensity: 1.35, dir: [-0.5, 0.6, 0.45] },
+    sun: { color: '#e6d4d8', intensity: 1.17, dir: [-0.5, 0.8, 0.45] }, // about 50 degrees up (was 42)
     fill: ['#b8bce6', 0.28],
     stars: 28, moon: false, windows: 0.75, fire: 'embers', fireflies: 0,
     cloud: { color: '#d8d6ea', emissive: '#c4c4de', glow: 0.3, opacity: 0.9 },

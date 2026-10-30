@@ -194,7 +194,9 @@ export const MAKING = {
     const pivot = new THREE.Group(), spinner = new THREE.Group();
     wind.clone().multiply(place(0, hubY, hubZ)).decompose(pivot.position, pivot.quaternion, pivot.scale);
     pivot.add(spinner);
-    for (const mesh of sails.build(ctx.materials, spinner)) ctx.track(mesh.geometry);
+    // No shadow from the sails: shadows are drawn again only when the town or mood changes, so a turning
+    // sail would leave its shadow standing still.
+    for (const mesh of sails.build(ctx.materials, spinner)) { mesh.castShadow = false; ctx.track(mesh.geometry); }
     ctx.root.add(pivot);
     const offset = hashString(thing.id) * QUARTER;
     spinner.rotation.z = offset;

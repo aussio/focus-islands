@@ -110,7 +110,8 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
   sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.02;
-  sun.shadow.radius = 4;
+  // Soft edges (in shadow map texels): at 4 a faceted tree crown printed as a hard-edged polygon.
+  sun.shadow.radius = 12;
   sun.shadow.intensity = 0.78; // a little light still reaches the shade, so close-up shadows are not harsh
   const fill = new THREE.DirectionalLight('#ffe8f0', 0.35);
   scene.add(hemi, sun, sun.target, fill);

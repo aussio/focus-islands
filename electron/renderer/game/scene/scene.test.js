@@ -138,6 +138,42 @@ test('moods change the sky and the helpers, never the town', () => {
   core.dispose();
 });
 
+test('in every mood the sun stands high enough that a tree keeps its shadow close', async () => {
+  const { SUN_MIN_ELEVATION, sunElevation } = await import('./style.js');
+  const core = createSceneCore();
+  core.setWorld(sampleTown('manyIslands'));
+  const sun = core.scene.children.find(node => node.isDirectionalLight && node.castShadow);
+  for (const mood of MOODS) {
+    core.setMood(mood);
+    const dir = sun.position.clone().sub(sun.target.position).toArray();
+    assert.ok(sunElevation(dir) >= SUN_MIN_ELEVATION, `${mood}: the sun is ${sunElevation(dir).toFixed(1)} degrees up`);
+  }
+  core.dispose();
+});
+
+test('nothing that turns casts a shadow, since shadows are drawn again only when the town or mood changes', () => {
+  const core = createSceneCore();
+  const world = sampleTown('village');
+  assert.ok(world.things.some(thing => thing.kind === 'windmill'), 'the village has a windmill to check');
+  core.setWorld(world);
+  const casters = () => {
+    core.scene.updateMatrixWorld(true);
+    const found = new Map();
+    core.scene.traverse(node => { if (node.isMesh && node.castShadow) found.set(node, node.matrixWorld.clone()); });
+    return found;
+  };
+  core.update(0);
+  const before = casters();
+  core.update(4);
+  for (const [mesh, matrix] of casters()) {
+    const was = before.get(mesh);
+    if (!was) continue;
+    const turned = [0, 1, 2, 4, 5, 6, 8, 9, 10].some(i => Math.abs(matrix.elements[i] - was.elements[i]) > 0.01);
+    assert.ok(!turned, `${mesh.name || mesh.parent?.name || 'a mesh'} turns and casts a shadow`);
+  }
+  core.dispose();
+});
+
 test('every kind in kinds.js has a real model; an unknown kind draws as the placeholder', () => {
   for (const kind of Object.keys(KINDS)) assert.ok(hasModel(kind), `${kind} needs a real model`);
   for (const kind of Object.keys(MODELS)) assert.ok(KINDS[kind], `${kind} has a model but no kind`);

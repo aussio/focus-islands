@@ -94,7 +94,17 @@ export function buildGround(ctx, island) {
     const key = `under:${cell}:${grid.cells[cell].indexOf(p)}`;
     if (n >= 3 && roll('drip', island.id, p) < 0.07) {
       sink.begin(`${key}:drip`);
-      addDrip(under, vertexAt(p), 0.4 + roll('drip-length', island.id, p) * 0.8, 0.13 + roll('drip-width', island.id, p) * 0.08, roll('drip-turn', island.id, p));
+      const v = vertexAt(p), width = 0.13 + roll('drip-width', island.id, p) * 0.08;
+      // The drip's top ring must sit inside the rock all the way round. Around a low point the underside
+      // rises steeply, and a ring only a little above the point showed as a separate spike with sky
+      // between it and the island. So the ring goes up as far as the steepest rock around it rises.
+      let slope = 0;
+      for (const cell of grid.around[p]) {
+        const c = cornerPiece(grid, cell, grid.cells[cell].indexOf(p));
+        const [mn, mc, mp] = [midAt(p, c.next), centreAt(cell), midAt(p, c.prev)];
+        slope = Math.max(slope, steepest(v, mn, mc), steepest(v, mc, mp));
+      }
+      addDrip(under, v, 0.4 + roll('drip-length', island.id, p) * 0.8, width, roll('drip-turn', island.id, p), slope * width + 0.06);
     }
     if (n === 1 && roll('root', island.id, p) < 0.3) {
       const sky = grid.neighbours[p].find(q => !land.has(q));
@@ -281,13 +291,23 @@ function underColour(color, depth, lift = 0) {
   return color.multiplyScalar(1 - Math.min(1, depth / 5.5) * 0.1 + lift);
 }
 
-// A rock drip: a five-sided point hanging from v, with a bend half way.
-function addDrip(mesh, v, length, width, turn) {
+// How steeply the flat triangle v, a, b rises from v at its steepest (height per unit across).
+export function steepest(v, a, b) {
+  const ax = a[0] - v[0], az = a[2] - v[2], bx = b[0] - v[0], bz = b[2] - v[2];
+  const det = ax * bz - az * bx;
+  if (Math.abs(det) < 1e-9) return 0;
+  const ha = a[1] - v[1], hb = b[1] - v[1];
+  return Math.hypot((ha * bz - hb * az) / det, (ax * hb - bx * ha) / det);
+}
+
+// A rock drip: a five-sided point hanging from v, with a bend half way. rise: how far above v its top
+// ring sits, so the ring is hidden inside the rock.
+function addDrip(mesh, v, length, width, turn, rise = 0.12) {
   const ring = (y, r, spin) => Array.from({ length: 5 }, (_, i) => {
     const a = (i / 5 + spin) * Math.PI * 2;
     return [v[0] + Math.cos(a) * r, y, v[2] + Math.sin(a) * r];
   });
-  const topRing = ring(v[1] + 0.12, width, turn), midRing = ring(v[1] - length * 0.45, width * 0.55, turn + 0.1);
+  const topRing = ring(v[1] + Math.max(0.12, rise), width, turn), midRing = ring(v[1] - length * 0.45, width * 0.55, turn + 0.1);
   const tip = [v[0] + (turn - 0.5) * 0.06, v[1] - length, v[2] + (turn - 0.5) * 0.04];
   const colourAt = d => underColour(new THREE.Color(), d, 0);
   for (let i = 0; i < 5; i++) {
