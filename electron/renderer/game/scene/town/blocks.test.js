@@ -25,7 +25,7 @@ const { SAMPLE_NAMES, sampleFilm, sampleTown } = await import('../../town/sample
 const { buildTown } = await import('../../town/index.js');
 const { gridFor } = await import('../../town/grid.js');
 const { TOWN, createMaterials } = await import('../style.js');
-const { pointOfKey } = await import('./pieces.js');
+const { cornerPiece, pointOfKey } = await import('./pieces.js');
 const { parseTown } = await import('./world.js');
 const { makeModelContext } = await import('./build.js');
 const { buildBlocks, planRoofs, roofLift } = await import('./blocks.js');
@@ -209,6 +209,30 @@ test('blocks: every house draws one door, on its door block, beside its lane poi
       }
     }
   }
+});
+
+test('blocks: a wall just behind a lower block\'s roof has windows only when it faces the camera', () => {
+  // Today looks north, so a wall faces the camera when its outward way points south (+z). Seen side-on
+  // or from behind, the window boxes on such a join wall stick out past the corner as a ragged strip.
+  const T = 1 - TOWN.wallInset;
+  let facing = 0;
+  for (const [name, model] of allModels()) {
+    for (const island of housed(model)) {
+      const fl = p => island.floors.get(p) ?? 0;
+      for (const key of drawBlocks(island, model).log.keys()) {
+        const [, cell, k, level, kind, side] = key.split(':');
+        if (kind !== 'window') continue;
+        const c = cornerPiece(island.grid, Number(cell), Number(k));
+        const toward = side === 'A' ? c.next : c.prev;
+        if (!fl(toward)) continue;
+        const [x, , z] = side === 'A' ? c.dir(T, T / 2, 1, 0) : c.dir(T / 2, T, 0, 1);
+        const south = z / Math.hypot(x, z);
+        assert.ok(south >= 0.2, `${name} ${island.id}: ${key} is on storey ${Number(level) + 1} of a wall behind block ${toward}'s roof, turned ${south.toFixed(2)} toward the camera`);
+        if (south >= 0.6) facing++;
+      }
+    }
+  }
+  assert.ok(facing > 0, 'join walls that face the camera keep their windows');
 });
 
 test('blocks: no block goes over 3 storeys', () => {

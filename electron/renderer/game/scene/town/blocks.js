@@ -45,7 +45,9 @@
 // Windows, doors and chimneys: every choice is a roll of the island id, the point, the cell and the
 // storey (town/grid.js roll), so nothing shuffles as the town grows. Each house has one door, centred on
 // the ground-floor wall that faces its outside point (where its lane arrives). Windows use the glass
-// material, so they glow at dusk (moodMaterials in style.js).
+// material, so they glow at dusk (moodMaterials in style.js). A join wall (one that faces a lower block,
+// just behind that block's roof) has windows only when it faces the camera's side: seen side-on from
+// Today, their boxes stick out past the corner board as a ragged pale strip along the lower roof.
 //
 // What a piece draws depends only on points within two grid steps of its own: its four cell points, the
 // arms of its point (which look at its neighbours and the cells around it) and the door of its point.
@@ -64,6 +66,7 @@ const RIDGE = { half: 0.022, up: 0.03, down: 0.014 }; // the ridge trim's half w
 const CHANCE = { window: 0.88, chimney: 0.24, attic: 0.55 };
 const UP = [0, 1, 0], DOWN = [0, -1, 0];
 const AO = { ground: 0, height: 0.32, min: 0.6 };
+const FACING = 0.4; // a wall faces the camera's side when its outward way points at least this much south
 
 const edgeKey = (i, j) => (i < j ? `${i}:${j}` : `${j}:${i}`);
 const byNumber = (a, b) => a - b;
@@ -249,11 +252,13 @@ function blockPiece(sink, c, level, block) {
     if (e.side !== 'A' && e.side !== 'B') continue;
     const toward = e.side === 'A' ? c.next : c.prev;
     if (level === 0 && block.door === toward) continue; // the door's wall
+    const out = c.dir((e.p[0] + e.q[0]) / 2, (e.p[1] + e.q[1]) / 2, ...e.out);
+    if (fl(toward) && !facesCamera(out)) continue; // a join wall that Today sees side-on or from behind
     const p = c.at(...e.p), q = c.at(...e.q);
     const length = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (length < 0.15 || roll('window', id, c.s, c.cell, level, e.side) >= CHANCE.window) continue;
     sink.begin(`${key}:window:${e.side}`);
-    const frame = wallFrame(p, q, level * H, c.dir((e.p[0] + e.q[0]) / 2, (e.p[1] + e.q[1]) / 2, ...e.out));
+    const frame = wallFrame(p, q, level * H, out);
     smallWindow(sink, frame, length / 2, H * 0.54, Math.min(0.12, length * 0.45), 0.16);
   }
   if (level === 0 && block.door !== undefined && block.doorCell === c.cell) {
@@ -332,6 +337,8 @@ function boards(mesh, c, roofY, side, halves) {
 }
 
 const unit = v => { const l = Math.hypot(v[0], v[2]) || 1; return [v[0] / l, 0, v[2] / l]; };
+// Today's camera always looks north, so a wall faces it when its outward way ([x, 0, z]) points south (+z).
+const facesCamera = v => unit(v)[2] >= FACING;
 
 // The wall face of block s toward its neighbour n: its middle sits on the side line between them, at the
 // wall line. Returns a frame { o, u, n } at the grass (u along the wall, n out toward n), or null.
