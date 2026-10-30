@@ -225,13 +225,12 @@ export function checkInCard(status) {
       const shownWhere = shared ? '' : where;
       const label = `Build ${option.name}${where ? ` on ${where}` : ''}. ${option.does || ''} ${price.length ? `Costs ${listWords(price.map(([key, amount]) => amountWords(key, amount)))}.` : ''}`;
       return pick(option.blueprint, label.replace(/\s+/g, ' ').trim(),
-        `<strong><span>${html(option.name)}</span></strong>${option.does ? `<span class="check-in-does" title="${html(option.does)}">${html(option.does)}</span>` : ''}${shownWhere ? `<span class="check-in-where">On ${html(shownWhere)}</span>` : ''}${price.length ? `<span class="check-in-price">${price.map(([key, amount]) => priceChip(key, amount)).join('')}</span>` : ''}`);
+        `<strong><span>${html(option.name)}</span>${shownWhere ? `<span class="check-in-where">on ${html(shownWhere)}</span>` : ''}</strong>${option.does ? `<span class="check-in-does" title="${html(option.does)}">${html(option.does)}</span>` : ''}${price.length ? `<span class="check-in-price">${price.map(([key, amount]) => priceChip(key, amount)).join('')}</span>` : ''}`);
     }).join('');
   }
   const heading = status.dayEndedAt ? 'End of the day' : 'Back from your break';
   return `<section class="check-in-card" data-token="${html(card.token)}" aria-labelledby="check-in-title">
-    <div class="check-in-head"><h3 id="check-in-title">${heading}</h3>${brought.length ? `<p class="check-in-brought"><span class="hud-words">Your helpers brought ${html(listWords(brought.map(([key, amount]) => amountWords(key, amount))))}.</span><span class="check-in-rewards" aria-hidden="true">${brought.map(([key, amount]) => rewardChip(key, amount)).join('')}</span></p>` : ''}</div>
-    ${notes.length ? `<ul class="check-in-notes" title="${html(notes.join(' '))}">${notes.map(note => `<li>${html(note)}</li>`).join(' ')}</ul>` : ''}
+    <div class="check-in-head"><h3 id="check-in-title">${heading}</h3>${brought.length ? `<p class="check-in-brought"><span class="hud-words">Your helpers brought ${html(listWords(brought.map(([key, amount]) => amountWords(key, amount))))}.</span><span class="check-in-rewards" aria-hidden="true">${brought.map(([key, amount]) => rewardChip(key, amount)).join('')}</span></p>` : ''}${notes.length ? `<ul class="check-in-notes" title="${html(notes.join(' '))}">${notes.map(note => `<li>${html(note)}</li>`).join(' ')}</ul>` : ''}</div>
     ${options ? `<div class="check-in-ask"><span id="check-in-ask">${html(ask)}</span><button class="check-in-skip" type="button" data-check-in-pick="" id="check-in-skip">Just collect</button></div>
       <div class="check-in-options" role="group" aria-labelledby="check-in-ask">${options}</div>`
     : `<div class="check-in-collect"><p>${html(card.nextUp || '')}</p><button class="button primary" type="button" data-check-in-pick="" id="check-in-collect">Collect</button></div>`}

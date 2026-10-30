@@ -36,6 +36,11 @@ let checkInKey = null;
 // The resource bar over the top of the island (game-hud.js). Like the card, it lives for the whole window,
 // is read by screen readers, and redraws only when its numbers change.
 const hud = createHud();
+// The bar and the card share one layer over the island, the bar at the top and the card at the bottom, so they
+// never cover each other. If together they need more room than the island has, the stage grows instead.
+const islandOverlay = document.createElement('div');
+islandOverlay.className = 'today-island-overlay';
+islandOverlay.append(hud.slot, checkInSlot);
 // The game demo's panel (the demo app only; status.demo is null everywhere else). It sits under the island, lives
 // for the whole window like the slots above, and each of its three parts is redrawn only when its markup changes.
 const demoSlot = document.createElement('section');
@@ -448,7 +453,7 @@ function today() {
   const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
   return `<div class="today-page">
     <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span></div></header>
-    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-hud-slot></div><div data-check-in-slot></div></section>
+    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-island-overlay></div></section>
     ${s.demo ? '<div data-demo-slot></div>' : ''}<div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
@@ -548,8 +553,7 @@ function render() {
   if (view === today) {
     updateTodayLive(state().status);
     content.querySelector('[data-island-slot]')?.replaceWith(islandSlot);
-    content.querySelector('[data-hud-slot]')?.replaceWith(hud.slot);
-    content.querySelector('[data-check-in-slot]')?.replaceWith(checkInSlot);
+    content.querySelector('[data-island-overlay]')?.replaceWith(islandOverlay);
     content.querySelector('[data-demo-slot]')?.replaceWith(demoSlot);
   }
   content.scrollTop = scroll;
