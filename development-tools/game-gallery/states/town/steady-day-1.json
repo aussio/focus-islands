@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 132.39,
+    "stone": 88.7,
+    "planks": 0,
+    "soil": 150.86,
+    "saplings": 100.57,
+    "starlight": 10
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -43,7 +51,8 @@
           "landWhenBuilt": 48,
           "checkIn": 4
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [],
@@ -65,5 +74,48 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-01-05",
+    "focusSessions": 6,
+    "onPlanSessions": 6,
+    "realBreaks": 5,
+    "plannedSessions": 6,
+    "planMatch": 0.99,
+    "planFit": "on",
+    "checkIns": 6,
+    "happenings": [
+      {
+        "kind": "job",
+        "helper": "Pip",
+        "job": "Woodcutter"
+      },
+      {
+        "kind": "built",
+        "name": "Rain catcher",
+        "island": "Home island",
+        "between": null
+      },
+      {
+        "kind": "built",
+        "name": "Garden plot",
+        "island": "Home island",
+        "between": null
+      },
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 10
+      }
+    ],
+    "earned": {
+      "wood": 132.39,
+      "stone": 88.7,
+      "planks": 0,
+      "soil": 150.86,
+      "saplings": 100.57,
+      "starlight": 10
+    }
   }
 }

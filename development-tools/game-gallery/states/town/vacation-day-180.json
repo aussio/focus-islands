@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 147.38,
+    "stone": 127.06,
+    "planks": 76.24,
+    "soil": 106.92,
+    "saplings": 66.36,
+    "starlight": 5
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -372,6 +380,27 @@
           "landWhenBuilt": 513,
           "checkIn": 640
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-395",
+          "kind": "cairn",
+          "land": 380,
+          "checkIn": 395
+        },
+        {
+          "id": "keepsake-450",
+          "kind": "bench",
+          "land": 418,
+          "checkIn": 450
+        },
+        {
+          "id": "keepsake-578",
+          "kind": "fountain",
+          "land": 484,
+          "checkIn": 578,
+          "ground": 1
+        }
       ]
     },
     {
@@ -609,7 +638,8 @@
           "landWhenBuilt": 326,
           "checkIn": 645
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -755,6 +785,14 @@
           "landWhenBuilt": 185,
           "checkIn": 624
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-460",
+          "kind": "bench",
+          "land": 143,
+          "checkIn": 460
+        }
       ]
     },
     {
@@ -887,7 +925,8 @@
           "landWhenBuilt": 170,
           "checkIn": 622
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-4",
@@ -948,6 +987,14 @@
           "name": "Crystal forge",
           "landWhenBuilt": 62,
           "checkIn": 610
+        }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-589",
+          "kind": "lamp",
+          "land": 60,
+          "checkIn": 589
         }
       ]
     }
@@ -1133,5 +1180,58 @@
       "island": "isle-1"
     },
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-07-03",
+    "focusSessions": 6,
+    "onPlanSessions": 6,
+    "realBreaks": 3,
+    "plannedSessions": 6,
+    "planMatch": 0.8,
+    "planFit": "near",
+    "checkIns": 6,
+    "happenings": [
+      {
+        "kind": "built",
+        "name": "Windmill",
+        "island": "Home island",
+        "between": null
+      },
+      {
+        "kind": "built",
+        "name": "Extra room",
+        "island": "Mossy Hollow",
+        "between": null
+      },
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 3
+      },
+      {
+        "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 2
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Glimmer Isle",
+        "amount": 1
+      }
+    ],
+    "earned": {
+      "wood": 147.38,
+      "stone": 127.06,
+      "planks": 76.24,
+      "soil": 106.92,
+      "saplings": 66.36,
+      "starlight": 5
+    }
   }
 }

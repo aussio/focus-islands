@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 112.06,
+    "stone": 69,
+    "planks": 54.65,
+    "soil": 114.4,
+    "saplings": 65.75,
+    "starlight": 4
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -239,7 +247,8 @@
           "landWhenBuilt": 192,
           "checkIn": 146
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-1",
@@ -378,7 +387,8 @@
           "landWhenBuilt": 113,
           "checkIn": 138
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -412,7 +422,8 @@
           "landWhenBuilt": 51,
           "checkIn": 140
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -501,5 +512,45 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-02-13",
+    "focusSessions": 5,
+    "onPlanSessions": 4,
+    "realBreaks": 3,
+    "plannedSessions": 5,
+    "planMatch": 0.84,
+    "planFit": "near",
+    "checkIns": 4,
+    "happenings": [
+      {
+        "kind": "surprise",
+        "text": "Fireflies gathered over Flint Peak for the evening."
+      },
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 2
+      },
+      {
+        "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 3
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 1
+      }
+    ],
+    "earned": {
+      "wood": 112.06,
+      "stone": 69,
+      "planks": 54.65,
+      "soil": 114.4,
+      "saplings": 65.75,
+      "starlight": 4
+    }
   }
 }

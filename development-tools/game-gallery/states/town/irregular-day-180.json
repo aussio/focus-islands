@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 86.44,
+    "stone": 66.32,
+    "planks": 45.28,
+    "soil": 18.85,
+    "saplings": 13.43,
+    "starlight": 0
+  },
   "islands": [
     {
       "id": "home",
@@ -260,6 +268,20 @@
           "landWhenBuilt": 246,
           "checkIn": 372
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-395",
+          "kind": "cairn",
+          "land": 256,
+          "checkIn": 395
+        },
+        {
+          "id": "keepsake-399",
+          "kind": "well",
+          "land": 260,
+          "checkIn": 399
+        }
       ]
     },
     {
@@ -276,7 +298,7 @@
         {
           "id": "b11",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 55,
           "checkIn": 34
         },
@@ -406,7 +428,8 @@
           "landWhenBuilt": 123,
           "checkIn": 234
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -510,7 +533,8 @@
           "landWhenBuilt": 103,
           "checkIn": 404
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-3",
@@ -572,7 +596,8 @@
           "landWhenBuilt": 77,
           "checkIn": 353
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -712,5 +737,37 @@
       "island": "isle-2"
     },
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-07-03",
+    "focusSessions": 5,
+    "onPlanSessions": 2,
+    "realBreaks": 1,
+    "plannedSessions": 6,
+    "planMatch": 0.52,
+    "planFit": "off",
+    "checkIns": 3,
+    "happenings": [
+      {
+        "kind": "built",
+        "name": "Upper floor",
+        "island": "Flint Peak",
+        "between": null
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 1
+      }
+    ],
+    "earned": {
+      "wood": 86.44,
+      "stone": 66.32,
+      "planks": 45.28,
+      "soil": 18.85,
+      "saplings": 13.43,
+      "starlight": 0
+    }
   }
 }

@@ -12,7 +12,8 @@
 //     lanes,     // lane points; lanes[0] is the plaza
 //     houses,    // [{ id, look, door: { point, outside }, blocks: [{ point, floors }] }]
 //     reach,     // the farthest land from the grid's middle
-//     borrowed }],  // land points the replay added beyond the state's land so something could fit (0 when all is well)
+//     borrowed,     // land points the replay added beyond the state's land so something could fit (0 when all is well)
+//     visitor }],   // only while a surprise's visitor is there (until the next check-in): its kind, e.g. 'raincloud'
 //   things: [{ id, kind, island, points, at, yaw, scale, pad, front, coast }],
 //   bridges: [{ id, type, from: { island, point, out, clear }, to: { island, point, out, clear } }],  // type: see BRIDGE_TYPES
 //   helpers: [{ id, name, job, island }],

@@ -15,19 +15,20 @@
 //   [y0, y1, dark, light] for a vertical light ramp.
 // ctx.blob(base, sizeX, sizeZ, offsetX, offsetZ) adds a soft contact shadow.
 // ctx.root, ctx.dynamic.push(t => ...), ctx.onMood((name, mood) => ...) and ctx.track(...disposables)
-//   are for the few things that move or change with the mood (flames). Keep the island calm: only
-//   helpers and fire should move.
+//   are for the few things that move or change with the mood (flames). Keep the island calm: besides
+//   helpers and fire, only small slow things move (sails, water, small life), capped and still at time 0.
 //
-// To add or replace a model, add a function under the kind's name in nature.js, growing.js, making.js
-// or wonders.js. Any kind without one draws as the placeholder. Block houses are not models: they are
-// drawn by scene/town/blocks.js.
+// To add or replace a model, add a function under the kind's name in nature.js, growing.js, making.js,
+// wonders.js or keepsakes.js. Any kind without one draws as the placeholder. Block houses are not
+// models: they are drawn by scene/town/blocks.js.
 import { NATURE, decor } from './nature.js';
 import { placeholder } from './placeholder.js';
 import { GROWING } from './growing.js';
 import { MAKING } from './making.js';
 import { WONDERS } from './wonders.js';
+import { KEEPSAKES } from './keepsakes.js';
 
-export const MODELS = { ...NATURE, ...GROWING, ...MAKING, ...WONDERS };
+export const MODELS = { ...NATURE, ...GROWING, ...MAKING, ...WONDERS, ...KEEPSAKES };
 export const hasModel = kind => Object.hasOwn(MODELS, kind);
 export const modelFor = kind => (hasModel(kind) ? MODELS[kind] : placeholder);
 export { decor, placeholder };

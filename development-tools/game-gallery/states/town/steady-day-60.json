@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 122.44,
+    "stone": 81.44,
+    "planks": 59.72,
+    "soil": 73.49,
+    "saplings": 42.23,
+    "starlight": 4
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -267,7 +275,8 @@
           "landWhenBuilt": 240,
           "checkIn": 206
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-1",
@@ -434,7 +443,8 @@
           "landWhenBuilt": 158,
           "checkIn": 214
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -496,7 +506,8 @@
           "landWhenBuilt": 68,
           "checkIn": 205
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -592,5 +603,41 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-03-05",
+    "focusSessions": 5,
+    "onPlanSessions": 5,
+    "realBreaks": 2,
+    "plannedSessions": 5,
+    "planMatch": 0.75,
+    "planFit": "near",
+    "checkIns": 5,
+    "happenings": [
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 2
+      }
+    ],
+    "earned": {
+      "wood": 122.44,
+      "stone": 81.44,
+      "planks": 59.72,
+      "soil": 73.49,
+      "saplings": 42.23,
+      "starlight": 4
+    }
   }
 }

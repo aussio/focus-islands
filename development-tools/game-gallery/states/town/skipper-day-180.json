@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 164.42,
+    "stone": 117.44,
+    "planks": 70.46,
+    "soil": 33.33,
+    "saplings": 23.57,
+    "starlight": 0
+  },
   "islands": [
     {
       "id": "home",
@@ -197,7 +205,8 @@
           "landWhenBuilt": 126,
           "checkIn": 354
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-1",
@@ -220,7 +229,7 @@
         {
           "id": "b13",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 56,
           "checkIn": 71
         },
@@ -294,7 +303,8 @@
           "landWhenBuilt": 86,
           "checkIn": 288
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -349,6 +359,14 @@
           "landWhenBuilt": 61,
           "checkIn": 355
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-170",
+          "kind": "birdhouse",
+          "land": 44,
+          "checkIn": 170
+        }
       ]
     },
     {
@@ -383,7 +401,8 @@
           "landWhenBuilt": 59,
           "checkIn": 361
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -516,5 +535,31 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-07-03",
+    "focusSessions": 5,
+    "onPlanSessions": 0,
+    "realBreaks": 1,
+    "plannedSessions": 6,
+    "planMatch": 0.41,
+    "planFit": "off",
+    "checkIns": 3,
+    "happenings": [
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 2
+      }
+    ],
+    "earned": {
+      "wood": 164.42,
+      "stone": 117.44,
+      "planks": 70.46,
+      "soil": 33.33,
+      "saplings": 23.57,
+      "starlight": 0
+    }
   }
 }

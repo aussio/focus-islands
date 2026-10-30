@@ -15,6 +15,7 @@
 // Each island is its own group at [at[0], lift, at[1]], drawn in island units with y = 0 at the grass top.
 // Its parts are drawn in this order, each into the island's Batch (one mesh per material):
 //   buildGround (C), buildLanes (C), buildBlocks (C), buildThings (D).
+// Then a surprise's visitor, if one is there (visitors.js): its own meshes, never in the batch.
 // Bridges are their own groups, in world space: buildBridge (D). Any of these may draw nothing.
 //
 // Piece logs, for the stability check: with log (a Map), each island's pieces go in log.get(island.id)
@@ -30,6 +31,7 @@ import { buildLanes } from './lanes.js';
 import { buildBlocks } from './blocks.js';
 import { buildThings } from './pads.js';
 import { buildBridge } from './bridges.js';
+import { buildVisitors } from './visitors.js';
 
 // Rough heights of things by footprint, for framing only (the models are drawn by stream D).
 const THING_TOP = { point: 0.5, pair: 0.3, cell: 1.0, cells: 1.1, ring: 1.2 };
@@ -92,6 +94,7 @@ export function buildTownIsland(island, model, shared, { log = null } = {}) {
   part(ctx, 'lanes', () => buildLanes(ctx, island));
   part(ctx, 'blocks', () => buildBlocks(ctx, island));
   part(ctx, 'things', () => buildThings(ctx, island, island.things));
+  part(ctx, 'visitors', () => buildVisitors(ctx, island));
   const meshes = made.finish();
   if (log) log.set(island.id, pieces);
   const frame = islandFrame(island, ground.framePoints);

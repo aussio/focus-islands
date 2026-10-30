@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 112.82,
+    "stone": 91.69,
+    "planks": 55.03,
+    "soil": 111.19,
+    "saplings": 74.13,
+    "starlight": 5
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -351,6 +359,26 @@
           "landWhenBuilt": 415,
           "checkIn": 481
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-395",
+          "kind": "cairn",
+          "land": 366,
+          "checkIn": 395
+        },
+        {
+          "id": "keepsake-399",
+          "kind": "well",
+          "land": 370,
+          "checkIn": 399
+        },
+        {
+          "id": "keepsake-450",
+          "kind": "bench",
+          "land": 398,
+          "checkIn": 450
+        }
       ]
     },
     {
@@ -553,7 +581,8 @@
           "landWhenBuilt": 259,
           "checkIn": 479
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -685,6 +714,14 @@
           "landWhenBuilt": 154,
           "checkIn": 480
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-460",
+          "kind": "bench",
+          "land": 151,
+          "checkIn": 460
+        }
       ]
     },
     {
@@ -803,7 +840,8 @@
           "landWhenBuilt": 130,
           "checkIn": 496
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -953,5 +991,52 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-05-14",
+    "focusSessions": 5,
+    "onPlanSessions": 4,
+    "realBreaks": 3,
+    "plannedSessions": 5,
+    "planMatch": 0.84,
+    "planFit": "near",
+    "checkIns": 5,
+    "happenings": [
+      {
+        "kind": "built",
+        "name": "Lantern path",
+        "island": "Clover Meadow",
+        "between": null
+      },
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 2
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Clover Meadow",
+        "amount": 2
+      }
+    ],
+    "earned": {
+      "wood": 112.82,
+      "stone": 91.69,
+      "planks": 55.03,
+      "soil": 111.19,
+      "saplings": 74.13,
+      "starlight": 5
+    }
   }
 }

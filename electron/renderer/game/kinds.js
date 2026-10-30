@@ -44,6 +44,16 @@ export const KINDS = {
   observatory: { foot: 'ring', pad: true, blocks: true },
   skyfall: { foot: 'cell', pad: true, blocks: true, edge: true },
   aurora: { foot: 'ring', pad: true, blocks: true },
+
+  // Keepsakes: small things a surprise leaves for good (rules.js KEEPSAKES). Never built. The fountain
+  // stands by the square; the rest on the coast, facing out (town/island.js placeKeepsake).
+  fountain: { foot: 'point', blocks: true },
+  well: { foot: 'point', blocks: true },
+  bench: { foot: 'point', blocks: false },
+  cairn: { foot: 'point', blocks: true },
+  telescope: { foot: 'point', blocks: true },
+  birdhouse: { foot: 'point', blocks: true },
+  lamp: { foot: 'point', blocks: false },
 };
 
 // Footprints on the town grid, and how many points each covers.

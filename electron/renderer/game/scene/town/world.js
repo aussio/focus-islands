@@ -27,6 +27,7 @@
 //   doors: [{ house, point, outside }], // point: the block with the door; outside: the lane point it opens onto
 //   things: [thing], taken: Map(p -> thing),
 //   feet: [{ bridge, type, end, point, out, clear }],   // end: 'from' or 'to'
+//   visitor,                            // a surprise's visitor kind until the next check-in, or null (visitors.js)
 //   point(p) => [x, z] local, world(p, y = 0) => [x, lift + y, z] world,
 // }
 // thing = { id, kind, island, points, at, yaw, scale, pad, front, coast,   // as in the world; at is local
@@ -86,6 +87,7 @@ export function parseTown(world) {
       order, land, lanes, kept, plaza: lanes.size ? [...lanes][0] : -1, coast,
       floors, look, house, houses, doors,
       things: [], taken: new Map(), feet: [],
+      visitor: typeof source.visitor === 'string' ? source.visitor : null,
       point: p => grid.points[p],
       world: (p, y = 0) => [round4(at[0] + grid.points[p][0]), round4(lift + y), round4(at[1] + grid.points[p][1])],
     };

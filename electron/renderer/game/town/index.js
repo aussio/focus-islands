@@ -4,9 +4,10 @@
 //   buildTown(game) => world   the same state always gives a deep-equal world, with the same grids
 //   forgetTowns()              drops the caches (for tests)
 //
-// Each island is replayed on its own (island.js): its buildings and bridge feet in check-in order, each
-// at the land it had then. A bridge's foot is the outer end of its pier, so it moves out as land grows. Then the islands are placed in the sky (sky.js), the bridges get their ends,
-// decoration is added (nature.js), and the view picks the busiest island (view.js).
+// Each island is replayed on its own (island.js): its keepsakes, buildings and bridge feet in check-in
+// order, each at the land it had then. A bridge's foot is the outer end of its pier, so it moves out as land grows. Then the islands are placed in the sky (sky.js), the bridges get their ends,
+// decoration is added (nature.js), and the view picks the busiest island (view.js). A surprise's visitor
+// (game.visitor, until the next check-in) is copied onto its island as `visitor`, its kind.
 //
 // Not used on Today until stage 2; the square layout in layout/ still draws Today.
 import { emptyTown } from './shape.js';
@@ -37,10 +38,11 @@ export function forgetTowns() {
 // Only what the layout reads: grants change game.change but give the same world.
 function inputOf(game) {
   return JSON.stringify([
-    (game?.islands ?? []).map(({ id, kind, size, land, golden, ring, angle, lift, buildings }) => [id, kind, size, land, golden, ring, angle, lift,
-      (buildings ?? []).map(b => [b.id, b.blueprint, b.landWhenBuilt, b.checkIn])]),
+    (game?.islands ?? []).map(({ id, kind, size, land, golden, ring, angle, lift, buildings, keepsakes }) => [id, kind, size, land, golden, ring, angle, lift,
+      (buildings ?? []).map(b => [b.id, b.blueprint, b.landWhenBuilt, b.checkIn]), (keepsakes ?? []).map(k => [k?.id, k?.kind, k?.land, k?.checkIn])]),
     game?.links ?? [],
     game?.helpers ?? [],
+    game?.visitor ?? null,
   ]);
 }
 
@@ -81,10 +83,15 @@ function layoutTown(game) {
     out: { [link.from]: wayOut(places.get(link.from), places.get(link.to)), [link.to]: wayOut(places.get(link.to), places.get(link.from)) },
   }));
 
-  // Replay each island: its buildings and bridge feet in check-in order (buildings first within one).
+  // Replay each island: its keepsakes, buildings and bridge feet in check-in order. Within one check-in a
+  // keepsake comes first (the surprise comes before the build), then buildings, then feet.
   const replays = gameIslands.map(island => {
     const land = Math.max(0, Math.floor(Number(island.land) || 0));
     const events = [];
+    (island.keepsakes ?? []).forEach((k, i) => {
+      if (!k || typeof k.id !== 'string' || typeof k.kind !== 'string') return;
+      events.push({ checkIn: Number.isFinite(k.checkIn) ? k.checkIn : Infinity, rank: -1, i, land: Number.isFinite(k.land) ? Math.floor(k.land) : land, keepsake: { id: k.id, kind: k.kind } });
+    });
     (island.buildings ?? []).forEach((b, i) => events.push({
       checkIn: Number.isFinite(b.checkIn) ? b.checkIn : Infinity, rank: 0, i,
       land: Number.isFinite(b.landWhenBuilt) ? Math.floor(b.landWhenBuilt) : land, building: { id: String(b.id), blueprint: b.blueprint },
@@ -96,7 +103,7 @@ function layoutTown(game) {
     });
     events.sort((a, b) => a.checkIn - b.checkIn || a.rank - b.rank || a.i - b.i);
     const spec = { id: island.id, kind: island.id === 'home' ? 'home' : island.kind, size: island.size, land, golden: Boolean(island.golden) };
-    return replayed(spec, events.map(({ checkIn, land: at, building, foot }) => ({ checkIn: Number.isFinite(checkIn) ? checkIn : null, land: at, ...(building ? { building } : { foot }) })));
+    return replayed(spec, events.map(({ checkIn, land: at, building, keepsake, foot }) => ({ checkIn: Number.isFinite(checkIn) ? checkIn : null, land: at, ...(building ? { building } : keepsake ? { keepsake } : { foot }) })));
   });
 
   const isles = replays.map(r => r.isle);
@@ -106,6 +113,7 @@ function layoutTown(game) {
     land: [...isle.land], kept: [...isle.kept], lanes: [...isle.lanes],
     houses: isle.houses.map(h => ({ id: h.id, look: h.look, door: { ...h.door }, blocks: h.blocks.map(b => ({ ...b })) })),
     reach: reachOf(isle), borrowed: isle.borrowed,
+    ...(visitorOf(game, isle.id) ? { visitor: visitorOf(game, isle.id) } : {}),
   }));
   const things = replays.flatMap(({ isle, decor }) => [...isle.things, ...decor].map(copyThing));
 
@@ -128,6 +136,9 @@ function layoutTown(game) {
   const view = viewOf(isles.map(isle => ({ id: isle.id, plaza: isle.plaza, newest: isle.newest })), things, helpers, new Map(isles.map(i => [i.id, i.grid])));
   return { islands, things, bridges, helpers, view };
 }
+
+// The visitor's kind on this island, or null.
+const visitorOf = (game, id) => (game?.visitor && game.visitor.island === id && typeof game.visitor.kind === 'string' ? game.visitor.kind : null);
 
 const round4 = v => Math.round(v * 1e4) / 1e4 + 0;
 const reachOf = isle => round4(Math.max(0, ...isle.land.map(p => Math.hypot(...isle.grid.points[p]))));

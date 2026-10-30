@@ -45,6 +45,51 @@ const SURPRISES = [
   { id: 'fireflies', weight: 2 }, { id: 'golden', weight: 1 }, { id: 'lost', weight: 1 },
   { id: 'bridge', weight: 1 },
 ];
+// Variations inside a surprise slot, picked by a second roll (`surprise-flavour`) once the slot is final.
+// Each gives exactly its slot's gift, so totals and pacing stay as they were. `plain` keeps the slot's
+// own words. visitor: drawn on the surprise's island until the next check-in. keepsake: a small thing
+// that stays for good (see KEEPSAKES). {island} in a text is the island's name. Slots not listed here
+// (golden, bridge) have no flavours.
+const SURPRISE_FLAVOURS = deepFreeze({
+  seeds: [
+    { id: 'raincloud', weight: 25, visitor: 'raincloud', text: 'A small rain cloud stopped over {island}. The barrels are full and the ground is soft.' },
+    { id: 'dew', weight: 9, text: 'Heavy dew settled overnight, and the helpers gathered every drop.' },
+    { id: 'mist', weight: 6, text: 'A thick mist rolled over {island}. The barrels caught it as it lifted.' },
+    { id: 'keepsake', weight: 6 },
+    { id: 'plain', weight: 14 },
+  ],
+  soil: [
+    { id: 'worms', weight: 5, text: 'The worms were busy overnight. The ground on {island} is dark and soft.' },
+    { id: 'plain', weight: 7 },
+  ],
+  stones: [
+    { id: 'tumbled', weight: 1, text: 'Loose stones tumbled from the cliff on {island} into a tidy pile.' },
+    { id: 'plain', weight: 1 },
+  ],
+  fireflies: [
+    { id: 'fireflies', weight: 4, visitor: 'fireflies' },
+    { id: 'balloon', weight: 3, visitor: 'balloon', text: 'A hot-air balloon is drifting past {island}. Someone in the basket waved.' },
+    { id: 'rainbow', weight: 3, visitor: 'rainbow', text: 'A short rain passed, and a rainbow stood over {island}.' },
+  ],
+  lost: [
+    { id: 'tent', weight: 1, visitor: 'tent' },
+  ],
+});
+// Keepsakes: small things a water surprise leaves on an island for good. They come from the water slot's
+// `keepsake` flavour, and from the golden slot once its island already has its golden tree. Never the same
+// kind twice on one island, and at most maxKeepsakesPerIsland. ground: building room it takes (saved in
+// the record, like a building's); the others stand on the coast, whose share roomOf already holds back.
+// Ids match electron/renderer/game/kinds.js.
+const KEEPSAKES = deepFreeze([
+  { id: 'fountain', weight: 3, ground: 1, text: 'A spring bubbled up near the square on {island}. The helpers built a little fountain around it.' },
+  { id: 'well', weight: 2, text: 'Someone dug a little wishing well on {island}. A coin glints at the bottom.' },
+  { id: 'bench', weight: 2, text: 'A traveler built a bench at the edge of {island} to watch the clouds, then left it for you.' },
+  { id: 'cairn', weight: 1, text: 'Smooth stones were stacked into a little tower on {island} overnight.' },
+  { id: 'telescope', weight: 1, text: 'A small brass telescope now points at the sky from the edge of {island}.' },
+  { id: 'birdhouse', weight: 1, text: 'A birdhouse went up on {island}. Something small has moved in.' },
+  { id: 'lamp', weight: 1, text: 'A little lamp now stands at the edge of {island}. It glows after dark.' },
+]);
+const KEEPSAKE_ENDING = 'Some water and soil were left beside it.';
 // Bridge types. Rope is the one you build; the others come only as surprises (a new bridge, or a rope
 // bridge that changes type). weight: how often a surprise rolls each one. Ids match BRIDGE_TYPES in
 // electron/renderer/game/kinds.js. A water slide needs the two islands' lift at least slideLiftGap apart.
@@ -121,6 +166,7 @@ const DEFAULT_RULES = Object.freeze({
   surpriseCatchUpStep: 1,
   maxLostHelpers: 3,
   lostHelpersAfterActiveDays: 10,
+  maxKeepsakesPerIsland: 3,
 });
 
 // kind: making / growing / decor / homes / wonder. perIsland caps repeatable items on each island.
@@ -247,7 +293,8 @@ function builtNameOf(built, blueprints) {
 
 module.exports = {
   RESOURCES, MATERIALS, GROWTH, KIND_NAMES, JOBS, STARTING_JOBS, HELPER_NAMES, FIRST_HELPER_WAY, LOST_HELPER_WAY,
-  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
+  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, SURPRISE_FLAVOURS, KEEPSAKES, KEEPSAKE_ENDING,
+  BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
   islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, builtNameOf, roomOf, maxLandOf,
   startGroundOf,
 };

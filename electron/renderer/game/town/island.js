@@ -4,10 +4,12 @@
 //
 //   replayIsland(spec, events) => Isle
 //     spec: { id, kind, size, land, golden }
-//     events, in check-in order: { checkIn, land, building: { id, blueprint } } or { checkIn, land, foot: { link, out } }
+//     events, in check-in order: { checkIn, land, building: { id, blueprint } }, { checkIn, land, foot: { link, out } }
+//     or { checkIn, land, keepsake: { id, kind } }
 //
-// The island starts, then each event grows the land to its `land` and places its building or bridge
-// foot. At the end the land grows to the island's `land`. Every choice is a roll from the island id, the
+// The island starts, then each event grows the land to its `land` and places its building, bridge foot
+// or keepsake (a small thing a surprise left: on a free coast point facing out, the fountain beside the
+// square; never on borrowed land, and left out if there is no spot). At the end the land grows to the island's `land`. Every choice is a roll from the island id, the
 // building id and point numbers. Nothing placed ever moves, so a longer history only adds.
 //
 // If something has no place, the replay first tries looser rules (houses and pads may touch the coast,
@@ -240,7 +242,7 @@ export function replayIsland(spec, events) {
   startIsland(isle);
   for (const event of events) {
     isle.growTo(event.land);
-    const points = event.foot ? placeFoot(isle, event.foot) : build(isle, event.building);
+    const points = event.foot ? placeFoot(isle, event.foot) : event.keepsake ? placeKeepsake(isle, event.keepsake) : build(isle, event.building);
     if (points && event.building) isle.newest = { checkIn: event.checkIn, points };
   }
   isle.growTo(spec.land);
@@ -306,6 +308,27 @@ export function placePoint(isle, id, kind, options, yawFor = () => round4(roll('
   const p = options.find(q => isle.isFree(q) && isle.staysReachable([q]));
   if (p === undefined) return null;
   return isle.addThing({ id, kind, island: isle.id, points: [p], at: [...isle.grid.points[p]], yaw: yawFor(p), scale: 1, pad: false, front: null, coast: null });
+}
+
+// ---------- Keepsakes ----------
+
+// A keepsake on one free point, chosen by roll(island, id, 'spot'). The fountain takes the free point
+// nearest the square (rules.js counts its ground); the rest take a free coast point (the coast share the
+// rules hold back) and face out to the sky. Never borrows land: with no spot it is left out.
+function placeKeepsake(isle, { id, kind }) {
+  if (!KINDS[kind]) return null;
+  const { grid } = isle;
+  const byRoll = list => list.slice().sort((a, b) => roll(isle.id, id, 'spot', a) - roll(isle.id, id, 'spot', b) || a - b);
+  let options;
+  if (kind === 'fountain') {
+    const steps = isle.stepsFrom([isle.plaza], p => isle.isLand(p));
+    options = sortBy(byRoll(isle.land.filter(p => steps[p] >= 1 && isle.isFree(p))), p => steps[p]);
+  } else {
+    options = byRoll(isle.land.filter(p => isle.isCoast(p) && isle.isFree(p)));
+  }
+  const out = p => yawOf(grid.points[p]);
+  const thing = placePoint(isle, id, kind, options, kind === 'fountain' ? undefined : out);
+  return thing ? thing.points : null;
 }
 
 // ---------- Bridge feet ----------

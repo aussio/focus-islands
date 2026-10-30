@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 144.5,
+    "stone": 117.44,
+    "planks": 70.46,
+    "soil": 192.56,
+    "saplings": 137.23,
+    "starlight": 9
+  },
   "islands": [
     {
       "id": "home",
@@ -32,7 +40,7 @@
         {
           "id": "b1",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 44,
           "checkIn": 2
         },
@@ -358,6 +366,26 @@
           "landWhenBuilt": 479,
           "checkIn": 617
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-395",
+          "kind": "cairn",
+          "land": 366,
+          "checkIn": 395
+        },
+        {
+          "id": "keepsake-399",
+          "kind": "well",
+          "land": 370,
+          "checkIn": 399
+        },
+        {
+          "id": "keepsake-450",
+          "kind": "bench",
+          "land": 398,
+          "checkIn": 450
+        }
       ]
     },
     {
@@ -595,7 +623,8 @@
           "landWhenBuilt": 309,
           "checkIn": 606
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -755,6 +784,14 @@
           "landWhenBuilt": 201,
           "checkIn": 633
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-460",
+          "kind": "bench",
+          "land": 151,
+          "checkIn": 460
+        }
       ]
     },
     {
@@ -894,7 +931,8 @@
           "landWhenBuilt": 191,
           "checkIn": 694
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-4",
@@ -969,6 +1007,14 @@
           "name": "Orchard",
           "landWhenBuilt": 86,
           "checkIn": 695
+        }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-589",
+          "kind": "lamp",
+          "land": 59,
+          "checkIn": 589
         }
       ]
     }
@@ -1149,5 +1195,58 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-07-03",
+    "focusSessions": 6,
+    "onPlanSessions": 5,
+    "realBreaks": 5,
+    "plannedSessions": 6,
+    "planMatch": 0.99,
+    "planFit": "on",
+    "checkIns": 6,
+    "happenings": [
+      {
+        "kind": "built",
+        "name": "Extra room",
+        "island": "Clover Meadow",
+        "between": null
+      },
+      {
+        "kind": "built",
+        "name": "Orchard",
+        "island": "Glimmer Isle",
+        "between": null
+      },
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 5
+      },
+      {
+        "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Flint Peak",
+        "amount": 2
+      },
+      {
+        "kind": "grew",
+        "island": "Clover Meadow",
+        "amount": 3
+      }
+    ],
+    "earned": {
+      "wood": 144.5,
+      "stone": 117.44,
+      "planks": 70.46,
+      "soil": 192.56,
+      "saplings": 137.23,
+      "starlight": 9
+    }
   }
 }

@@ -17,6 +17,14 @@
     "saplings": 0,
     "starlight": 0
   },
+  "today": {
+    "wood": 215.95,
+    "stone": 154.25,
+    "planks": 99.41,
+    "soil": 63,
+    "saplings": 44.4,
+    "starlight": 2
+  },
   "islands": [
     {
       "id": "home",
@@ -316,6 +324,20 @@
           "landWhenBuilt": 310,
           "checkIn": 691
         }
+      ],
+      "keepsakes": [
+        {
+          "id": "keepsake-395",
+          "kind": "cairn",
+          "land": 224,
+          "checkIn": 395
+        },
+        {
+          "id": "keepsake-450",
+          "kind": "bench",
+          "land": 241,
+          "checkIn": 450
+        }
       ]
     },
     {
@@ -339,7 +361,7 @@
         {
           "id": "b11",
           "blueprint": "nursery",
-          "name": "Seed nursery",
+          "name": "Rain catcher",
           "landWhenBuilt": 56,
           "checkIn": 41
         },
@@ -511,7 +533,8 @@
           "landWhenBuilt": 194,
           "checkIn": 629
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-2",
@@ -643,7 +666,8 @@
           "landWhenBuilt": 123,
           "checkIn": 640
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-3",
@@ -782,7 +806,8 @@
           "landWhenBuilt": 133,
           "checkIn": 721
         }
-      ]
+      ],
+      "keepsakes": []
     },
     {
       "id": "isle-4",
@@ -823,7 +848,8 @@
           "landWhenBuilt": 58,
           "checkIn": 706
         }
-      ]
+      ],
+      "keepsakes": []
     }
   ],
   "links": [
@@ -998,5 +1024,36 @@
     "moments": [],
     "built": null,
     "job": null
+  },
+  "visitor": null,
+  "todaySummary": {
+    "dayKey": "2026-07-03",
+    "focusSessions": 9,
+    "onPlanSessions": 6,
+    "realBreaks": 1,
+    "plannedSessions": 6,
+    "planMatch": 0.31,
+    "planFit": "off",
+    "checkIns": 2,
+    "happenings": [
+      {
+        "kind": "grew",
+        "island": "Home island",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
+        "island": "Glimmer Isle",
+        "amount": 2
+      }
+    ],
+    "earned": {
+      "wood": 215.95,
+      "stone": 154.25,
+      "planks": 99.41,
+      "soil": 63,
+      "saplings": 44.4,
+      "starlight": 2
+    }
   }
 }

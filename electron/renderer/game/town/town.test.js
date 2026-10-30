@@ -51,7 +51,11 @@ function changed(change) {
     const island = game.islands.find(i => i.id === islandId);
     island.buildings.push({ id, blueprint, landWhenBuilt: island.land, checkIn: last + 1 });
   };
-  change(game, { add, last });
+  const keep = (islandId, kind, id, ground = 0) => {
+    const island = game.islands.find(i => i.id === islandId);
+    island.keepsakes = [...(island.keepsakes ?? []), { id, kind, land: island.land, checkIn: last + 1, ...(ground ? { ground } : {}) }];
+  };
+  change(game, { add, keep, last });
   return game;
 }
 
@@ -67,6 +71,15 @@ const CHANGES = {
   'a coast building': [(game, { add }) => add('isle-1', 'lighthouse', 'test-coast'), (before, after) => assert.ok(after.things.some(t => t.id === 'test-coast' && t.coast))],
   'a rope bridge': [(game, { last }) => game.links.push(link(game, 'test-rope', 'rope', last + 1)), (before, after) => assert.equal(after.bridges.length, before.bridges.length + 1)],
   'a fancy bridge from a surprise': [(game, { last }) => game.links.push(link(game, 'test-gift', 'rainbow', last + 1)), (before, after) => assert.ok(after.bridges.some(b => b.id === 'test-gift' && b.type === 'rainbow'))],
+  'a keepsake from a surprise': [(game, { keep }) => keep('isle-1', 'bench', 'test-bench'), (before, after) => {
+    const bench = after.things.find(t => t.id === 'test-bench' && t.kind === 'bench');
+    const island = after.islands.find(i => i.id === 'isle-1');
+    assert.ok(bench && island.grid.neighbours[bench.points[0]].some(n => !island.land.includes(n)), 'on the coast');
+  }],
+  'a fountain near the square': [(game, { keep }) => keep('home', 'fountain', 'test-fountain', 1), (before, after) => {
+    const fountain = after.things.find(t => t.id === 'test-fountain' && t.kind === 'fountain');
+    assert.ok(fountain && !after.islands[0].lanes.includes(fountain.points[0]), 'beside the lanes');
+  }],
 };
 
 // A link between the first neighbour pair the table allows that isn't joined yet.

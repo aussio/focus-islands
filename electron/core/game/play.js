@@ -29,10 +29,10 @@ const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
 // The starting state and replaying saved check-ins.
 
 // An island as the rules keep it. fields: { id, name, kind, size, land, ring, angle, lift, appetite }.
-// used: ground taken by start things, buildings and bridge ends (see R.roomOf). blocks and storeys: house blocks
+// used: ground taken by start things, buildings, keepsakes and bridge ends (see R.roomOf). blocks and storeys: house blocks
 // on the ground and block storeys. pads: buildings that aren't homes.
 function makeIsland(fields, rules) {
-  const island = { ...fields, golden: false, buildings: [], counts: {}, used: 0, blocks: 0, storeys: 0, pads: 0 };
+  const island = { ...fields, golden: false, buildings: [], keepsakes: [], counts: {}, used: 0, blocks: 0, storeys: 0, pads: 0 };
   island.used = R.startGroundOf(island, rules);
   return island;
 }
@@ -68,6 +68,12 @@ function applySurprise(state, p, rules) {
   if (!s) return;
   addInto(state.onHand, s.gifts);
   if (s.golden) islandById(state, s.island).golden = true;
+  if (s.keepsake) {
+    // It stands from this check-in on, at the island's land now (before any building in the same check-in).
+    const island = islandById(state, s.island);
+    island.keepsakes.push({ id: s.keepsake.id, kind: s.keepsake.kind, land: island.land, checkIn: p.number, ...(s.keepsake.ground ? { ground: s.keepsake.ground } : {}) });
+    island.used += s.keepsake.ground || 0;
+  }
   if (s.link) addLink(state, s.link, p.number, rules);
   if (s.upgrade) {
     const link = state.links.find(l => l.id === s.upgrade.link);
@@ -465,41 +471,91 @@ function fancyBridge(work, draft, rules, key) {
 }
 
 // Small passive surprises. Gifts are about one break's worth, so they feel nice without changing the pace.
+// The slot roll (surprise-kind, with its fallbacks) and the island roll are as they always were; a second
+// roll, surprise-flavour, then picks a variation inside the slot that gives the same gift (see
+// R.SURPRISE_FLAVOURS and dressSurprise).
 function makeSurprise(work, draft, rules, key) {
   const seeds = R.SURPRISES[0];
   let pick = pickWeighted(`${key}:surprise-kind`, R.SURPRISES, s => s.weight);
   if (pick.id === 'lost' && (work.lostHelpers >= rules.maxLostHelpers || draft.activeDays < rules.lostHelpersAfterActiveDays)) pick = seeds;
   const island = pickOne(`${key}:surprise-island`, work.islands);
-  if (pick.id === 'golden' && island.golden) pick = seeds; // at most one golden sapling per island
+  // At most one golden tree per island. Once it's there, the golden slot leaves a keepsake instead.
+  const treeThere = pick.id === 'golden' && island.golden;
+  if (treeThere) pick = seeds;
   const bridge = pick.id === 'bridge' ? fancyBridge(work, draft, rules, key) : null;
   if (pick.id === 'bridge' && !bridge) pick = seeds;
-  const breakRest = R.restValue(10, rules), gifts = {};
-  const surprise = { id: pick.id, text: '', gifts, island: island.id };
+  const surprise = { id: pick.id, text: '', gifts: slotGifts(pick.id, rules), island: island.id };
   if (bridge) {
     if (bridge.link) surprise.link = bridge.link; else surprise.upgrade = bridge.upgrade;
     surprise.text = bridge.text;
-  } else if (pick.id === 'seeds') {
-    gifts.saplings = round2(2 * breakRest * rules.saplingsPerRestMinute); gifts.soil = round2(breakRest * rules.soilPerRestMinute);
-    surprise.text = 'A small rain cloud rested over the island for a while, leaving fresh water and soft soil.';
-  } else if (pick.id === 'soil') {
-    gifts.soil = round2(2 * breakRest * rules.soilPerRestMinute);
-    surprise.text = 'A warm breeze carried in rich soil from somewhere far below.';
-  } else if (pick.id === 'stones') {
-    gifts.stone = round2(60 * rules.stonePerFocusMinute);
-    surprise.text = 'A magpie dropped a little pile of shiny stones by the big rock.';
-  } else if (pick.id === 'fireflies') {
-    surprise.text = `Fireflies gathered over ${island.name} for the evening.`;
-  } else if (pick.id === 'golden') {
-    gifts.saplings = round2(3 * breakRest * rules.saplingsPerRestMinute);
-    surprise.golden = true;
-    surprise.text = `A rare golden sapling sprouted on ${island.name}. It will stay there for good.`;
-  } else {
+  } else if (pick.id === 'lost') {
     const helper = makeHelper(work, draft.helpersQueued, R.LOST_HELPER_WAY, 'lost');
     draft.helpersQueued.push(helper);
     surprise.helper = helper.id;
     surprise.text = `A lost helper named ${helper.name} found the island.`;
+  } else {
+    surprise.text = slotText(pick.id, island);
+    if (pick.id === 'golden') surprise.golden = true;
+  }
+  dressSurprise(surprise, island, rules, key, { keepsake: treeThere, number: draft.number });
+  return surprise;
+}
+
+// The gift each slot gives. Every flavour of a slot gives exactly this.
+function slotGifts(id, rules) {
+  const breakRest = R.restValue(10, rules), gifts = {};
+  if (id === 'seeds') {
+    gifts.saplings = round2(2 * breakRest * rules.saplingsPerRestMinute); gifts.soil = round2(breakRest * rules.soilPerRestMinute);
+  } else if (id === 'soil') {
+    gifts.soil = round2(2 * breakRest * rules.soilPerRestMinute);
+  } else if (id === 'stones') {
+    gifts.stone = round2(60 * rules.stonePerFocusMinute);
+  } else if (id === 'golden') {
+    gifts.saplings = round2(3 * breakRest * rules.saplingsPerRestMinute);
+  }
+  return gifts;
+}
+
+// A slot's own words (its `plain` flavour). The lost and bridge slots make theirs in makeSurprise.
+function slotText(id, island) {
+  return {
+    seeds: 'A small rain cloud rested over the island for a while, leaving fresh water and soft soil.',
+    soil: 'A warm breeze carried in rich soil from somewhere far below.',
+    stones: 'A magpie dropped a little pile of shiny stones by the big rock.',
+    fireflies: `Fireflies gathered over ${island.name} for the evening.`,
+    golden: `A rare golden sapling sprouted on ${island.name}. It will stay there for good.`,
+  }[id] || '';
+}
+
+// Picks the flavour inside the surprise's slot with the surprise-flavour roll, and sets its flavour,
+// visitor, keepsake and text. Gifts are never touched. options.keepsake asks for a keepsake whatever the
+// roll (the golden slot finding its tree there); options.number is the check-in number, for the keepsake's
+// id. A keepsake the island can't take (it has maxKeepsakesPerIsland, or every kind) turns into the slot's
+// plain flavour, or when asked for, into the roll's other flavours. Slots without flavours are left alone.
+function dressSurprise(surprise, island, rules, key, options = {}) {
+  const flavours = R.SURPRISE_FLAVOURS[surprise.id];
+  if (!flavours) return surprise;
+  const keepsake = flavours.some(f => f.id === 'keepsake') ? keepsakeFor(island, rules, key) : null;
+  let flavour = options.keepsake && keepsake ? flavours.find(f => f.id === 'keepsake')
+    : pickWeighted(`${key}:surprise-flavour`, flavours, f => f.weight);
+  if (flavour.id === 'keepsake' && !keepsake) flavour = flavours.find(f => f.id === 'plain');
+  surprise.flavour = flavour.id;
+  if (flavour.visitor) surprise.visitor = flavour.visitor;
+  if (flavour.text) surprise.text = flavour.text.replace('{island}', island.name);
+  if (flavour.id === 'keepsake') {
+    surprise.keepsake = { id: `keepsake-${options.number}`, kind: keepsake.id, ...(keepsake.ground ? { ground: keepsake.ground } : {}) };
+    surprise.text = `${keepsake.text.replace('{island}', island.name)} ${R.KEEPSAKE_ENDING}`;
   }
   return surprise;
+}
+
+// The keepsake kind an island would get now, or null: never one it has, never more than
+// maxKeepsakesPerIsland, and one that takes room (the fountain) only while the island has that room.
+function keepsakeFor(island, rules, key) {
+  const have = island.keepsakes || [];
+  if (have.length >= (rules.maxKeepsakesPerIsland ?? 3)) return null;
+  const kinds = R.KEEPSAKES.filter(k => !have.some(h => h.kind === k.id) && (!k.ground || roomOn(island, rules) >= k.ground));
+  return kinds.length ? pickWeighted(`${key}:keepsake-kind`, kinds, k => k.weight) : null;
 }
 
 // Works out the check-in waiting now, or null. Returns the draft record (before any pick) and the
@@ -603,7 +659,7 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   const something = R.RESOURCES.some(r => draft.collected[r] >= 0.01) || draft.newLand.length || draft.islands.length ||
     draft.helpersQueued.length || draft.helpersArrived.length || draft.surprise || draft.choice;
   if (!something) return null;
-  draft.token = fingerprint(JSON.stringify([number, draft.collected, draft.newLand, draft.surprise && [draft.surprise.id, draft.surprise.island],
+  draft.token = fingerprint(JSON.stringify([number, draft.collected, draft.newLand, draft.surprise && [draft.surprise.id, draft.surprise.island, draft.surprise.flavour ?? null, draft.surprise.keepsake?.kind ?? null],
     draft.islands.map(i => i.id), draft.helpersQueued.map(h => h.id), draft.helpersArrived.map(h => h.id), draft.choice]));
   return { draft, work };
 }
@@ -708,7 +764,7 @@ function viewState(state, facts, prepared, env) {
     today: rounded(today),
     islands: state.islands.map(island => ({ id: island.id, name: island.name, kind: island.kind, size: island.size,
       land: island.land, golden: island.golden, ring: island.ring, angle: island.angle, lift: island.lift,
-      buildings: island.buildings.map(b => ({ ...b })) })),
+      buildings: island.buildings.map(b => ({ ...b })), keepsakes: island.keepsakes.map(k => ({ ...k })) })),
     links: state.links.map(link => ({ ...link, land: { ...link.land } })),
     helpers: state.helpers.map(h => ({ id: h.id, name: h.name, job: h.job, island: h.island })),
     wonders: state.wonders.slice(),
@@ -719,11 +775,13 @@ function viewState(state, facts, prepared, env) {
     lastCheckIn: last ? { number: last.number, moments: (last.moments || []).slice(),
       built: last.built ? { id: last.built.id, blueprint: last.built.blueprint, name: R.builtNameOf(last.built, blueprints), island: last.built.island } : null,
       job: last.job ? { helper: last.job.helper, job: last.job.job } : null } : null,
+    // Who is visiting since the last saved check-in (a surprise's rain cloud, balloon, tent...), until the next one.
+    visitor: last && last.surprise && last.surprise.visitor ? { kind: last.surprise.visitor, island: last.surprise.island } : null,
   };
 }
 
 module.exports = {
   empty, round2, initialState, fold, applyRecord, prepare, pick, viewState, teaser, countActiveDays,
   count, beds, boost, available, placeFor, canAfford, rankJobs, makeOffer, nextWonder, openJobs,
-  roomOn, homesFit, shareLand, landPointsNeeded, openPairs, ropeTarget, fancyBridge,
+  roomOn, homesFit, shareLand, landPointsNeeded, openPairs, ropeTarget, fancyBridge, makeSurprise, dressSurprise, slotGifts,
 };

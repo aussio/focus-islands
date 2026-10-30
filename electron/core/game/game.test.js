@@ -891,7 +891,7 @@ test('the game state shows each island\'s place and lift, and links with their t
   const state = sim.simulate('steady', [40])[40];
   assert.ok(state.islands.length >= 2);
   for (const island of state.islands) {
-    assert.deepEqual(Object.keys(island), ['id', 'name', 'kind', 'size', 'land', 'golden', 'ring', 'angle', 'lift', 'buildings']);
+    assert.deepEqual(Object.keys(island), ['id', 'name', 'kind', 'size', 'land', 'golden', 'ring', 'angle', 'lift', 'buildings', 'keepsakes']);
   }
   assert.deepEqual(state.islands.map(i => [i.ring, i.angle]), state.islands.map((_, n) => [sky.placeOf(n).ring, sky.placeOf(n).angle]));
   assert.equal(state.islands[0].lift, 0);
