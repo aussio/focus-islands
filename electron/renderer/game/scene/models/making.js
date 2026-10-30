@@ -8,6 +8,7 @@ import { P } from '../style.js';
 import { Batch, hashString, place } from '../ground.js';
 import { chunk, crystalGeometry, logGeometry, rbox } from '../parts.js';
 import { addDoor, addRoof, addWindow } from './buildings.js';
+import { rare } from './nature.js';
 
 const R = 2; // rounded-box segments
 const E = 0.012; // edge rounding: a sliver, not pillowy
@@ -72,6 +73,20 @@ function sawBlade(radius, teeth = 16, thickness = 0.016) {
   }
   shape.closePath();
   return new THREE.ExtrudeGeometry(shape, { depth: thickness, bevelEnabled: false }).translate(0, 0, -thickness / 2);
+}
+
+// A sail cloth in bands across its length, coloured face by face so the stripes stay crisp. A plain
+// box split into bands: fewer triangles than the rounded cloth it stands in for.
+function stripedCloth(w, h, d, colours) {
+  const g = new THREE.BoxGeometry(w, h, d, 1, colours.length, 1).toNonIndexed();
+  const p = g.attributes.position, rgb = new Float32Array(p.count * 3), colour = new THREE.Color();
+  for (let i = 0; i < p.count; i += 3) {
+    const y = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+    colour.set(colours[Math.min(colours.length - 1, Math.max(0, Math.floor((y / h + 0.5) * colours.length)))]);
+    for (let k = 0; k < 3; k++) rgb.set([colour.r, colour.g, colour.b], (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(rgb, 3));
+  return g;
 }
 
 // A little pennant: a flat triangle in the x-y plane, pointing along +x from the pole at x = 0.
@@ -154,7 +169,8 @@ export const MAKING = {
 
   // A cream windmill: an eight-sided tapered tower on a stone ring, a blue cap and four white sails
   // that turn very slowly. The sails are their own small mesh so they can turn; everything else is
-  // baked with the island.
+  // baked with the island. About one windmill in three has red and cream striped sails (a rare look,
+  // picked from its id: see RARE in nature.js).
   windmill(ctx, thing, base) {
     const y0 = 0.1, h = 1.0, r0 = 0.42, r1 = 0.3, top = y0 + h;
     const apothem = r => r * Math.cos(Math.PI / 8);
@@ -180,6 +196,7 @@ export const MAKING = {
     const hubY = top + 0.09, hubZ = 0.44;
     ctx.add(new THREE.CylinderGeometry(0.03, 0.03, 0.24, 8).rotateX(QUARTER), 'matte', P.post, place(0, hubY, hubZ - 0.12), wind, false);
     // The sails: four arms, each a wooden spar with a white cloth panel and three crossbars.
+    const striped = rare(thing, 'stripes');
     const sails = new Batch();
     const add = (geometry, colour, local) => { sails.add(geometry, 'matte', { color: colour, matrix: local }); geometry.dispose(); };
     const arm = 0.55;
@@ -187,7 +204,9 @@ export const MAKING = {
     for (let i = 0; i < 4; i++) {
       const at = local => place(0, 0, 0, { rz: i * QUARTER }).multiply(local);
       add(rbox(0.045, arm, 0.03, 0.006, 1), P.post, at(place(0, arm / 2, 0)));
-      add(rbox(0.15, 0.38, 0.01, 0.003, 1), P.trim, at(place(0.1, arm - 0.21, -0.012)));
+      // Three wide bands, swapped on every other sail, so the stripes still show at Today's size.
+      if (striped) add(stripedCloth(0.15, 0.38, 0.01, i % 2 ? [C.millBody, C.millDoor, C.millBody] : [C.millDoor, C.millBody, C.millDoor]), null, at(place(0.1, arm - 0.21, -0.012)));
+      else add(rbox(0.15, 0.38, 0.01, 0.003, 1), P.trim, at(place(0.1, arm - 0.21, -0.012)));
       add(rbox(0.018, 0.4, 0.018, 0.004, 1), P.post, at(place(0.18, arm - 0.21, -0.004)));
       for (const y of [arm - 0.37, arm - 0.21, arm - 0.05]) add(rbox(0.16, 0.016, 0.016, 0.004, 1), P.post, at(place(0.1, y, -0.002)));
     }
