@@ -5,8 +5,9 @@
 // records. So a saved check-in always replays exactly as it was shown, whatever the rules say now.
 
 const R = require('./rules');
-const { roll, pickOne, fingerprint } = require('./dice');
+const { roll, pickOne, pickWeighted, fingerprint } = require('./dice');
 const { latestTrigger } = require('./history');
+const sky = require('./sky');
 const version1 = require('./version1');
 
 const round2 = x => Math.round(x * 100) / 100;
@@ -27,11 +28,11 @@ const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
 // ---------------------------------------------------------------------------------------------
 // The starting state and replaying saved check-ins.
 
-// An island as the rules keep it. used: ground taken by start things and buildings (see R.roomOf).
-// blocks and storeys: house blocks on the ground and block storeys. pads: buildings that aren't homes.
+// An island as the rules keep it. fields: { id, name, kind, size, land, ring, angle, lift, appetite }.
+// used: ground taken by start things and buildings (see R.roomOf). blocks and storeys: house blocks
+// on the ground and block storeys. pads: buildings that aren't homes.
 function makeIsland(fields, rules) {
-  const island = { ...fields, weight: R.ISLAND_SIZES[fields.size].weight, golden: false, buildings: [], counts: {},
-    used: 0, blocks: 0, storeys: 0, pads: 0 };
+  const island = { ...fields, golden: false, buildings: [], counts: {}, used: 0, blocks: 0, storeys: 0, pads: 0 };
   island.used = R.startGroundOf(island, rules);
   return island;
 }
@@ -44,7 +45,7 @@ function initialState(started, rules) {
     onHand: { ...empty(), soil: p.startingSoil ?? rules.startingSoil, saplings: p.startingSaplings ?? rules.startingSaplings },
     landProgress: 0,
     islands: [makeIsland({ id: 'home', name: R.ISLAND_KINDS.home.names[0], kind: 'home', size: 'medium',
-      land: p.startingLand ?? rules.startingLand }, rules)],
+      land: p.startingLand ?? rules.startingLand, ...sky.placeOf(0), lift: 0, appetite: rules.homeAppetite }, rules)],
     links: [],
     helpers: [{ id: 'h1', name: R.HELPER_NAMES[0], job: null, island: 'home', how: R.FIRST_HELPER_WAY }],
     queue: [],
@@ -67,13 +68,23 @@ function applySurprise(state, p) {
   if (!s) return;
   addInto(state.onHand, s.gifts);
   if (s.golden) islandById(state, s.island).golden = true;
+  if (s.link) addLink(state, s.link, p.number);
+  if (s.upgrade) {
+    const link = state.links.find(l => l.id === s.upgrade.link);
+    if (link) link.type = s.upgrade.type; // only the type changes, so the bridge's feet never move
+  }
   state.lastSurpriseDay = p.dayKey;
   state.activeDaysAtLastSurprise = p.activeDays;
 }
 function applyIslands(state, p, rules) {
   for (const island of p.islands || []) {
-    state.islands.push(makeIsland({ id: island.id, name: island.name, kind: island.kind, size: island.size, land: island.land }, rules));
+    const { id, name, kind, size, land, ring, angle, lift, appetite } = island;
+    state.islands.push(makeIsland({ id, name, kind, size, land, ring, angle, lift, appetite }, rules));
   }
+}
+// link: { id, from, to, type, land: { [from]: n, [to]: m } }, made at check-in `number`.
+function addLink(state, link, number) {
+  state.links.push({ id: link.id, from: link.from, to: link.to, type: link.type, checkIn: number, land: { ...link.land } });
 }
 function applyHelpers(state, p) {
   for (const helper of p.helpersQueued || []) {
@@ -106,7 +117,7 @@ function applyBuild(state, built, number, blueprints) {
     island.used += bp.ground || 0;
     if (bp.kind === 'homes') { island.blocks += bp.blocks || 0; island.storeys += bp.storeys || 0; } else island.pads += 1;
   }
-  if (built.link) state.links.push({ id: built.id, from: built.link.from, to: built.link.to });
+  if (built.link) addLink(state, { ...built.link, id: built.id }, number);
   if (built.kind === 'wonder') state.wonders.push(built.blueprint);
 }
 function applyRecord(state, p, sequence, rules, blueprints) {
@@ -124,7 +135,9 @@ function applyRecord(state, p, sequence, rules, blueprints) {
 
 function fold(facts, rules, blueprints = R.DEFAULT_BLUEPRINTS) {
   const state = initialState({ ...facts.started, sequence: facts.startedSequence }, rules);
-  for (const record of facts.checkIns) applyRecord(state, version1.checkInPayload(record.payload, blueprints), record.sequence, rules, blueprints);
+  for (const record of facts.checkIns) {
+    applyRecord(state, version1.checkInPayload(record.payload, { blueprints, rules, state }), record.sequence, rules, blueprints);
+  }
   return state;
 }
 
@@ -157,7 +170,7 @@ function available(bp, state, rules, blueprints) {
   if (bp.tier === 3 && (!count(state, 'workshop') || state.islands.length < 3)) return false;
   if (!bp.again && !bp.onlyOn && count(state, bp.id)) return false;
   if (bp.onlyOn && !state.islands.some(i => i.kind === bp.onlyOn && !i.counts[bp.id])) return false;
-  if (bp.perExtraIsland && count(state, bp.id) >= state.islands.length - 1) return false;
+  if (bp.linkType && !openPairs(state).length) return false;
   return true; // homes are offered whenever they fit, not only when a helper needs a bed
 }
 // Homes on one island: a new house once the houses there have at least one room each (the first is
@@ -188,33 +201,59 @@ function placeFor(bp, state, rules, landOf = null) {
   });
   return best;
 }
-// Hands out land points one at a time to the island with the least land for its size (ties: the
-// earlier island), skipping islands that are full. land: Map of island id to land, changed in place.
-// Returns how many points were handed out: fewer than asked when every island is full.
-function shareLand(islands, land, points, rules) {
+// Hands out land points one at a time. Each point goes to one island by a roll keyed by `key` and the
+// point's number (first, first + 1, ...), weighted by appetite / (1 + landAgeStep * order), where order
+// is 0 for home, 1 for the first new island, and so on. So home grows most and the newest least. An
+// island can't take a point when it is full, or when it would pass homeLead of home's land, so home
+// stays the largest; the roll is made only among islands that can take it. land: Map of island id to
+// land, changed in place. Returns how many points were handed out: fewer than asked when none can.
+function shareLand(islands, land, points, rules, key, first = 0) {
+  const home = islands[0];
+  const weight = new Map(islands.map((island, order) => [island.id, island.appetite / (1 + rules.landAgeStep * order)]));
   let given = 0;
   for (; given < points; given++) {
-    let target = null;
-    for (const island of islands) {
-      if (land.get(island.id) >= R.maxLandOf(island, rules)) continue;
-      if (!target || land.get(island.id) / island.weight < land.get(target.id) / target.weight) target = island;
-    }
+    const lead = rules.homeLead * land.get(home.id);
+    const open = islands.filter(island => land.get(island.id) + 1 <= R.maxLandOf(island, rules) + EPSILON &&
+      (island === home || land.get(island.id) + 1 <= lead + EPSILON));
+    const target = pickWeighted(`${key}:land:${first + given}`, open, island => weight.get(island.id));
     if (!target) break;
     land.set(target.id, land.get(target.id) + 1);
   }
   return given;
 }
-// How many more land points, shared out as at a check-in, before this blueprint fits somewhere. Null if
-// land alone won't make it fit.
+// About how many more land points, shared out as at a check-in, before this blueprint fits somewhere.
+// Null if land alone won't make it fit. The rolls are a guess at the next check-ins', for the teaser.
 function landPointsNeeded(bp, state, rules) {
   if (placeFor(bp, state, rules, island => R.maxLandOf(island, rules)) === null) return null;
   const land = new Map(state.islands.map(island => [island.id, island.land]));
   const landOf = island => land.get(island.id);
+  const key = `${state.startedID}:ahead:${state.checkIns}`;
   for (let points = 1; points <= 1000; points++) {
-    if (!shareLand(state.islands, land, 1, rules)) return null;
+    if (!shareLand(state.islands, land, 1, rules, key, points - 1)) return null;
     if (placeFor(bp, state, rules, landOf) !== null) return points;
   }
   return null;
+}
+
+// Bridges join sky-table neighbours (see sky.js). An open pair is a neighbour pair with no link yet.
+function openPairs(state) {
+  return sky.neighbourPairs(state.islands).filter(pair => !sky.linked(pair.from, pair.to, state.links));
+}
+// Where the next rope bridge goes, or null when every neighbour pair has a link:
+// 1. the earliest island that isn't joined to home yet but has a joined neighbour, linked to one of its
+//    joined neighbours by a roll: inward weight 2, any other neighbour 1. So islands don't all hang off home;
+// 2. otherwise the first open pair in table order. This closes a loop.
+function ropeTarget(state, key) {
+  const joined = sky.joinedSet(state.islands, state.links);
+  for (const island of state.islands) {
+    if (joined.has(island.id)) continue;
+    const near = sky.neighboursOf(island.id, state.islands).filter(n => joined.has(n.id));
+    if (!near.length) continue;
+    const chosen = pickWeighted(`${key}:rope`, near, n => (n.way === 'inward' ? 2 : 1));
+    return { from: chosen.id, to: island.id };
+  }
+  const pair = openPairs(state)[0];
+  return pair ? { from: pair.from, to: pair.to } : null;
 }
 function canAfford(price, state) {
   return Object.keys(price).every(r => (state.onHand[r] || 0) + EPSILON >= price[r]);
@@ -251,6 +290,7 @@ function makeOffer(state, rules, blueprints, key) {
     const where = placeFor(bp, state, rules);
     if (where === null) continue;
     const option = { bp, price, island: where >= 0 ? state.islands[where].id : null, order: roll(`${key}:offer:${bp.id}`) };
+    if (bp.linkType) option.link = ropeTarget(state, key);
     const current = byKind[bp.kind];
     const better = !current || owned(option) < owned(current) || (owned(option) === owned(current) && option.order < current.order);
     if (better) byKind[bp.kind] = option;
@@ -375,17 +415,60 @@ function firstTime(state, draft, key, text) {
   draft.moments.push(text);
 }
 
+// A fancy bridge from a surprise, or null when none fits: a new link between an open pair, or else a
+// rope bridge that changes type. Fancy bridges stay fewer than the islands other than home.
+// Returns { link: { id, from, to, type, land } } or { upgrade: { link, type } }, plus its text.
+function fancyBridge(work, draft, rules, key) {
+  const fancy = work.links.filter(l => l.type !== 'rope').length;
+  if (fancy >= work.islands.length - 1) return null;
+  const name = id => islandById(work, id).name;
+  // The type by roll. A water slide needs the two islands' lifts far enough apart to run downhill.
+  const typeFor = (a, b) => {
+    const drop = Math.abs(islandById(work, a).lift - islandById(work, b).lift);
+    const types = Object.keys(R.BRIDGE_TYPES).filter(t => t !== 'slide' || drop + EPSILON >= rules.slideLiftGap);
+    return pickWeighted(`${key}:bridge-type`, types, t => R.BRIDGE_TYPES[t].weight);
+  };
+  const downhill = (a, b) => (islandById(work, a).lift >= islandById(work, b).lift ? [a, b] : [b, a]);
+  const open = openPairs(work);
+  if (open.length) {
+    const pair = pickOne(`${key}:bridge-pair`, open);
+    const type = typeFor(pair.from, pair.to);
+    const link = { id: `gift-${draft.number}`, from: pair.from, to: pair.to, type,
+      land: { [pair.from]: islandById(work, pair.from).land, [pair.to]: islandById(work, pair.to).land } };
+    const [high, low] = downhill(pair.from, pair.to);
+    const between = `between ${name(pair.from)} and ${name(pair.to)}`;
+    const text = {
+      arch: `Overnight, a stone arch grew ${between}.`,
+      slide: `A water slide now runs from ${name(high)} down to ${name(low)}.`,
+      cloudsteps: `Cloud steps drifted together ${between}.`,
+      flowerarch: `A flower arch bloomed ${between}.`,
+      rainbow: `A rainbow came to rest ${between}, solid enough to walk on.`,
+    }[type];
+    return { link, text };
+  }
+  const ropes = work.links.filter(l => l.type === 'rope');
+  if (!ropes.length) return null;
+  const rope = pickOne(`${key}:bridge-rope`, ropes);
+  const type = typeFor(rope.from, rope.to), look = R.BRIDGE_TYPES[type];
+  return { upgrade: { link: rope.id, type },
+    text: `The rope bridge to ${name(rope.to)} turned into ${look.plural ? look.name : article(look.name)}.` };
+}
+
 // Small passive surprises. Gifts are about one break's worth, so they feel nice without changing the pace.
 function makeSurprise(work, draft, rules, key) {
-  const total = R.SURPRISES.reduce((t, s) => t + s.weight, 0);
-  let left = roll(`${key}:surprise-kind`) * total, pick = R.SURPRISES[0];
-  for (const s of R.SURPRISES) { left -= s.weight; if (left < 0) { pick = s; break; } }
-  if (pick.id === 'lost' && (work.lostHelpers >= rules.maxLostHelpers || draft.activeDays < rules.lostHelpersAfterActiveDays)) pick = R.SURPRISES[0];
+  const seeds = R.SURPRISES[0];
+  let pick = pickWeighted(`${key}:surprise-kind`, R.SURPRISES, s => s.weight);
+  if (pick.id === 'lost' && (work.lostHelpers >= rules.maxLostHelpers || draft.activeDays < rules.lostHelpersAfterActiveDays)) pick = seeds;
   const island = pickOne(`${key}:surprise-island`, work.islands);
-  if (pick.id === 'golden' && island.golden) pick = R.SURPRISES[0]; // at most one golden sapling per island
+  if (pick.id === 'golden' && island.golden) pick = seeds; // at most one golden sapling per island
+  const bridge = pick.id === 'bridge' ? fancyBridge(work, draft, rules, key) : null;
+  if (pick.id === 'bridge' && !bridge) pick = seeds;
   const breakRest = R.restValue(10, rules), gifts = {};
   const surprise = { id: pick.id, text: '', gifts, island: island.id };
-  if (pick.id === 'seeds') {
+  if (bridge) {
+    if (bridge.link) surprise.link = bridge.link; else surprise.upgrade = bridge.upgrade;
+    surprise.text = bridge.text;
+  } else if (pick.id === 'seeds') {
     gifts.saplings = round2(2 * breakRest * rules.saplingsPerRestMinute); gifts.soil = round2(breakRest * rules.soilPerRestMinute);
     surprise.text = 'A passing traveler rested here and left a pouch of seeds.';
   } else if (pick.id === 'soil') {
@@ -440,11 +523,11 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   };
   const work = cloneState(state);
 
-  // Collect, and turn rest minutes into new land points on the island with the least land for its size.
-  // Full islands are skipped; when every island is full, the rest minutes wait in landProgress.
+  // Collect, and turn rest minutes into new land points, shared between islands by appetite and age.
+  // When no island can take a point, the rest minutes wait in landProgress.
   const progress = work.landProgress + draft.restMinutes;
   const land = new Map(work.islands.map(island => [island.id, island.land]));
-  const given = shareLand(work.islands, land, Math.floor((progress + EPSILON) / rules.restMinutesPerLand), rules);
+  const given = shareLand(work.islands, land, Math.floor((progress + EPSILON) / rules.restMinutesPerLand), rules, key);
   draft.landProgress = round2(Math.max(0, progress - given * rules.restMinutesPerLand));
   draft.newLand = work.islands.filter(island => land.get(island.id) > island.land)
     .map(island => ({ island: island.id, amount: land.get(island.id) - island.land }));
@@ -466,11 +549,11 @@ function draftCheckIn(state, facts, env, trigger, skip) {
     const taken = [...work.islands, ...draft.islands].map(island => island.kind);
     const unused = R.NEW_ISLAND_KINDS.filter(k => !taken.includes(k));
     const kind = pickOne(`${state.startedID}:island:${index}:kind`, unused.length ? unused : R.NEW_ISLAND_KINDS);
-    const sizeRoll = roll(`${state.startedID}:island:${index}:size`);
-    const size = sizeRoll < 0.35 ? 'small' : sizeRoll < 0.75 ? 'medium' : 'large';
+    const size = pickWeighted(`${state.startedID}:island:${index}:size`, Object.keys(R.ISLAND_SIZES), k => R.ISLAND_SIZES[k].chance);
     const same = taken.filter(k => k === kind).length, names = R.ISLAND_KINDS[kind].names;
     const name = names[same] || names[0] + ' ' + (same + 1);
-    draft.islands.push({ id: `isle-${index}`, name, kind, size, land: rules.startLand[size] });
+    // Its place in the sky table, lift and appetite are worked out now and saved, so they never change.
+    draft.islands.push({ id: `isle-${index}`, name, kind, size, land: rules.startLand[size], ...sky.arrivalOf(state.startedID, index, rules) });
     const special = blueprints.find(bp => bp.onlyOn === kind);
     draft.arrivals.push(`${article(size)} ${R.ISLAND_KINDS[kind].label} island drifted in: ${name}.` +
       (special ? ` Only here can you build ${article(special.name)}.` : ''));
@@ -501,7 +584,10 @@ function draftCheckIn(state, facts, env, trigger, skip) {
     draft.choice = { kind: 'job', helper: idle.id, options: rankJobs(work, rules, blueprints).slice(0, 3) };
   } else {
     const offer = makeOffer(work, rules, blueprints, key);
-    if (offer) draft.choice = { kind: 'build', options: offer.map(o => ({ blueprint: o.bp.id, island: o.island, price: o.price })) };
+    if (offer) {
+      draft.choice = { kind: 'build', options: offer.map(o => ({ blueprint: o.bp.id, island: o.island, price: o.price,
+        ...(o.link ? { link: o.link } : {}) })) };
+    }
   }
 
   const something = R.RESOURCES.some(r => draft.collected[r] >= 0.01) || draft.newLand.length || draft.islands.length ||
@@ -531,10 +617,12 @@ function pick(prepared, choiceID, env) {
     if (!option) throw new Error("That building isn't one of the choices on this card.");
     const bp = blueprints.find(b => b.id === choiceID);
     const island = option.island ? islandById(work, option.island) : null;
+    // A bridge joins the two islands its option named, with each one's land now, so the layout can
+    // place its feet at the right point in the replay.
     let link = null;
-    if (bp.noSpot) {
-      const k = count(work, bp.id); // the k-th bridge joins the (k+1)-th new island to the one before it
-      link = { from: work.islands[k].id, to: work.islands[k + 1].id };
+    if (bp.linkType) {
+      const { from, to } = option.link;
+      link = { from, to, type: bp.linkType, land: { [from]: islandById(work, from).land, [to]: islandById(work, to).land } };
     }
     draft.built = { id: `b${work.buildingsMade + 1}`, blueprint: bp.id, name: bp.name, kind: bp.kind,
       island: island ? island.id : null, price: option.price, landWhenBuilt: island ? island.land : null, link };
@@ -555,6 +643,12 @@ function pick(prepared, choiceID, env) {
 // ---------------------------------------------------------------------------------------------
 // What the page sees.
 
+// A build option's line. A bridge names both islands it joins.
+function optionDoes(option, bp, state) {
+  if (!option.link) return bp.does;
+  const name = id => (islandById(state, id) || { name: id }).name;
+  return `A rope bridge from ${name(option.link.from)} to ${name(option.link.to)}.`;
+}
 function viewChoice(choice, state, blueprints) {
   if (!choice) return null;
   if (choice.kind === 'job') {
@@ -564,7 +658,7 @@ function viewChoice(choice, state, blueprints) {
   }
   return { kind: 'build', options: choice.options.map(o => {
     const bp = blueprints.find(b => b.id === o.blueprint);
-    return { blueprint: o.blueprint, name: bp.name, kind: bp.kind, does: bp.does, price: { ...o.price }, island: o.island };
+    return { blueprint: o.blueprint, name: bp.name, kind: bp.kind, does: optionDoes(o, bp, state), price: { ...o.price }, island: o.island };
   }) };
 }
 
@@ -595,8 +689,9 @@ function viewState(state, facts, prepared, env) {
     onHand: rounded(state.onHand),
     waiting: rounded(waiting),
     islands: state.islands.map(island => ({ id: island.id, name: island.name, kind: island.kind, size: island.size,
-      land: island.land, golden: island.golden, buildings: island.buildings.map(b => ({ ...b })) })),
-    links: state.links.map(link => ({ ...link })),
+      land: island.land, golden: island.golden, ring: island.ring, angle: island.angle, lift: island.lift,
+      buildings: island.buildings.map(b => ({ ...b })) })),
+    links: state.links.map(link => ({ ...link, land: { ...link.land } })),
     helpers: state.helpers.map(h => ({ id: h.id, name: h.name, job: h.job, island: h.island })),
     wonders: state.wonders.slice(),
     checkIn,
@@ -612,5 +707,5 @@ function viewState(state, facts, prepared, env) {
 module.exports = {
   empty, round2, initialState, fold, applyRecord, prepare, pick, viewState, teaser, countActiveDays,
   count, beds, boost, available, placeFor, canAfford, rankJobs, makeOffer, nextWonder, openJobs,
-  roomOn, homesFit, shareLand, landPointsNeeded,
+  roomOn, homesFit, shareLand, landPointsNeeded, openPairs, ropeTarget, fancyBridge,
 };

@@ -22,10 +22,23 @@ function pickOne(text, items) {
   return items[Math.min(items.length - 1, Math.floor(roll(text) * items.length))];
 }
 
+// One of the items, picked by a keyed roll weighted by weightOf(item). Items weighing 0 are never picked.
+function pickWeighted(text, items, weightOf) {
+  const weights = items.map(item => Math.max(0, weightOf(item)));
+  let left = roll(text) * weights.reduce((t, w) => t + w, 0);
+  for (let i = 0; i < items.length; i++) {
+    if (!weights[i]) continue;
+    left -= weights[i];
+    if (left < 0) return items[i];
+  }
+  for (let i = items.length - 1; i >= 0; i--) if (weights[i]) return items[i];
+  return null;
+}
+
 // A short text fingerprint, used for check-in tokens.
 function fingerprint(text) {
   const a = hash32(String(text)), b = hash32('~' + String(text));
   return a.toString(36) + b.toString(36);
 }
 
-module.exports = { roll, pickOne, fingerprint, hash32 };
+module.exports = { roll, pickOne, pickWeighted, fingerprint, hash32 };

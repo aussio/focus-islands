@@ -32,17 +32,30 @@ const ISLAND_KINDS = {
   misty: { label: 'misty', names: ['Misty Reach', 'Fog Hollow'], special: 'loom' },
 };
 const NEW_ISLAND_KINDS = ['mossy', 'rocky', 'meadow', 'crystal', 'misty'];
-// weight: how land is shared between islands (see the land step in play.js). Each size's starting
-// land and most land are rules numbers (startLand, maxLand) so they can be tuned with the rest.
+// chance: how often a new island rolls each size. Each size's starting land and most land are rules
+// numbers (startLand, maxLand) so they can be tuned with the rest. Size no longer sets how fast an
+// island grows: that is its appetite and age (see shareLand in play.js).
 const ISLAND_SIZES = {
-  small: { weight: 1 },
-  medium: { weight: 1.5 },
-  large: { weight: 2 },
+  small: { chance: 0.35 },
+  medium: { chance: 0.4 },
+  large: { chance: 0.25 },
 };
 const SURPRISES = [
   { id: 'seeds', weight: 4 }, { id: 'soil', weight: 3 }, { id: 'stones', weight: 3 },
   { id: 'fireflies', weight: 2 }, { id: 'golden', weight: 1 }, { id: 'lost', weight: 1 },
+  { id: 'bridge', weight: 1 },
 ];
+// Bridge types. Rope is the one you build; the others come only as surprises (a new bridge, or a rope
+// bridge that changes type). weight: how often a surprise rolls each one. Ids match BRIDGE_TYPES in
+// electron/renderer/game/kinds.js. A water slide needs the two islands' lift at least slideLiftGap apart.
+const BRIDGE_TYPES = Object.freeze({
+  rope: { name: 'rope bridge', weight: 0 },
+  arch: { name: 'stone arch', weight: 3 },
+  slide: { name: 'water slide', weight: 3 },
+  cloudsteps: { name: 'cloud steps', weight: 3, plural: true },
+  flowerarch: { name: 'flower arch', weight: 3 },
+  rainbow: { name: 'rainbow', weight: 1 },
+});
 
 const DEFAULT_RULES = Object.freeze({
   rulesVersion: 2,
@@ -68,6 +81,15 @@ const DEFAULT_RULES = Object.freeze({
   coastPerRootLand: 4,
   laneShareOfLand: 0.12,
   startGround: Object.freeze({ home: 4, island: 2 }),
+  // Who gets each new land point: a roll weighted by appetite / (1 + landAgeStep * order), where order
+  // is 0 for home, 1 for the first new island, and so on. No island may pass homeLead of home's land.
+  landAgeStep: 0.3,
+  homeAppetite: 1.3,
+  homeLead: 0.85,
+  appetiteRange: Object.freeze([0.7, 1.3]), // a new island's appetite, rolled when it arrives
+  liftRange: Object.freeze([-0.5, 0.5]),    // how high a new island floats, rolled in liftStep steps; home is 0
+  liftStep: 0.05,
+  slideLiftGap: 0.25,                       // a water slide needs the islands' lifts at least this far apart
   startingSoil: 40,
   startingSaplings: 25,
   starlightPerOnPlanSession: 1,        // only if a real break follows (or it is the day's last session)
@@ -100,7 +122,8 @@ const DEFAULT_RULES = Object.freeze({
 // kind: making / growing / decor / homes / wonder. perIsland caps repeatable items on each island.
 // tier 2 needs a Sawmill; tier 3 needs a Workshop and 3 islands. Ids match electron/renderer/game/kinds.js.
 // ground: land points it takes from an island's room, from its footprint in kinds.js (point 1, pair 2,
-// cell 5, cells 7, ring 11); bridges take none.
+// cell 5, cells 7, ring 11); bridges take none. linkType: it builds a link between two sky-table
+// neighbours instead of standing on an island (offered while some neighbour pair has no link).
 // Homes are parts of block houses, never things on a pad. blocks: new blocks on the ground; storeys:
 // new block storeys (one bed each); weight: how often the homes slot shows it (lowest owned / weight);
 // step: its own repeat price step. The layout picks which house grows and where.
@@ -116,7 +139,7 @@ const DEFAULT_BLUEPRINTS = deepFreeze([
   { id: 'windmill', name: 'Windmill', kind: 'making', tier: 2, again: true, perIsland: 2, ground: 5, cost: { stone: 100, planks: 90, soil: 60, saplings: 35 }, does: 'Turns slowly in the wind.' },
   { id: 'orchard', name: 'Orchard', kind: 'growing', tier: 2, again: true, perIsland: 2, ground: 5, cost: { wood: 90, planks: 40, soil: 110, saplings: 80 }, does: 'A little grove of fruit trees.' },
   { id: 'lanterns', name: 'Lantern path', kind: 'decor', tier: 2, again: true, perIsland: 2, fast: true, ground: 1, cost: { wood: 40, stone: 40, planks: 20, soil: 30, saplings: 20 }, does: 'Little lights along the paths.' },
-  { id: 'bridge', name: 'Rope bridge', kind: 'decor', tier: 2, again: true, perExtraIsland: true, noSpot: true, ground: 0, cost: { wood: 60, planks: 60, soil: 40, saplings: 40 }, does: 'A rope bridge to another island.' },
+  { id: 'bridge', name: 'Rope bridge', kind: 'decor', tier: 2, again: true, linkType: 'rope', noSpot: true, ground: 0, cost: { wood: 60, planks: 60, soil: 40, saplings: 40 }, does: 'A rope bridge to another island.' },
   { id: 'tower', name: 'Lookout tower', kind: 'making', tier: 3, again: true, perIsland: 1, ground: 5, cost: { wood: 100, stone: 300, planks: 180, soil: 70, saplings: 40 }, does: 'A tall tower that looks out over the sky.' },
   { id: 'pond', name: 'Lily pond', kind: 'growing', tier: 3, again: true, perIsland: 1, ground: 5, cost: { wood: 80, stone: 250, soil: 180, saplings: 100 }, does: 'A quiet pond, with roots and water hanging below.' },
   { id: 'greattree', name: 'Great tree', kind: 'growing', tier: 3, ground: 5, cost: { wood: 200, stone: 100, soil: 400, saplings: 300 }, does: 'A huge old tree.' },
@@ -212,6 +235,6 @@ function priceOf(bp, state, rules) {
 
 module.exports = {
   RESOURCES, MATERIALS, GROWTH, KIND_NAMES, JOBS, STARTING_JOBS, HELPER_NAMES, FIRST_HELPER_WAY, LOST_HELPER_WAY,
-  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
+  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
   islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, roomOf, maxLandOf, startGroundOf,
 };

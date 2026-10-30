@@ -7,11 +7,13 @@ const game = require('./index');
 const R = require('./rules');
 const { scan } = require('./history');
 const play = require('./play');
+const sky = require('./sky');
 const MadeUpDays = require('./made-up-days');
 
-// The simulated player: a wonder first. Then homes if a helper is waiting for a bed. Then the homes
-// option on every third build choice that offers one (homesOffers counts them, this one included),
-// standing in for a player who likes the town. Otherwise something new before something repeated.
+// The simulated player: a wonder first. Then homes if a helper is waiting for a bed. Then a rope bridge
+// if some island isn't joined to home yet. Then the homes option on every third build choice that
+// offers one (homesOffers counts them, this one included), standing in for a player who likes the
+// town. Otherwise something new before something repeated.
 // For a job it takes the first option, which the rules already rank the way the prototype's job picker did.
 function simulatedPlayer(state, { blueprints, helpersWaiting, homesOffers = 0 }) {
   const choice = state.checkIn && state.checkIn.choice;
@@ -19,11 +21,14 @@ function simulatedPlayer(state, { blueprints, helpersWaiting, homesOffers = 0 })
   if (choice.kind === 'job') return choice.options[0].job;
   const owned = {};
   for (const island of state.islands) for (const b of island.buildings) owned[b.blueprint] = (owned[b.blueprint] || 0) + 1;
-  owned.bridge = state.links.length;
+  owned.bridge = state.links.filter(link => !String(link.id).startsWith('gift-')).length;
   const wonder = choice.options.find(o => o.kind === 'wonder');
   if (wonder) return wonder.blueprint;
   const homes = choice.options.find(o => o.kind === 'homes');
-  if (homes && (helpersWaiting || (homesOffers > 0 && homesOffers % 3 === 0))) return homes.blueprint;
+  if (homes && helpersWaiting) return homes.blueprint;
+  const bridge = choice.options.find(o => blueprints.find(bp => bp.id === o.blueprint).linkType);
+  if (bridge && sky.joinedSet(state.islands, state.links).size < state.islands.length) return bridge.blueprint;
+  if (homes && homesOffers > 0 && homesOffers % 3 === 0) return homes.blueprint;
   const again = id => (blueprints.find(bp => bp.id === id).again ? 1 : 0);
   return choice.options.map((o, i) => ({ o, i }))
     .sort((a, b) => (again(a.o.blueprint) - again(b.o.blueprint)) || ((owned[a.o.blueprint] || 0) - (owned[b.o.blueprint] || 0)) || (a.i - b.i))[0].o.blueprint;
@@ -86,7 +91,7 @@ function run(personId, dayCount, options = {}) {
     timeline.push({ day: d, label: madeUp.label, activeDays: state.activeDays, islands: state.islands.length,
       helpers: state.helpers.length, buildings: state.islands.reduce((n, i) => n + i.buildings.length, 0) + state.links.length,
       wonders: state.wonders.length, checkInsToday: today.checkIns, choicesToday: today.choices, surprisesToday: today.surprises,
-      onHand: state.onHand });
+      onHand: state.onHand, land: state.islands.map(island => island.land), links: state.links.length });
   }
   return { states, timeline, events: history.events, log };
 }

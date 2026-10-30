@@ -27,19 +27,22 @@ export function buildWorld(game) {
 // TEMPORARY: delete in stage 2 of the town rebuild (game/BUILD_PLAN.md), when Today switches to the town.
 // Version-2 rules count land in town-grid points and build block houses. This square layout still thinks
 // in building spots and cottages, so read a version-2 state the old way: land ÷ 7 spots, a house drawn as a
-// cottage, and rooms and floors left out. Version-1 states pass through unchanged.
+// cottage, and rooms and floors left out. Every link is drawn as a plain rope bridge (its type, check-in
+// and land are dropped), and each island's ring, angle and lift are ignored: the square sky places
+// islands its own way. Version-1 states pass through unchanged.
 const POINTS_PER_SPOT = 7;
 function squareGame(game) {
   if (!game || !(game.rulesVersion >= 2)) return game;
   const spots = points => Math.floor((Number(points) || 0) / POINTS_PER_SPOT);
   return {
     ...game,
-    islands: (game.islands ?? []).map(island => ({
+    islands: (game.islands ?? []).map(({ ring, angle, lift, ...island }) => ({
       ...island,
       land: spots(island.land),
       buildings: (island.buildings ?? []).filter(b => b.blueprint !== 'room' && b.blueprint !== 'floor')
         .map(b => ({ ...b, blueprint: b.blueprint === 'house' ? 'cottage' : b.blueprint, landWhenBuilt: spots(b.landWhenBuilt) })),
     })),
+    links: (game.links ?? []).map(({ id, from, to }) => ({ id, from, to })),
   };
 }
 

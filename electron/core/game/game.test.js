@@ -67,9 +67,11 @@ function setup({ plan = PLAN } = {}) {
 const grantFor = (h, key) => h.events.find(e => e.uniqueKey === key);
 const { roomProblems } = require('./room-check');
 const play = require('./play');
+const sky = require('./sky');
 
 // A bare rules state for unit checks: home only, with plenty on hand. build() saves one building the
-// way a check-in would, and island() adds a new island.
+// way a check-in would, island() adds the next new island at its place in the sky table, and bridge()
+// saves a rope bridge (or a fancy one, as a surprise would).
 function bareState(rules = R.DEFAULT_RULES, land = undefined) {
   const state = play.initialState({ id: 'S', sequence: 1, payload: { rulesVersion: 2, startingLand: land } }, rules);
   Object.assign(state.onHand, { wood: 5000, stone: 5000, planks: 5000, soil: 5000, saplings: 5000 });
@@ -83,7 +85,18 @@ function bareState(rules = R.DEFAULT_RULES, land = undefined) {
       play.applyRecord(state, record({ built: { id: `b${state.buildingsMade + 1}`, blueprint, name: bp.name, kind: bp.kind, island,
         price: {}, landWhenBuilt: where.land, link: null } }), number, rules, blueprints);
     },
-    island(id, size, land, kind = 'rocky') { play.applyRecord(state, record({ islands: [{ id, name: id, kind, size, land }] }), number, rules, R.DEFAULT_BLUEPRINTS); },
+    island(id, size, land, kind = 'rocky', extra = {}) {
+      const place = sky.placeOf(state.islands.length);
+      play.applyRecord(state, record({ islands: [{ id, name: id, kind, size, land, ...place, lift: 0, appetite: 1, ...extra }] }), number, rules, R.DEFAULT_BLUEPRINTS);
+    },
+    bridge(from, to, type = 'rope') {
+      const land = { [from]: state.islands.find(i => i.id === from).land, [to]: state.islands.find(i => i.id === to).land };
+      const p = type === 'rope'
+        ? record({ built: { id: `b${state.buildingsMade + 1}`, blueprint: 'bridge', name: 'Rope bridge', kind: 'decor', island: null,
+          price: {}, landWhenBuilt: null, link: { from, to, type, land } } })
+        : record({ surprise: { id: 'bridge', text: '', gifts: {}, island: from, link: { id: `gift-${number + 1}`, from, to, type, land } } });
+      play.applyRecord(state, p, number, rules, R.DEFAULT_BLUEPRINTS);
+    },
   };
 }
 const placeOf = (bp, state, rules = R.DEFAULT_RULES) => {
@@ -459,6 +472,9 @@ test('blueprint ids, footprints and homes match electron/renderer/game/kinds.js'
   assert.deepEqual(['house', 'room', 'floor'].map(id => R.DEFAULT_BLUEPRINTS.find(bp => bp.id === id).ground), [3, 1, 0]);
   assert.equal(R.DEFAULT_BLUEPRINTS.find(bp => bp.id === 'bridge').ground, 0);
   assert.deepEqual(R.KIND_NAMES, { making: 'making things', growing: 'growing things', decor: 'pretty things', homes: 'homes', wonder: 'Starlight wonder' });
+  const { BRIDGE_TYPES } = await import('../../renderer/game/kinds.js');
+  assert.deepEqual(Object.keys(R.BRIDGE_TYPES), BRIDGE_TYPES, 'bridge types match');
+  assert.equal(R.DEFAULT_BLUEPRINTS.find(bp => bp.id === 'bridge').linkType, 'rope');
 });
 
 test('the room sum: home starts with room for one cell pad, and a day of breaks makes room for a second', () => {
@@ -577,7 +593,7 @@ test('"next up" counts the land points still missing', () => {
   assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8, 'progress is minutes, counted by the caller');
 });
 
-test('version-1 records still read: land × 7, a cottage is a house', () => {
+test('version-1 records still read: land × 7, a cottage is a house, islands get places, chain links become rope bridges', () => {
   const history = MD.createHistory();
   const at = '2026-01-05T08:00:00.000Z';
   history.appendRecord({ kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: at,
@@ -588,36 +604,51 @@ test('version-1 records still read: land × 7, a cottage is a house', () => {
     rulesVersion: 1, number: 1, token: 'old', covered: 3, dayKey: '2026-01-05', activeDays: 1,
     collected: { wood: 60, stone: 30, planks: 0, soil: 0, saplings: 0, starlight: 0 }, restMinutes: 40, landProgress: 5,
     newLand: [{ island: 'home', amount: 1 }], surprise: null,
-    islands: [{ id: 'isle-1', name: 'Flint Peak', kind: 'rocky', size: 'medium', land: 3 }],
+    islands: [{ id: 'isle-1', name: 'Flint Peak', kind: 'rocky', size: 'medium', land: 3 }, { id: 'isle-2', name: 'Mossy Hollow', kind: 'mossy', size: 'small', land: 2 }],
     helpersQueued: [], helpersArrived: [], arrivals: [], moments: [], firsts: ['building'],
     choice: { kind: 'build', options: [{ blueprint: 'cottage', island: 'home', price: { wood: 45, stone: 25, soil: 25, saplings: 10 } }] },
     picked: 'cottage', job: null,
     built: { id: 'b1', blueprint: 'cottage', name: 'Cottage', kind: 'decor', island: 'home', price: { wood: 45, stone: 25, soil: 25, saplings: 10 }, landWhenBuilt: 5, link: null },
   } });
+  // The old chain link joined isle-1 to isle-2. Isle-2's first neighbour in the sky table is home.
+  history.appendRecord({ kind: 'gameCheckedIn', uniqueKey: 'game:checkin:2', occurredAt: '2026-01-05T09:20:00.000Z', payload: {
+    rulesVersion: 1, number: 2, token: 'old', covered: 4, dayKey: '2026-01-05', activeDays: 1,
+    collected: { wood: 0, stone: 0, planks: 0, soil: 0, saplings: 0, starlight: 0 }, restMinutes: 0, landProgress: 5,
+    newLand: [{ island: 'isle-2', amount: 1 }], surprise: null, islands: [], helpersQueued: [], helpersArrived: [],
+    arrivals: [], moments: [], firsts: [], choice: { kind: 'build', options: [{ blueprint: 'bridge', island: null, price: {} }] },
+    picked: 'bridge', job: null,
+    built: { id: 'b2', blueprint: 'bridge', name: 'Rope bridge', kind: 'decor', island: null, price: {}, landWhenBuilt: null, link: { from: 'isle-1', to: 'isle-2' } },
+  } });
   const ctx = { now: '2026-01-05T10:00:00.000Z', todayKey: '2026-01-05', dayKeyOf: MD.dayKeyOf, planFor: () => PLAN };
   const state = game.gameState(history.events, ctx);
-  assert.deepEqual(state.islands.map(i => [i.id, i.land]), [['home', 35], ['isle-1', 21]]);
+  assert.deepEqual(state.islands.map(i => [i.id, i.land, i.ring, i.angle]), [['home', 35, 0, null], ['isle-1', 21, 1, 0], ['isle-2', 21, 1, 180]]);
+  const folded = play.fold(require('./history').scan(history.events), R.DEFAULT_RULES);
+  for (const [n, island] of folded.islands.entries()) {
+    if (!n) { assert.deepEqual([island.lift, island.appetite], [0, R.DEFAULT_RULES.homeAppetite]); continue; }
+    const rolled = sky.arrivalOf(folded.startedID, n, R.DEFAULT_RULES);
+    assert.deepEqual([island.lift, island.appetite], [rolled.lift, rolled.appetite], `${island.id}: the same rolls as a new island`);
+  }
+  assert.deepEqual(state.links, [{ id: 'b2', from: 'home', to: 'isle-2', type: 'rope', checkIn: 2, land: { home: 35, 'isle-2': 21 } }]);
   assert.deepEqual(state.islands[0].buildings, [{ id: 'b1', blueprint: 'house', name: 'Little house', landWhenBuilt: 35, checkIn: 1 }]);
-  assert.equal(state.lastCheckIn.built.blueprint, 'house');
+  assert.equal(state.lastCheckIn.built.blueprint, 'bridge');
   assert.equal(play.beds(play.fold(require('./history').scan(history.events), R.DEFAULT_RULES), R.DEFAULT_RULES), 5, 'the cottage still gives 2 beds');
   assert.deepEqual(state.onHand, { wood: 15, stone: 5, planks: 0, soil: 15, saplings: 15, starlight: 0 });
-  // A version-2 check-in on top: the 5 waiting rest minutes and a 10-minute break become 3 points, for
-  // the island with the least land for its size.
+  // A version-2 check-in on top: the 5 waiting rest minutes and a 10-minute break become 3 points.
   history.append('breakStarted', { sessionID: 'r1', targetSeconds: 600, followsSessionID: 'f1' }, '2026-01-05T10:00:00.000Z');
   history.append('breakConfirmed', { sessionID: 'r1', targetSeconds: 600, elapsedSeconds: 600 }, '2026-01-05T10:10:00.000Z');
   history.append('breakEnded', { sessionID: 'r1', targetSeconds: 600, elapsedSeconds: 600 }, '2026-01-05T10:10:00.000Z');
   game.dueGrants(history.events, ctx).forEach(history.appendRecord);
   const card = game.gameState(history.events, ctx).checkIn;
-  assert.deepEqual(card.newLand, [{ island: 'isle-1', amount: 3 }]);
+  assert.equal(card.newLand.reduce((n, grown) => n + grown.amount, 0), 3);
   const record = game.checkInRecord(history.events, ctx, { token: card.token, pick: null });
   assert.equal(record.payload.rulesVersion, 2);
 });
 
-test('the simulated player: a wonder, then homes for a bed or on every third homes offer, else something new', () => {
+test('the simulated player: a wonder, homes for a bed, a bridge to an unjoined island, homes on every third offer, else something new', () => {
   const blueprints = R.DEFAULT_BLUEPRINTS;
   const opt = id => ({ blueprint: id, kind: blueprints.find(b => b.id === id).kind });
-  const state = (ids, built = []) => ({ islands: [{ buildings: built.map(blueprint => ({ blueprint })) }], links: [],
-    checkIn: { choice: { kind: 'build', options: ids.map(opt) } } });
+  const state = (ids, built = [], more = {}) => ({ islands: [{ id: 'home', buildings: built.map(blueprint => ({ blueprint })) }], links: [],
+    checkIn: { choice: { kind: 'build', options: ids.map(opt) } }, ...more });
   const choose = (s, extra = {}) => sim.simulatedPlayer(s, { blueprints, helpersWaiting: 0, homesOffers: 1, ...extra });
   assert.equal(choose(state(['lighthouse', 'room', 'garden'])), 'lighthouse');
   assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { helpersWaiting: 1 }), 'room', 'a helper needs a bed');
@@ -625,5 +656,182 @@ test('the simulated player: a wonder, then homes for a bed or on every third hom
   assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { homesOffers: 4 }), 'windmill', 'otherwise something new');
   assert.equal(choose(state(['flowers', 'house'], ['flowers'])), 'house', 'a first house is something new too');
   assert.equal(choose(state(['flowers', 'sawmill'])), 'sawmill', 'a one-off before a repeatable');
+  const two = [{ id: 'home', buildings: [] }, { id: 'isle-1', buildings: [] }];
+  assert.equal(choose(state(['sawmill', 'bridge', 'room'], [], { islands: two })), 'bridge', 'an island is not joined yet');
+  assert.equal(choose(state(['sawmill', 'bridge', 'room'], [], { islands: two }), { helpersWaiting: 1 }), 'room', 'a bed comes first');
+  assert.equal(choose(state(['sawmill', 'bridge'], [], { islands: two, links: [{ id: 'b1', from: 'home', to: 'isle-1' }] })), 'sawmill', 'all joined');
   assert.equal(sim.simulatedPlayer({ checkIn: { choice: { kind: 'job', options: [{ job: 'stone' }, { job: 'wood' }] } } }, { blueprints }), 'stone');
+});
+
+test('the sky table: places, neighbours in order, pairs in table order, joined islands', () => {
+  assert.deepEqual(sky.placeOf(0), { ring: 0, angle: null });
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8].map(n => sky.placeOf(n).angle), [0, 180, 315, 135, 225, 45, 270, 90]);
+  assert.deepEqual([sky.placeOf(8), sky.placeOf(9), sky.placeOf(16), sky.placeOf(17)],
+    [{ ring: 1, angle: 90 }, { ring: 2, angle: 0 }, { ring: 2, angle: 90 }, { ring: 3, angle: 0 }]);
+  const all = [{ id: 'home', ...sky.placeOf(0) }];
+  for (let n = 1; n <= 24; n++) all.push({ id: `isle-${n}`, ...sky.placeOf(n) });
+  const ways = id => sky.neighboursOf(id, all).map(n => `${n.way}:${n.id}`);
+  assert.deepEqual(ways('home'), [1, 2, 3, 4, 5, 6, 7, 8].map(n => `outward:isle-${n}`));
+  assert.deepEqual(ways('isle-1'), ['inward:home', 'around:isle-3', 'around:isle-6', 'outward:isle-9'], '0°: 315° came before 45°');
+  assert.deepEqual(ways('isle-9'), ['inward:isle-1', 'around:isle-11', 'around:isle-14', 'outward:isle-17']);
+  assert.deepEqual(ways('isle-24'), ['inward:isle-16', 'around:isle-20', 'around:isle-22'], '90°: 135° came before 45°');
+  for (const island of all) {
+    const near = sky.neighboursOf(island.id, all);
+    assert.ok(near.length <= (island.ring ? 4 : 8), `${island.id} has at most ${island.ring ? 4 : 8} neighbours`);
+    for (const n of near) {
+      const other = all.find(i => i.id === n.id);
+      assert.ok(sky.neighboursOf(n.id, all).some(back => back.id === island.id), `${island.id} and ${n.id} see each other`);
+      if (island.ring && other.ring) assert.ok(sky.degreesApart(island.angle, other.angle) <= 45, `${island.id} and ${n.id} are close`);
+    }
+  }
+  // Only islands that have arrived count, and islands 90° apart never join, even with nothing between them.
+  const four = all.slice(0, 5);
+  assert.deepEqual(sky.neighboursOf('isle-1', four).map(n => n.id), ['home', 'isle-3']);
+  assert.deepEqual(sky.neighbourPairs(four).map(p => `${p.from}-${p.to}`),
+    ['home-isle-1', 'home-isle-2', 'home-isle-3', 'isle-1-isle-3', 'home-isle-4', 'isle-2-isle-4']);
+  assert.equal(sky.neighbourPairs(all).length, 8 + 8 + 8 + 8 + 8 + 8, 'three full rings: 8 spokes and 8 around in each ring');
+  // Joined: a chain of links reaches home, whichever way each link points.
+  const links = [{ from: 'home', to: 'isle-2' }, { from: 'isle-4', to: 'isle-2' }, { from: 'isle-1', to: 'isle-3' }];
+  assert.deepEqual([...sky.joinedSet(four, links)].sort(), ['home', 'isle-2', 'isle-4']);
+  // Arrival rolls: the same island always rolls the same; lifts in steps of 0.05 from -0.5 to 0.5.
+  const rules = R.DEFAULT_RULES, lifts = new Set();
+  for (let n = 1; n <= 200; n++) {
+    const a = sky.arrivalOf('S', n, rules);
+    assert.deepEqual(a, sky.arrivalOf('S', n, rules));
+    assert.deepEqual([a.ring, a.angle], [sky.placeOf(n).ring, sky.placeOf(n).angle]);
+    assert.ok(a.lift >= -0.5 && a.lift <= 0.5 && Math.abs(a.lift * 20 - Math.round(a.lift * 20)) < 1e-9, `lift ${a.lift}`);
+    assert.ok(a.appetite >= 0.7 && a.appetite <= 1.3, `appetite ${a.appetite}`);
+    lifts.add(a.lift);
+  }
+  assert.ok(lifts.size >= 18 && lifts.has(-0.5) && lifts.has(0.5), `lifts spread out: ${lifts.size}`);
+});
+
+test('land points go by appetite and age, and no island passes 85% of home', () => {
+  const rules = R.DEFAULT_RULES;
+  const { state, island } = bareState(rules, 300);
+  island('isle-1', 'large', 40, 'rocky', { appetite: 1.3 });
+  island('isle-2', 'large', 40, 'mossy', { appetite: 0.7 });
+  const land = new Map(state.islands.map(i => [i.id, i.land]));
+  assert.equal(play.shareLand(state.islands, land, 300, rules, 'S:checkin:9'), 300);
+  const [home, one, two] = state.islands.map(i => land.get(i.id) - i.land);
+  // Weights 1.3, 1.3 / 1.3 = 1, 0.7 / 1.6 = 0.44: about 130, 100 and 44 of every 274.
+  assert.ok(home > one && one > two && two > 20, `shares ${home}, ${one}, ${two}`);
+  const again = new Map(state.islands.map(i => [i.id, i.land]));
+  play.shareLand(state.islands, again, 300, rules, 'S:checkin:9');
+  assert.deepEqual([...again], [...land], 'the same check-in shares the same way');
+  // Home is full at 100: the others may grow to 85 and no further, and then the points wait.
+  const small = { ...rules, maxLand: { ...rules.maxLand, home: 100 } };
+  const b = bareState(small, 100);
+  b.island('isle-1', 'large', 84);
+  const capped = new Map(b.state.islands.map(i => [i.id, i.land]));
+  assert.equal(play.shareLand(b.state.islands, capped, 5, small, 'k'), 1);
+  assert.deepEqual([...capped.values()], [100, 85]);
+});
+
+test('rope bridges: one per open neighbour pair, first joining each island, then closing loops', () => {
+  const { state, island, bridge } = bareState();
+  const bp = R.DEFAULT_BLUEPRINTS.find(b => b.id === 'bridge');
+  state.counts.sawmill = 1;
+  assert.equal(play.available(bp, state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS), false, 'home alone has no neighbours');
+  for (const id of ['isle-1', 'isle-2', 'isle-3', 'isle-4']) island(id, 'small', 30);
+  assert.equal(play.available(bp, state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS), true);
+  assert.deepEqual(play.ropeTarget(state, 'k'), { from: 'home', to: 'isle-1' }, 'the earliest island that is not joined');
+  bridge('home', 'isle-1');
+  bridge('home', 'isle-2');
+  // Isle-3 (315°) can join home (inward, weight 2) or isle-1 (around, weight 1).
+  let fromHome = 0;
+  for (let k = 0; k < 600; k++) {
+    const target = play.ropeTarget(state, `k${k}`);
+    assert.equal(target.to, 'isle-3');
+    assert.ok(['home', 'isle-1'].includes(target.from));
+    if (target.from === 'home') fromHome += 1;
+  }
+  assert.ok(fromHome > 340 && fromHome < 460, `about two in three go inward: ${fromHome} of 600`);
+  bridge('isle-1', 'isle-3');
+  bridge('home', 'isle-4');
+  // Everyone is joined, so the next bridges close loops, in table order.
+  assert.deepEqual(play.ropeTarget(state, 'k'), { from: 'home', to: 'isle-3' });
+  bridge('home', 'isle-3');
+  assert.deepEqual(play.ropeTarget(state, 'k'), { from: 'isle-2', to: 'isle-4' });
+  bridge('isle-2', 'isle-4');
+  assert.equal(play.ropeTarget(state, 'k'), null);
+  assert.equal(play.available(bp, state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS), false, 'every pair has a link');
+  assert.deepEqual(state.links[2], { id: 'b3', from: 'isle-1', to: 'isle-3', type: 'rope', checkIn: 7, land: { 'isle-1': 30, 'isle-3': 30 } });
+});
+
+test('a rope bridge option names both islands, and building it saves both ends and their land', () => {
+  const { state, island } = bareState();
+  state.counts.sawmill = 1;
+  island('isle-1', 'small', 30, 'mossy', { name: 'Mossy Hollow' });
+  const offer = play.makeOffer(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, 'S:checkin:3');
+  const option = offer.find(o => o.bp.id === 'bridge');
+  assert.deepEqual(option.link, { from: 'home', to: 'isle-1' });
+  const draft = { number: 3, token: 't', collected: play.empty(), newLand: [], arrivals: [], moments: [], firsts: [], surprise: null,
+    choice: { kind: 'build', options: offer.map(o => ({ blueprint: o.bp.id, island: o.island, price: o.price, ...(o.link ? { link: o.link } : {}) })) } };
+  const env = { rules: R.DEFAULT_RULES, blueprints: R.DEFAULT_BLUEPRINTS, typical: { focusMinutes: 60, breakMinutes: 10 } };
+  const view = play.viewState(state, { grants: [], newestGameSequence: 1 }, { draft, work: state }, env);
+  const shown = view.checkIn.choice.options.find(o => o.blueprint === 'bridge');
+  assert.deepEqual(Object.keys(shown), ['blueprint', 'name', 'kind', 'does', 'price', 'island']);
+  assert.equal(shown.does, 'A rope bridge from Home island to Mossy Hollow.');
+  play.pick({ draft, work: state }, 'bridge', env);
+  assert.deepEqual(draft.built.link, { from: 'home', to: 'isle-1', type: 'rope', land: { home: 40, 'isle-1': 30 } });
+  assert.deepEqual(state.links, [{ id: draft.built.id, from: 'home', to: 'isle-1', type: 'rope', checkIn: 3, land: { home: 40, 'isle-1': 30 } }]);
+});
+
+test('fancy bridge surprises: a new link between open neighbours, else an upgrade, fewer than the islands', () => {
+  const rules = R.DEFAULT_RULES;
+  const { state, island, bridge } = bareState();
+  const surprise = (key, number = 9) => play.fancyBridge(state, { number }, rules, key);
+  assert.equal(surprise('k'), null, 'no islands, no bridges');
+  island('isle-1', 'small', 30, 'mossy', { lift: 0.2 });
+  island('isle-2', 'small', 33, 'rocky', { lift: -0.3 });
+  // Open pairs: home-isle-1 and home-isle-2. A slide needs lifts 0.25 apart: never to isle-1 (0.2 above home).
+  const types = {};
+  for (let k = 0; k < 400; k++) {
+    const { link, text } = surprise(`k${k}`);
+    assert.equal(link.id, 'gift-9');
+    assert.equal(link.from, 'home');
+    assert.deepEqual(link.land, { home: 40, [link.to]: link.to === 'isle-1' ? 30 : 33 });
+    assert.ok(link.type !== 'rope');
+    if (link.type === 'slide') {
+      assert.equal(link.to, 'isle-2');
+      assert.equal(text, 'A water slide now runs from Home island down to isle-2.');
+    }
+    types[link.type] = (types[link.type] || 0) + 1;
+  }
+  assert.deepEqual(Object.keys(types).sort(), ['arch', 'cloudsteps', 'flowerarch', 'rainbow', 'slide']);
+  assert.ok(types.rainbow < types.arch, 'the rainbow is rare');
+  const arch = Array.from({ length: 50 }, (_, k) => surprise(`k${k}`)).find(s => s.link.type === 'arch');
+  assert.equal(arch.text, `Overnight, a stone arch grew between Home island and ${arch.link.to}.`);
+  // Every pair linked by rope: a surprise upgrades one, and only its type changes.
+  bridge('home', 'isle-1');
+  bridge('home', 'isle-2');
+  const up = surprise('u1');
+  assert.ok(['b1', 'b2'].includes(up.upgrade.link) && up.upgrade.type !== 'rope');
+  const before = state.links.find(l => l.id === up.upgrade.link);
+  const look = R.BRIDGE_TYPES[up.upgrade.type];
+  assert.equal(up.text, `The rope bridge to ${before.to} turned into ${look.plural ? look.name : (/^[aeiou]/.test(look.name) ? 'an ' : 'a ') + look.name}.`);
+  const kept = { ...before, land: { ...before.land } };
+  play.applyRecord(state, { number: 9, collected: {}, newLand: [], landProgress: 0, surprise: { id: 'bridge', gifts: {}, island: 'home', upgrade: up.upgrade } }, 9, rules, R.DEFAULT_BLUEPRINTS);
+  assert.deepEqual(state.links.find(l => l.id === up.upgrade.link), { ...kept, type: up.upgrade.type });
+  // Fancy bridges stay fewer than the 2 islands besides home.
+  play.applyRecord(state, { number: 10, collected: {}, newLand: [], landProgress: 0, surprise: { id: 'bridge', gifts: {}, island: 'home',
+    upgrade: { link: state.links.find(l => l.type === 'rope').id, type: 'arch' } } }, 10, rules, R.DEFAULT_BLUEPRINTS);
+  assert.equal(surprise('k'), null, 'two fancy bridges for two islands: the surprise falls back to seeds');
+});
+
+test('the game state shows each island\'s place and lift, and links with their type, check-in and land', () => {
+  const state = sim.simulate('steady', [40])[40];
+  assert.ok(state.islands.length >= 2);
+  for (const island of state.islands) {
+    assert.deepEqual(Object.keys(island), ['id', 'name', 'kind', 'size', 'land', 'golden', 'ring', 'angle', 'lift', 'buildings']);
+  }
+  assert.deepEqual(state.islands.map(i => [i.ring, i.angle]), state.islands.map((_, n) => [sky.placeOf(n).ring, sky.placeOf(n).angle]));
+  assert.equal(state.islands[0].lift, 0);
+  assert.ok(state.links.length >= 1, 'the steady planner has joined its first island by day 40');
+  for (const link of state.links) {
+    assert.deepEqual(Object.keys(link), ['id', 'from', 'to', 'type', 'checkIn', 'land']);
+    assert.deepEqual(Object.keys(link.land).sort(), [link.from, link.to].sort());
+    assert.ok(sky.neighboursOf(link.to, state.islands).some(n => n.id === link.from), `${link.id} joins neighbours`);
+  }
 });

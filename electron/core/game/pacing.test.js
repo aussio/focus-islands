@@ -6,6 +6,7 @@ const R = require('./rules');
 const MD = require('./made-up-days');
 const sim = require('./simulate');
 const { roomProblems, blocksOn } = require('./room-check');
+const sky = require('./sky');
 
 const DAYS = 180;
 const runs = {};
@@ -54,6 +55,27 @@ test('steady planner: by day 180 the islands read as a town, with at least 20 bl
   const count = id => state.islands.reduce((n, island) => n + island.buildings.filter(b => b.blueprint === id).length, 0);
   t.diagnostic(`houses ${count('house')}, rooms ${count('room')}, floors ${count('floor')}`);
   assert.ok(count('room') >= 2 * count('house') && count('floor') >= count('house'), 'houses grow by rooms and floors more than they start');
+});
+
+test('every person: home has the most land on every day', () => {
+  for (const person of MD.PEOPLE) {
+    for (const day of runFor(person.id).timeline) {
+      const [home, ...others] = day.land;
+      assert.ok(others.every(land => land < home), `${person.id} day ${day.day}: land ${day.land.join(', ')}`);
+    }
+  }
+});
+
+test('steady planner: by day 180 islands differ in size, all are joined with a loop, and 2 to 4 bridges are fancy', t => {
+  const state = runFor('steady').states[DAYS];
+  const land = state.islands.slice(1).map(island => island.land);
+  t.diagnostic(`land ${state.islands.map(i => i.land).join(', ')}; links ${state.links.map(l => `${l.from}-${l.to} ${l.type}`).join(', ')}`);
+  assert.ok(land.length >= 2 && Math.max(...land) >= 1.4 * Math.min(...land), `new islands' land: ${land.join(', ')}`);
+  assert.equal(sky.joinedSet(state.islands, state.links).size, state.islands.length, 'every island is joined to home');
+  assert.ok(state.links.length >= state.islands.length, 'at least one loop: more links than a plain chain needs');
+  const fancy = state.links.filter(link => link.type !== 'rope').length;
+  assert.ok(fancy >= 2 && fancy <= 4, `${fancy} fancy bridges`);
+  for (const link of state.links) assert.ok(sky.neighboursOf(link.to, state.islands).some(n => n.id === link.from), `${link.id} joins sky-table neighbours`);
 });
 
 test('vacation pauses the island clock, and skipping breaks piles up materials without taking anything away', () => {
