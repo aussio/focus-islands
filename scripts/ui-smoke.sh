@@ -25,6 +25,14 @@ def call(action, value=None):
 def status(action="status", value=None):
     state = call(action, value)["status"]
     assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"], (action, state["profile"], state["appActive"], state["dockIconActive"])
+    assert not state["activations"], f"The hidden Testing app took keyboard focus during {action!r}: {state['activations']}"
+    return state
+
+def not_in_front(state):
+    # Ask macOS which app is in front, so this does not rely only on the app's own report.
+    front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+    pid = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True, text=True).stdout.split("=")[-1].strip()
+    assert pid != str(state["pid"]), f"macOS reports the hidden Testing app (pid {state['pid']}) as the front app"
     return state
 
 def found(selector):
@@ -36,7 +44,7 @@ def open_settings():
     status("ui-click", "#profile-settings")
     assert call("ui-read", ".page-head h1")["ui"]["value"] == "Settings"
 
-initial = status()
+initial = not_in_front(status())
 assert initial["todaySituation"] == "noPlan"
 assert initial["game"] and initial["game"]["checkIn"] is None and len(initial["game"]["islands"]) == 1
 # Run the day from 9 AM on the Testing clock so the flow works at any real time of day.
@@ -152,7 +160,7 @@ for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("
     print(f"{page} screenshot:", image["screenshot"])
 focus_starts_before_restart = sum(event["kind"] == "focusStarted" for event in call("events")["events"])
 subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
-restored = status()
+restored = not_in_front(status())
 assert restored["phase"] == "focus" and restored["timer"]["sessionID"] == finished["timer"]["sessionID"]
 assert sum(event["kind"] == "focusStarted" for event in call("events")["events"]) == focus_starts_before_restart
 assert restored["focusMinutesToday"] == finished["focusMinutesToday"] and restored["breakMinutesToday"] == 10
@@ -173,5 +181,6 @@ assert any(kind == "reflection" for kind, _ in events)
 assert sum(kind == "gameStarted" for kind, _ in events) == 1
 assert sorted(payload["source"] for kind, payload in events if kind == "gameGranted") == ["focus", "rest"]
 assert sum(kind == "gameCheckedIn" for kind, _ in events) == 1
+not_in_front(status())
 print("PASS isolated Testing loop, screenshots, island slot, focus and break notes, island grants and check-in, reflection, and relaunch")
 PY

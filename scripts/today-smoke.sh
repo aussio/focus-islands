@@ -21,7 +21,15 @@ def status(action="status", value=None):
         args.append(json.dumps(value) if isinstance(value, dict) else str(value))
     result = json.loads(subprocess.run(args, check=True, capture_output=True, text=True).stdout)
     state = result["status"]
-    assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"]
+    assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"], (action, state["appActive"], state["dockIconActive"])
+    assert not state["activations"], f"The hidden Testing app took keyboard focus during {action!r}: {state['activations']}"
+    return state
+
+def not_in_front(state):
+    # Ask macOS which app is in front, so this does not rely only on the app's own report.
+    front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+    pid = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True, text=True).stdout.split("=")[-1].strip()
+    assert pid != str(state["pid"]), f"macOS reports the hidden Testing app (pid {state['pid']}) as the front app"
     return state
 
 def read(selector):
@@ -34,7 +42,7 @@ def found(selector):
 def events():
     return json.loads(subprocess.run([str(control), "events"], check=True, capture_output=True, text=True).stdout)["events"]
 
-assert status()["todaySituation"] == "noPlan"
+assert not_in_front(status())["todaySituation"] == "noPlan"
 now = datetime.now().astimezone()
 morning = now.replace(hour=9, minute=30, second=0, microsecond=0)
 status("wall-jump", (morning - now).total_seconds() / 60)
@@ -89,7 +97,7 @@ assert status("start-focus")["phase"] == "idle"
 assert status("sleep-wake")["phase"] == "idle"
 status("quit")
 subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
-reopened = status()
+reopened = not_in_front(status())
 assert reopened["dayEndedAt"] == ended["dayEndedAt"] and reopened["phase"] == "idle"
 assert reopened["todayReflection"] == saved["todayReflection"]
 status("ui-click", "#edit-today-reflection")
@@ -102,5 +110,6 @@ assert status()["page"] == "plan"
 assert status("wall-jump", 24 * 60)["savedReflection"] == "A good day, with room for a longer walk."
 assert status()["dayEndedAt"] is None
 assert day_grants() == [f"game:grant:day:{ended['todayKey']}"]
+not_in_front(status())
 print("PASS end-day guidance, snooze, island day grant, reflection editing, restart, and next-day reset")
 PY

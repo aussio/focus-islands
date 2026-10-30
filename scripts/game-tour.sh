@@ -40,6 +40,15 @@ def status(action="status", value=None):
     state = call(action, value)["status"]
     assert state["profile"] == "testing", state["profile"]
     assert not state["appActive"], "the Testing window became active"
+    assert not state["dockIconActive"], "the Testing app is showing a Dock icon"
+    assert not state["activations"], f"The hidden Testing app took keyboard focus during {action!r}: {state['activations']}"
+    return state
+
+def not_in_front(state):
+    # Ask macOS which app is in front, so this does not rely only on the app's own report.
+    front = subprocess.run(["lsappinfo", "front"], capture_output=True, text=True).stdout.strip()
+    pid = subprocess.run(["lsappinfo", "info", "-only", "pid", front], capture_output=True, text=True).stdout.split("=")[-1].strip()
+    assert pid != str(state["pid"]), f"macOS reports the hidden Testing app (pid {state['pid']}) as the front app"
     return state
 
 def game():
@@ -80,7 +89,7 @@ def focus_then_break(focus=60, rest=10):
     settle_return()
 
 # 1. A fresh island in focus, on a fresh database.
-status("activity-sample", 0)
+not_in_front(status("activity-sample", 0))
 now = datetime.now().astimezone()
 status("wall-jump", (now.replace(hour=9, minute=30, second=0, microsecond=0) - now).total_seconds() / 60)
 status("start-focus")
@@ -93,7 +102,7 @@ status("quit")
 subprocess.run([str(root / "scripts/run-dev.sh"), "--reset", "--hidden-window"], check=True, capture_output=True, text=True)
 
 # 2. The first check-in card: one focus session and one real break.
-status("activity-sample", 0)
+not_in_front(status("activity-sample", 0))
 status("scenario", "game-first-break")
 settle_return()
 card = game().get("checkIn")
@@ -157,6 +166,7 @@ status("scenario", "game-month")
 settle_return()
 capture("10-month")
 
+not_in_front(status())
 print("\nTour pictures:")
 for path in taken:
     print(path)

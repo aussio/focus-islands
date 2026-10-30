@@ -34,12 +34,21 @@ temporary = directory / f"{request_id}.tmp"
 response = directory / f"{request_id}.response"
 temporary.write_text(json.dumps({"id": request_id, "action": action, "value": value}), encoding="utf-8")
 os.replace(temporary, request)
-deadline = time.monotonic() + 15
+# A gallery-screenshot may ask the app to wait up to 60 seconds for its page; wait that much longer here too.
+extra = value.get("timeout") if action == "gallery-screenshot" and isinstance(value, dict) else None
+extra = min(60, max(0, extra)) if isinstance(extra, (int, float)) and not isinstance(extra, bool) else 0
+deadline = time.monotonic() + 15 + extra
 while time.monotonic() < deadline:
     if response.exists():
         result = json.loads(response.read_text(encoding="utf-8"))
         response.unlink()
         print(json.dumps(result, indent=2, sort_keys=True))
+        activations = (result.get("status") or {}).get("activations") or []
+        if activations:
+            last = activations[-1]
+            print(f"WARNING: this Testing app has taken keyboard focus {len(activations)} time(s) since launch; "
+                  f"last at {last['at']} during {last['duringControlAction'] or 'no control action'}: {last['cause']}.",
+                  file=sys.stderr)
         raise SystemExit(0 if result.get("ok") else 1)
     time.sleep(0.1)
 raise SystemExit("Timed out waiting for the development app. Check the app window or Console logs.")

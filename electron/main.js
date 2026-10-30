@@ -60,13 +60,28 @@ let systemSuspended = false;
 let activityOverrideUntil = 0;
 let activityOverrideSeconds = 0;
 
-app.setName('Cozy Focus Pet');
+app.setName('Focus Islands');
 const userDataPath = development ? path.join(devState, 'electron-user-data') : path.join(support, 'electron-user-data');
 fs.mkdirSync(userDataPath, { recursive: true });
 app.setPath('userData', userDataPath);
 if (!app.requestSingleInstanceLock({ development })) app.quit();
 app.on('second-instance', () => {
-  if (!development) showWindow();
+  if (!development) showWindow('a second launch');
+});
+
+// Development only: every time macOS made this app the active one since launch, so checks see it even when it
+// happened between two status calls. The app asks for this only through showWindow(); anything else came from
+// outside, almost always a click on the Testing window or its menu bar item.
+const activations = [];
+let runningControlAction = null;
+let requestedActivation = null;
+app.on('did-become-active', () => {
+  if (!development) return;
+  const asked = requestedActivation && Date.now() - requestedActivation.at < 3000 ? requestedActivation.cause : null;
+  requestedActivation = null;
+  activations.push({ at: new Date().toISOString(), duringControlAction: runningControlAction,
+    cause: asked || 'not requested by this app: a click on its window or menu bar item, or another app' });
+  if (activations.length > 20) activations.shift();
 });
 
 function appStatus() {
@@ -74,12 +89,13 @@ function appStatus() {
   return {
     ...state,
     activity: state.dayEndedAt ? { ...activity.status(), state: 'inactive', idleSeconds: null } : activity.status(),
-    appActive: Boolean(window?.isFocused()),
+    // The macOS active app, or a window with keyboard focus. Either one means the user's typing can land here.
+    appActive: Boolean(window?.isFocused() || app.isActive?.()),
     dockIconActive: app.dock?.isVisible() ?? false,
     publicationEpoch, publicationNumber,
     developmentMode: development,
     canSwitchProfiles: !development,
-    ...(development ? { lastBreakReminderPreview } : {}),
+    ...(development ? { lastBreakReminderPreview, pid: process.pid, activations: [...activations] } : {}),
   };
 }
 
@@ -124,11 +140,12 @@ function publish() {
   publicationNumber++;
   const state = appStatus();
   if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
-  if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow();
+  if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow('the are-you-back prompt');
   lastReturnPromptSince = state.returnPrompt?.since || null;
   if (tray) {
-    tray.setTitle(`${state.profile === 'testing' ? '🧪' : state.activity.state === 'inactive' ? '😴' : '😊'}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
-    tray.setToolTip(`Cozy Focus Pet · ${state.profile === 'testing' ? 'Testing' : 'Personal'} profile`);
+    showTrayIsland(state.activity.state === 'inactive' ? 'night' : 'day');
+    tray.setTitle(`${state.profile === 'testing' ? ' 🧪' : ''}${state.dayEndedAt ? ' Day done' : state.phase === 'idle' ? '' : ` ${state.breakDue && state.todaySituation !== 'working' ? 'Break due' : state.countdown || ''}`}`);
+    tray.setToolTip(`Focus Islands · ${state.profile === 'testing' ? 'Testing' : 'Personal'} profile`);
   }
   const notice = breakReminder.next(state);
   if (notice) {
@@ -179,7 +196,7 @@ function execute(name, value) {
 
 async function saveUserCopy(name) {
   const { canceled, filePath } = await dialog.showSaveDialog(window, {
-    defaultPath: path.join(os.homedir(), name === 'export-json' ? 'cozy-focus-events.json' : 'cozy-focus-events.sqlite'),
+    defaultPath: path.join(os.homedir(), name === 'export-json' ? 'focus-islands-events.json' : 'focus-islands-events.sqlite'),
   });
   if (canceled) return appStatus();
   if (name === 'export-json') core.exportJSON(filePath);
@@ -187,22 +204,52 @@ async function saveUserCopy(name) {
   return publish();
 }
 
-function showWindow() {
+// Shows the window and makes this the active app, taking the keyboard. Only for a deliberate request.
+function showWindow(cause) {
   if (!window || window.isDestroyed()) return;
+  requestedActivation = { cause, at: Date.now() };
   window.show();
   window.focus();
 }
 
+// Menu bar island: day while you are at the Mac, night while you are away. Colour images, not template
+// images, because the colour is the signal. scripts/make-icon.js draws them at 1x and 2x.
+const trayIslands = {};
+let shownTrayIsland = null;
+function trayIsland(look) {
+  if (!trayIslands[look]) {
+    const image = nativeImage.createEmpty();
+    for (const [scaleFactor, suffix] of [[1, ''], [2, '@2x']]) {
+      image.addRepresentation({ scaleFactor, buffer: fs.readFileSync(path.join(__dirname, 'tray', `island-${look}${suffix}.png`)) });
+    }
+    trayIslands[look] = image;
+  }
+  return trayIslands[look];
+}
+function showTrayIsland(look) {
+  if (look === shownTrayIsland) return;
+  tray.setImage(trayIsland(look));
+  shownTrayIsland = look;
+}
+
 function makeTray() {
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setTitle(activeProfile === 'testing' ? '🧪' : '😊');
-  tray.setToolTip(`Cozy Focus Pet · ${activeProfile === 'testing' ? 'Testing' : 'Personal'} profile`);
-  tray.on('click', () => window.isVisible() ? window.hide() : showWindow());
-  tray.on('right-click', () => tray.popUpContextMenu(Menu.buildFromTemplate([
-    { label: `${appStatus().profile === 'testing' ? 'Testing' : 'Personal'} profile`, enabled: false },
-    { label: 'Open Window', click: showWindow },
-    { label: 'Quit Cozy Focus Pet', click: () => { quitting = true; app.quit(); } },
-  ])));
+  tray = new Tray(trayIsland('day'));
+  shownTrayIsland = 'day';
+  tray.setTitle(activeProfile === 'testing' ? ' 🧪' : '');
+  tray.setToolTip(`Focus Islands · ${activeProfile === 'testing' ? 'Testing' : 'Personal'} profile`);
+  const menu = () => Menu.buildFromTemplate([
+    { label: `${appStatus().profile === 'testing' ? 'Testing' : 'Personal'} profile${development ? ` · ${devInstance}` : ''}`, enabled: false },
+    { label: 'Open Window', click: () => showWindow('Open Window in the menu bar menu') },
+    { label: 'Quit Focus Islands', click: () => { quitting = true; app.quit(); } },
+  ]);
+  // A Testing app's menu bar item only opens its menu on a click. Agents run several Testing apps at once, and
+  // their look-alike items come and go, so a click that showed and focused the window took the user's keyboard.
+  tray.on('click', () => {
+    if (development) tray.popUpContextMenu(menu());
+    else if (window.isVisible()) window.hide();
+    else showWindow('a menu bar click');
+  });
+  tray.on('right-click', () => tray.popUpContextMenu(menu()));
 }
 
 async function driveUI(action, value) {
@@ -263,17 +310,21 @@ async function galleryScreenshot(value) {
   if (!/^[\w-]{0,80}$/.test(hash)) throw new Error('Invalid gallery hash.');
   const size = (number, fallback, max) => Math.round(Math.min(max, Math.max(200, Number(number) || fallback)));
   const width = size(input.width, 1400, 4000), height = size(input.height, 1000, 8000);
+  // Seconds to wait for window.galleryReady. Pages with many worlds can need longer than the usual 12.
+  const seconds = input.timeout === undefined ? 12 : Number(input.timeout);
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 60) throw new Error('The gallery timeout must be 1 to 60 seconds.');
   const page = new BrowserWindow({
     width, height, useContentSize: true, show: false, focusable: false, skipTaskbar: true, frame: false,
-    webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+    // No alert(), confirm() or prompt(): a native dialog from a broken page would make the app active.
+    webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false, disableDialogs: true },
   });
   try {
     page.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     page.webContents.on('will-navigate', event => event.preventDefault());
     await page.loadFile(file, { hash });
-    const deadline = Date.now() + 12000;
+    const deadline = Date.now() + seconds * 1000;
     while (!(await page.webContents.executeJavaScript('window.galleryReady === true'))) {
-      if (Date.now() > deadline) throw new Error('The gallery page did not finish drawing in time.');
+      if (Date.now() > deadline) throw new Error(`The gallery page did not finish drawing within ${seconds} seconds.`);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     await new Promise(resolve => setTimeout(resolve, 150));
@@ -298,6 +349,7 @@ async function processControl() {
     catch { fs.rmSync(requestPath, { force: true }); continue; }
     fs.rmSync(requestPath, { force: true });
     let result;
+    runningControlAction = request.action;
     try {
       if (request.action === 'screenshot') {
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -381,7 +433,7 @@ async function processControl() {
       } else if (request.action === 'quit') {
         result = { ok: true, status: appStatus() };
       } else if (request.action === 'show-window') {
-        showWindow(); result = { ok: true, status: appStatus() };
+        showWindow('the show-window control action'); result = { ok: true, status: appStatus() };
       } else if (request.action === 'close-window') {
         window.hide(); result = { ok: true, status: appStatus() };
       } else {
@@ -389,6 +441,7 @@ async function processControl() {
         result = { ok: true, status: await execute(request.action, request.value) };
       }
     } catch (error) { result = { ok: false, error: String(error.message || error), status: appStatus() }; }
+    runningControlAction = null;
     fs.writeFileSync(path.join(controlDir, `${request.id}.response`), JSON.stringify(result));
     if (request.action === 'quit') { quitting = true; setTimeout(() => app.quit(), 50); }
   }
@@ -401,7 +454,7 @@ app.whenReady().then(() => {
   activity.observe(powerMonitor.getSystemIdleTime());
   window = new BrowserWindow({
     width: 1200, height: 900, minWidth: 790, minHeight: 590, show: false,
-    title: 'Cozy Focus Pet', backgroundColor: '#f4eee4',
+    title: 'Focus Islands', backgroundColor: '#f4eee4',
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   window.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -437,8 +490,12 @@ app.whenReady().then(() => {
   if (controlDir) fs.mkdirSync(controlDir, { recursive: true, mode: 0o700 });
   window.once('ready-to-show', () => {
     if (!process.argv.includes('--hidden-window')) {
-      if (process.argv.includes('--background-window')) window.showInactive();
-      else window.show();
+      if (process.argv.includes('--background-window')) {
+        // showInactive() leaves the keyboard alone but stacks the window above every other app's windows, where the
+        // user's next click lands on it and makes it active. On macOS, blur() moves it behind all of them.
+        window.showInactive();
+        window.blur();
+      } else window.show();
     }
     publish();
   });
