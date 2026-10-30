@@ -24,7 +24,15 @@ function cachedElectronZip(version) {
 async function main() {
   fs.rmSync(source, { recursive: true, force: true });
   fs.mkdirSync(source, { recursive: true });
-  fs.cpSync(path.join(root, 'electron'), path.join(source, 'electron'), { recursive: true });
+  // The renderer's game sources are already bundled into electron/renderer/game.js, and tests never ship.
+  // electron/core/game/ does ship: the main process requires it at runtime.
+  const gameSources = path.join(root, 'electron', 'renderer', 'game');
+  fs.cpSync(path.join(root, 'electron'), path.join(source, 'electron'), {
+    recursive: true,
+    filter: file => file !== gameSources && !file.startsWith(gameSources + path.sep) && !file.endsWith('.test.js'),
+  });
+  if (!fs.existsSync(path.join(source, 'electron', 'renderer', 'game.js'))) throw new Error('Missing electron/renderer/game.js. Run npm run check:source first.');
+  if (!fs.existsSync(path.join(source, 'electron', 'core', 'game', 'index.js'))) throw new Error('Missing electron/core/game/ in the packaged copy.');
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({
     name: manifest.name, version: manifest.version, main: manifest.main,
   }));

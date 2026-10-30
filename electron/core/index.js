@@ -5,17 +5,13 @@ const { openStore, uuid } = require('./store');
 const { Timer } = require('./timer');
 const { suggest, editBlock, project, forecast, sameDay, ms, iso, qualifyingRestSeconds } = require('./planning');
 const { todayGuidance, dayEndGuidance } = require('./guidance');
+const game = require('./game');
 
-const policy = Object.freeze({ version: 1, focusCreditsPerMinute: 1, maximumFocusMinutesPerSession: 25,
-  minimumBreakMinutesForBonus: 3, breakBonus: 10, itemCosts: { plant: 35, cushion: 50, lamp: 75 } });
-const shopItems = Object.freeze([
-  { id: 'plant', name: 'Window plant', cost: 35 },
-  { id: 'cushion', name: 'Soft cushion', cost: 50 },
-  { id: 'lamp', name: 'Reading lamp', cost: 75 },
-]);
-const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'dayEnded', 'reflection', 'itemPurchased', 'itemUnlocked']);
+// Older databases may also hold acorn records (rewardGranted, rewardDebited, itemPurchased).
+// They stay in the ledger untouched, but nothing reads or shows them any more.
+const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'dayEnded', 'reflection']);
 const viewPages = new Set(['today', 'plan', 'history', 'settings']);
-const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', dayEnded: 'Day ended', reflection: 'Reflection saved', itemPurchased: 'Room item unlocked', itemUnlocked: 'Room item unlocked' };
+const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', dayEnded: 'Day ended', reflection: 'Reflection saved' };
 const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):(00|15|30|45)$/.test(value);
 const validStartTime = value => validTime(value) && value >= '07:00' && value <= '20:45';
 const validEndTime = value => validTime(value) && value >= '07:15' && value <= '21:00';
@@ -53,10 +49,13 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   let notificationsEnabled = true, savedReflection = '';
   let dayEndedAt = null, dayEndSnoozedUntil = null;
   let activityDelaySeconds = development ? 5 : 120;
-  let previewFocusCredits = 1, previewBreakBonus = 10;
   let reminderSequence = 0, breakCompleteSequence = 0;
   let forecastCacheKey = '', forecastCache = [];
   let committedCacheKey = '', committedCache = null;
+  // The sky-island game. gameSyncKey is "today:last saved seq" when the game was last brought up to date.
+  let gameStarted = false, gameSyncKey = '', gameFailedKey = '';
+  const planIndex = new Map(), planSummaries = new Map();
+  let planIndexedThrough = 0;
   const supportPath = dbPath.includes('/profiles/testing/') ? dbPath.split('/profiles/testing/')[0] : dirname(dbPath);
   const preferencesPath = join(supportPath, `preferences-${profile}.json`);
   function now() {
@@ -86,12 +85,6 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       latestEventID: latest?.id, revisionCount: Math.max(0, planEvents.length - 1) };
   }
   function sessionPayload(source = timer) { return { sessionID: source.state.sessionID, targetSeconds: source.state.targetSeconds, elapsedSeconds: source.state.elapsedSeconds }; }
-  function grant(reason, id, observedSeconds, targetSeconds, instant) {
-    const amount = reason === 'focus' ? Math.floor(Math.max(0, Math.min(observedSeconds, targetSeconds, policy.maximumFocusMinutesPerSession * 60)) / 60) * policy.focusCreditsPerMinute
-      : observedSeconds >= policy.minimumBreakMinutesForBonus * 60 ? policy.breakBonus : 0;
-    if (amount > 0) append('rewardGranted', { amount, policyVersion: policy.version, sourceID: id, reason },
-      { occurredAt: instant.wall, source: 'system', uniqueKey: `grant:${policy.version}:${reason}:${id}` });
-  }
   function load(onStartup = false) {
     const events = allEvents(), instant = now();
     const key = dayKey(instant.wall);
@@ -109,12 +102,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       const { phase, sessionID, targetSeconds, elapsedSeconds, unknownGapStartedAt } = timer.state;
       const observedAt = new Date(unknownGapStartedAt || instant.wall);
       const payload = { sessionID, targetSeconds, elapsedSeconds, interrupted: true };
-      store.transaction(() => {
-        append(phase === 'focus' ? 'focusEnded' : 'breakEnded', payload,
-          { occurredAt: observedAt, source: 'system' });
-        if (phase === 'focus') grant('focus', sessionID, elapsedSeconds, targetSeconds,
-          { wall: observedAt });
-      });
+      append(phase === 'focus' ? 'focusEnded' : 'breakEnded', payload,
+        { occurredAt: observedAt, source: 'system' });
       timer = new Timer();
       message = 'Your previous day ended. Only recorded session time was kept.';
     } else if (onStartup && timer.state.phase !== 'idle') {
@@ -169,6 +158,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     return bounds;
   }
   let bounds = load(true);
+  syncGame();
   function syncDay() {
     if (sameDay(bounds.start, now().wall)) return;
     bounds = load();
@@ -217,10 +207,12 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     if (events.length) store.transaction(() => { for (const event of events) append(...event); });
     timer = proposed; lastTick = instant; lastCheckpoint = checkpoint;
     reminderSequence += reminderChange; breakCompleteSequence += breakCompleteChange;
-    if (gapPaused) message = 'An unobserved gap was paused, so it did not earn focus credit.';
+    if (gapPaused) message = 'An unobserved gap was paused, so it did not count as focus time.';
     writeLease();
   }
-  function start(phase, target, planDraft) {
+  // reason notes why a focus session began: 'manual', 'suggestion', or 'snooze'.
+  // Focus that starts by itself after a break is written by finishBreak and finishAway as 'afterBreak'.
+  function start(phase, target, planDraft, reason = 'manual') {
     if (dayEndedAt) return;
     if (timer.state.phase !== 'idle' && !(phase === 'break' && timer.state.phase === 'focus')) return;
     const instant = now(), proposed = timer.clone();
@@ -236,12 +228,10 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     store.transaction(() => {
       if (prepared) planEvent = append(prepared.existing.latestEventID ? 'dayPlanRevised' : 'dayPlan', prepared.plan, { occurredAt: instant.wall });
       if (awayStartedAt) append('awayEnded', { reason: 'break started' }, { occurredAt: instant.wall, source: 'inferred' });
-      if (finishedFocus) {
-        append('focusEnded', finishedFocus, { occurredAt: instant.wall });
-        grant('focus', finishedFocus.sessionID, finishedFocus.elapsedSeconds, finishedFocus.targetSeconds, instant);
-      }
-      append(phase === 'focus' ? 'focusStarted' : 'breakStarted',
-        { sessionID: id, targetSeconds: proposed.state.targetSeconds }, { occurredAt: instant.wall });
+      if (finishedFocus) append('focusEnded', finishedFocus, { occurredAt: instant.wall });
+      if (phase === 'focus') append('focusStarted', { sessionID: id, targetSeconds: proposed.state.targetSeconds, reason }, { occurredAt: instant.wall });
+      else append('breakStarted', { sessionID: id, targetSeconds: proposed.state.targetSeconds,
+        ...(finishedFocus ? { followsSessionID: finishedFocus.sessionID } : {}) }, { occurredAt: instant.wall });
     });
     if (prepared) installPlan(prepared, planEvent.id);
     timer = proposed; suspended.clear();
@@ -255,7 +245,6 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     store.transaction(() => {
       if (awayStartedAt) append('awayEnded', { reason: 'focus ended' }, { occurredAt: instant.wall, source: 'inferred' });
       append('focusEnded', { sessionID, targetSeconds, elapsedSeconds }, { occurredAt: instant.wall });
-      grant('focus', sessionID, elapsedSeconds, targetSeconds, instant);
     });
     timer = proposed; awayStartedAt = null; returnCandidateAt = null; returnActivityStartedAt = null;
     suspended.clear(); writeLease();
@@ -275,8 +264,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       if (breakAwayStartedAt) append('awayEnded', { reason: 'break ended' }, { occurredAt: endInstant.wall, source: 'inferred' });
       if (confirm) append('breakConfirmed', payload, { occurredAt: endInstant.wall });
       append('breakEnded', payload, { occurredAt: endInstant.wall });
-      if (confirm) grant('break', sessionID, elapsedSeconds, targetSeconds, endInstant);
-      if (focusID) append('focusStarted', { sessionID: focusID, targetSeconds: proposed.state.targetSeconds }, { occurredAt: endInstant.wall });
+      if (focusID) append('focusStarted', { sessionID: focusID, targetSeconds: proposed.state.targetSeconds, reason: 'afterBreak' }, { occurredAt: endInstant.wall });
     });
     timer = proposed; suspended.clear();
     breakAwayStartedAt = null; breakElapsedAtAway = 0; returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
@@ -294,7 +282,6 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       if (phase !== 'idle') {
         if (phase === 'break') append('breakConfirmed', payload, { occurredAt: instant.wall });
         append(phase === 'focus' ? 'focusEnded' : 'breakEnded', payload, { occurredAt: instant.wall });
-        grant(phase, sessionID, elapsedSeconds, targetSeconds, instant);
       }
       append('dayEnded', { dayKey: dayKey(instant.wall) }, { occurredAt: instant.wall });
     });
@@ -423,10 +410,10 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       const nextID = proposed.start('focus', focusLength * 60, returnInstant);
       proposed.advance(instant);
       store.transaction(() => {
-        append('awayEnded', { reason }, { occurredAt: returnedAt, source: 'inferred' });
+        append('awayEnded', { reason, countedAsBreak: true, restSeconds: awaySeconds, targetSeconds: breakLength * 60,
+          followsSessionID: sessionID }, { occurredAt: returnedAt, source: 'inferred' });
         append('focusEnded', { sessionID, targetSeconds, elapsedSeconds }, { occurredAt: awayStartedAt, source: 'system' });
-        grant('focus', sessionID, elapsedSeconds, targetSeconds, { wall: awayStartedAt });
-        append('focusStarted', { sessionID: nextID, targetSeconds: proposed.state.targetSeconds }, { occurredAt: returnedAt, source: 'system' });
+        append('focusStarted', { sessionID: nextID, targetSeconds: proposed.state.targetSeconds, reason: 'afterBreak' }, { occurredAt: returnedAt, source: 'system' });
       });
       timer = proposed;
       suspended.clear();
@@ -448,9 +435,158 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     awayStartedAt = null;
     lastCheckpoint = instant.wall.getTime();
   }
+  // ---- The sky-island game. The rules in ./game are pure: the core gives them its clock (including
+  // development offsets), local days, and saved plans, and writes the records they return.
+
+  // Keeps the latest saved plan event for each local day. Events are append-only, so only rows newer
+  // than the last one indexed are looked at. Never call this with rows from an open transaction.
+  function indexPlans(events) {
+    let i = events.length;
+    while (i > 0 && events[i - 1].sequence > planIndexedThrough) i--;
+    for (; i < events.length; i++) {
+      const event = events[i];
+      if (!['dayPlan', 'dayPlanRevision', 'dayPlanRevised'].includes(event.kind) || !event.payload) continue;
+      const day = event.payload.dayKey || (Number.isNaN(Date.parse(event.payload.day)) ? null : dayKey(new Date(event.payload.day)));
+      if (day) planIndex.set(day, event);
+    }
+    if (events.length) planIndexedThrough = Math.max(planIndexedThrough, events[events.length - 1].sequence);
+  }
+  // { focusSessions, focusMinutes, breakMinutes } for a day's current plan; focusSessions counts the
+  // planned focus blocks, worked out the same way as Today's planned timeline.
+  function planSummary(key) {
+    const event = planIndex.get(key);
+    if (!event) return null;
+    if (!planSummaries.has(event.id)) {
+      const plan = { ...event.payload, dayKey: key };
+      // Today's latest plan already has its blocks worked out (suggest takes about 20 ms).
+      const blocks = event.id === latestPlanEventID && key === dayKey(now().wall) && Array.isArray(plannedBlocks) ? plannedBlocks : suggest(plan);
+      planSummaries.set(event.id, { focusSessions: blocks.filter(block => block.kind === 'focus').length,
+        focusMinutes: Number(plan.focusMinutes) || 0, breakMinutes: Number(plan.breakMinutes) || 0 });
+    }
+    return planSummaries.get(event.id);
+  }
+  // withDefaults: for the page only, a day without a saved plan uses today's default lengths, so
+  // "next up" talks about the user's usual session. Grants use saved plans only.
+  function gameContext(instant, withDefaults = false) {
+    const todayKey = dayKey(instant.wall);
+    return { now: instant.wall.toISOString(), todayKey, dayKeyOf: value => dayKey(new Date(value)),
+      planFor: key => planSummary(key) || (withDefaults && key === todayKey
+        ? { focusSessions: 0, focusMinutes: defaultFocusLength, breakMinutes: defaultBreakLength } : null) };
+  }
+  function writeGameRecords(records, source = 'system') {
+    store.transaction(() => {
+      for (const record of records) {
+        if (store.hasUniqueKey(record.uniqueKey)) continue;
+        append(record.kind, record.payload, { occurredAt: record.occurredAt, source, uniqueKey: record.uniqueKey });
+      }
+    });
+  }
+  // Starts the game once per database, then writes every grant that is due, together in one transaction.
+  // Runs after every action and tick (and so after the day changes) and at startup. It does nothing when
+  // neither the saved history nor the day changed. A failure is logged once and tried again after the
+  // next change; the timer keeps working.
+  function syncGame() {
+    const instant = now(), key = `${dayKey(instant.wall)}:${store.lastSequence()}`;
+    if (key === gameSyncKey || key === gameFailedKey) return;
+    try {
+      if (!gameStarted && !store.hasUniqueKey('game:started')) writeGameRecords([game.startRecord(gameContext(instant))]);
+      gameStarted = true;
+      const events = allEvents();
+      indexPlans(events);
+      const due = game.dueGrants(events, gameContext(instant));
+      if (due.length) writeGameRecords(due);
+      gameSyncKey = `${dayKey(instant.wall)}:${store.lastSequence()}`;
+      gameFailedKey = '';
+    } catch (error) {
+      if (gameFailedKey !== key) console.error('Could not save island records; trying again after the next change:', error);
+      gameFailedKey = key;
+    }
+  }
+  // One tap on the check-in card: { token, pick }. pick is a job or blueprint id from the card, or null
+  // to collect without choosing. Returns true when a check-in was saved. A card the rules refuse shows
+  // their message instead; a second tap on a card that was already saved changes nothing.
+  function checkIn(value) {
+    const input = value && typeof value === 'object' ? value : {};
+    const token = typeof input.token === 'string' ? input.token : null, pick = input.pick ?? null;
+    syncGame();
+    const events = allEvents();
+    if (token && events.findLast(event => event.kind === 'gameCheckedIn')?.payload?.token === token) return false;
+    indexPlans(events);
+    let record;
+    try { record = game.checkInRecord(events, gameContext(now()), { token, pick }); }
+    catch (error) {
+      if (error?.constructor === Error) message = error.message;
+      else { console.error('Island check-in failed:', error); message = 'The island could not save that. Please try again.'; }
+      return false;
+    }
+    if (store.hasUniqueKey(record.uniqueKey)) return false;
+    writeGameRecords([record], 'user');
+    message = '';
+    return true;
+  }
+
+  // Development scenarios for the island tour. They press the same paths as the buttons, move the
+  // Testing clock like the advance action, and bring the game up to date after every step as the app does.
+  function devAdvance(minutes) { clockOffset += minutes * 60000; lastTick = now(); tick(); }
+  function scenarioStep(work) { work(); syncGame(); }
+  function scenarioNextMorning() {
+    if (timer.state.phase !== 'idle') scenarioStep(endDay);
+    const wall = now().wall, morning = new Date(wall.getFullYear(), wall.getMonth(), wall.getDate() + 1, 9, 0, 0, 0);
+    scenarioStep(() => devAdvance((morning - wall) / 60000));
+  }
+  // Taps a waiting check-in card, choosing its first option. Collects without choosing if the rules refuse it.
+  function scenarioCheckIn() {
+    const events = allEvents();
+    indexPlans(events);
+    const card = game.gameState(events, gameContext(now()))?.checkIn;
+    if (!card) return 0;
+    const option = card.choice?.options?.[0];
+    const pick = option ? option.job ?? option.blueprint ?? null : null;
+    return checkIn({ token: card.token, pick }) || (pick !== null && checkIn({ token: card.token, pick: null })) ? 1 : 0;
+  }
+  // A steady day: start Today's suggested focus at 9 AM, follow the plan's focus blocks with real breaks,
+  // tap each check-in after a break, end the day, and tap the end-of-day check-in.
+  function scenarioDay(tapCheckIns = true) {
+    let taps = 0;
+    scenarioStep(() => start('focus', focusLength * 60, undefined, 'suggestion'));
+    const sessions = Math.max(1, plannedBlocks.filter(block => block.kind === 'focus').length);
+    for (let session = 1; session <= sessions; session++) {
+      scenarioStep(() => devAdvance(focusLength));
+      if (session === sessions) break;
+      scenarioStep(() => start('break', breakLength * 60));
+      scenarioStep(() => devAdvance(breakLength));
+      scenarioStep(() => finishBreak());
+      if (tapCheckIns) taps += scenarioCheckIn();
+    }
+    scenarioStep(endDay);
+    if (tapCheckIns) taps += scenarioCheckIn();
+    return taps;
+  }
+  function gameScenario(name) {
+    if (name === 'game-first-break') {
+      if (allEvents().some(event => event.kind === 'gameGranted' || event.kind === 'gameCheckedIn')) {
+        throw new Error('This scenario needs a fresh island. Start the app with scripts/run-dev.sh --reset first.');
+      }
+      scenarioNextMorning();
+      scenarioStep(() => start('focus', focusLength * 60, undefined, 'suggestion'));
+      scenarioStep(() => devAdvance(focusLength));
+      scenarioStep(() => start('break', breakLength * 60));
+      scenarioStep(() => devAdvance(breakLength));
+      scenarioStep(() => finishBreak());
+      message = 'One focus session and one real break are done. The first check-in is waiting.';
+    } else {
+      const days = name === 'game-week' ? 7 : 30;
+      let taps = 0;
+      for (let day = 0; day < days; day++) { scenarioNextMorning(); taps += scenarioDay(); }
+      scenarioNextMorning();
+      message = `${days} steady days played, with ${taps} check-ins.`;
+    }
+    page = 'today';
+  }
+
   function committedView(instant) {
     const todayKey = dayKey(instant.wall);
-    const key = `${todayKey}:${store.lastSequence()}:${previewFocusCredits}:${previewBreakBonus}:${bounds.start}:${bounds.end}:${defaultFocusLength}:${defaultBreakLength}`;
+    const key = `${todayKey}:${store.lastSequence()}:${bounds.start}:${bounds.end}:${defaultFocusLength}:${defaultBreakLength}`;
     if (key === committedCacheKey) return committedCache;
     const events = allEvents();
     const today = project(events, instant.wall, false);
@@ -461,32 +597,24 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       timeline: suggest({ ...bounds, focusMinutes: defaultFocusLength, breakMinutes: defaultBreakLength, meetings: [] }) };
     const tomorrowBlocks = tomorrowPlanState.current ? suggest(tomorrowPlanState.current) : [];
     const actual = today.actual.sort((a, b) => ms(a.start) - ms(b.start));
-    const balance = events.filter(event => ['rewardGranted', 'rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
-    const todayRewardEntries = events.filter(event => event.kind === 'rewardGranted'
-      && sameDay(event.occurredAt, instant.wall) && Number(event.payload?.amount) > 0)
-      .map(event => ({ id: event.id, amount: Number(event.payload.amount),
-        activity: event.payload.reason === 'focus' ? 'Focus session'
-          : event.payload.reason === 'break' ? 'Completed break' : 'Other activity',
-        occurredAt: event.occurredAt })).reverse();
-    const todayAcornsEarned = todayRewardEntries.reduce((sum, entry) => sum + entry.amount, 0);
-    const unlocked = [...new Set(events.filter(event => ['itemPurchased', 'itemUnlocked'].includes(event.kind)).map(event => event.payload?.itemID).filter(Boolean))].sort();
     const history = events.filter(item => sameDay(item.occurredAt, instant.wall) && eventKinds.has(item.kind)).reverse().map(item => ({
       id: item.id,
       title: item.payload?.interrupted ? (item.kind === 'focusEnded' ? 'Focus stopped when app closed' : 'Break stopped when app closed') : historyTitles[item.kind],
       date: item.occurredAt, kind: item.kind,
     }));
+    let gameView = null;
+    try { indexPlans(events); gameView = game.gameState(events, gameContext(instant, true)); }
+    catch (error) { console.error('Could not work out the island state:', error); }
     committedCacheKey = key;
     committedCache = { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState, defaultDayPath,
-      tomorrowBlocks, actual, balance, todayAcornsEarned, todayRewardEntries,
-      unlocked, history, rebalancePreview: rebalance(events) };
+      tomorrowBlocks, actual, history, gameView };
     return committedCache;
   }
   function status() {
     syncDay();
     const instant = now();
     const { events, today, yesterday, todayKey, tomorrowKey, todayPlanState, tomorrowPlanState, defaultDayPath,
-      tomorrowBlocks, actual, balance, todayAcornsEarned, todayRewardEntries,
-      unlocked, history, rebalancePreview } = committedView(instant);
+      tomorrowBlocks, actual, history, gameView } = committedView(instant);
     const plan = currentPlan, blocks = plannedBlocks;
     const liveAwayEnd = returnActivityStartedAt || instant.wall;
     const liveAwaySeconds = awayStartedAt ? Math.max(0, (liveAwayEnd - awayStartedAt) / 1000) : 0;
@@ -557,44 +685,37 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         activeSeconds: returnActivityStartedAt ? Math.max(0, (instant.wall - returnActivityStartedAt) / 1000) : 0,
         autoEndAfterSeconds: RETURN_ACTIVITY_SECONDS,
         kind: awayStartedAt ? 'inferred' : 'started' } : null,
-      balance, todayAcornsEarned, todayRewardEntries,
       focusMinutesToday: currentMinutes, workingMinutesToday: Math.floor(workingMs / 60000), breakMinutesToday: breakMinutes, focusLength, breakLength,
       defaultFocusLength, defaultBreakLength, defaultStartTime, defaultEndTime,
       dayStart: plan?.start || bounds.start, dayEnd: plan?.end || bounds.end,
       todayKey, tomorrowKey, dayPlans: { [todayKey]: todayPlanState,
         [tomorrowKey]: { ...tomorrowPlanState, suggestedTimeline: tomorrowBlocks } },
-      savedReflection, unlockedItems: unlocked, statusMessage: message,
+      savedReflection, statusMessage: message,
       plan, defaultDayPath, plannedTimeline: blocks, forecastTimeline: forecastCache, forecastRevision: forecastCacheKey,
       actualTimeline: liveFocus ? [...actualWithLiveAway, liveFocus] : actualWithLiveAway,
       yesterdayTimeline: yesterday.actual, yesterdayFocusMinutes: Math.floor(yesterday.focusSeconds / 60),
       yesterdayBreakMinutes: Math.floor(yesterday.breakSeconds / 60), guidance: guide, history,
-      events, policy, shopItems, notificationsEnabled, activityDelaySeconds, previewFocusCredits, previewBreakBonus, rebalancePreview,
+      events, notificationsEnabled, activityDelaySeconds, game: gameView,
       todayGuidance: guide, canSwitchProfiles: !development, developmentMode: development };
   }
-  function rebalance(events) {
-    const confirmed = new Set(events.filter(event => event.kind === 'breakConfirmed').map(event => event.payload?.sessionID));
-    const focus = new Set(), breaks = new Set(); let credits = 0;
-    for (const event of events) {
-      const payload = event.payload;
-      if (event.kind === 'focusEnded' && payload?.sessionID && !focus.has(payload.sessionID)) {
-        focus.add(payload.sessionID); credits += Math.floor(Math.max(0, Math.min(payload.elapsedSeconds || 0, payload.targetSeconds, 1500)) / 60) * previewFocusCredits;
-      } else if (event.kind === 'breakEnded' && payload?.sessionID && confirmed.has(payload.sessionID) && !breaks.has(payload.sessionID)) {
-        breaks.add(payload.sessionID); credits += (payload.elapsedSeconds || 0) >= 180 ? previewBreakBonus : 0;
-      }
-    }
-    const adjustments = events.filter(event => ['rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
-    const currentBalance = events.filter(event => ['rewardGranted', 'rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
-    return { currentBalance, projectedBalance: credits + adjustments, focusSessions: focus.size, confirmedBreaks: breaks.size };
-  }
+  // Runs one command, then writes any game records it made due (also after a failed command, since
+  // some commands save in steps), then returns the status. A tick returns nothing.
   function action(name, value) {
     if (!development && ['advance', 'wall-jump', 'away', 'return', 'sleep-wake', 'scenario', 'dev-scenario',
       'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'day-time'].includes(name)) {
       throw new Error('Development action unavailable.');
     }
+    let showStatus;
+    try { showStatus = perform(name, value); }
+    finally { syncGame(); }
+    return showStatus ? status() : undefined;
+  }
+  // Returns true when the caller should get a fresh status.
+  function perform(name, value) {
     syncDay();
-    if (dayEndedAt && ['away', 'return', 'sleep-wake', 'sleep', 'wake', 'lock', 'unlock', 'dev-away', 'dev-return', 'dev-sleep-wake', 'confirm-return'].includes(name)) return status();
+    if (dayEndedAt && ['away', 'return', 'sleep-wake', 'sleep', 'wake', 'lock', 'unlock', 'dev-away', 'dev-return', 'dev-sleep-wake', 'confirm-return'].includes(name)) return true;
     switch (name) {
-      case 'tick': tick(Number(value) || 0); return;
+      case 'tick': tick(Number(value) || 0); return false;
       case 'navigate': page = viewPages.has(String(value)) ? String(value) : 'today'; break;
       case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft); break;
       case 'end-day': endDay(); break;
@@ -626,7 +747,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
           timer = proposed;
           message = `Break moved ${minutes} minutes later.`;
         } else if (timer.state.phase === 'idle' && status().guidance.situation === 'rest') {
-          start('focus', minutes * 60);
+          start('focus', minutes * 60, undefined, 'snooze');
           message = `Focus started for ${minutes} minutes. Then take a break.`;
         }
         break;
@@ -645,7 +766,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
       case 'today-suggestion': {
         const proposed = status().guidance.action;
-        if (proposed?.type === 'focus') start('focus', Math.max(1, (ms(proposed.until) - now().wall) / 1000));
+        if (proposed?.type === 'focus') start('focus', Math.max(1, (ms(proposed.until) - now().wall) / 1000), undefined, 'suggestion');
         else if (proposed?.type === 'rest') start('break', breakLength * 60);
         else if (proposed?.type === 'endDay') endDay();
         else if (proposed?.type === 'editPlan') page = 'plan';
@@ -653,6 +774,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
       case 'today-break': start('break', breakLength * 60); break;
       case 'save-plan': savePlan(value); break;
+      case 'game-check-in': checkIn(value); break;
       case 'flush-plan': break;
       case 'upsert-meeting': case 'meeting-window': case 'revise-meeting': {
         const meeting = typeof value === 'object' ? value : {};
@@ -716,14 +838,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         message = 'Preferences saved.'; break;
       }
       case 'switch-profile': throw new Error('Profile switching requires a new database path from the main process.');
-      case 'purchase': {
-        const itemID = typeof value === 'string' ? value : value?.id || value?.itemID;
-        const cost = policy.itemCosts[itemID];
-        if (cost && store.purchase(itemID, cost, now().wall)) message = `${itemID[0].toUpperCase() + itemID.slice(1)} unlocked.`;
-        break;
-      }
-      case 'preview-rewards': previewFocusCredits = Number(value?.focusCreditsPerMinute ?? previewFocusCredits); previewBreakBonus = Number(value?.breakBonus ?? previewBreakBonus); break;
-      case 'advance': clockOffset += Number(value?.minutes ?? value ?? 0) * 60000; lastTick = now(); tick(); break;
+      case 'advance': devAdvance(Number(value?.minutes ?? value ?? 0)); break;
       case 'wall-jump': wallOffset += Number(value?.minutes ?? value ?? 0) * 60000; tick(); break;
       case 'away': beginAway('development'); break;
       case 'return': beginReturn(); break;
@@ -742,18 +857,19 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
       case 'unlock': resume('locked'); break;
       case 'scenario': case 'dev-scenario': {
-        if (value === 'morning') { page = 'plan'; action('upsert-meeting', { title: 'Team check-in', start: new Date(new Date().setHours(10, 30, 0, 0)).toISOString(), duration: 30 }); }
-        if (value === 'break-due' || value === 'breakDue') { if (timer.state.phase === 'break') finishBreak(false); if (timer.state.phase === 'focus') endFocus(); start('focus', focusLength * 60); action('advance', focusLength); page = 'today'; }
-        if (value === 'completed-day' || value === 'completedDay') { if (timer.state.phase === 'focus') endFocus(); if (timer.state.phase === 'break') finishBreak(false); start('focus', focusLength * 60); action('advance', focusLength); start('break', breakLength * 60); action('advance', breakLength); finishBreak(false); page = 'history'; }
+        if (['game-first-break', 'game-week', 'game-month'].includes(value)) gameScenario(value);
+        if (value === 'morning') { page = 'plan'; perform('upsert-meeting', { title: 'Team check-in', start: new Date(new Date().setHours(10, 30, 0, 0)).toISOString(), duration: 30 }); }
+        if (value === 'break-due' || value === 'breakDue') { if (timer.state.phase === 'break') finishBreak(false); if (timer.state.phase === 'focus') endFocus(); start('focus', focusLength * 60); perform('advance', focusLength); page = 'today'; }
+        if (value === 'completed-day' || value === 'completedDay') { if (timer.state.phase === 'focus') endFocus(); if (timer.state.phase === 'break') finishBreak(false); start('focus', focusLength * 60); perform('advance', focusLength); start('break', breakLength * 60); perform('advance', breakLength); finishBreak(false); page = 'history'; }
         break;
       }
-      case 'dev-advance': return action('advance', value);
-      case 'dev-away': return action('away');
-      case 'dev-return': return action('return');
-      case 'dev-sleep-wake': return action('sleep-wake');
+      case 'dev-advance': return perform('advance', value);
+      case 'dev-away': return perform('away');
+      case 'dev-return': return perform('return');
+      case 'dev-sleep-wake': return perform('sleep-wake');
       default: throw new Error(`Unknown action: ${name}`);
     }
-    return status();
+    return true;
   }
   function exportJSON(path) {
     const items = allEvents().map(event => ({ sequence: event.sequence, id: event.id, kind: event.kind,
@@ -788,4 +904,4 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   return { status, action, exportJSON, backup, close };
 }
 
-module.exports = { createCore, policy };
+module.exports = { createCore };

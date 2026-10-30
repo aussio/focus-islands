@@ -1,6 +1,6 @@
 # Game build plan
 
-The plan for building the sky-island game for real. [NOTES.md](NOTES.md) has the design. The prototypes it draws on are on the branch `prototype/sky-island-game`. This is a draft until the user answers "Decisions needed" at the bottom; the defaults shown there are the plan until then.
+The plan for building the sky-island game for real. [NOTES.md](NOTES.md) has the design. The prototypes it draws on are on the branch `prototype/sky-island-game`. The user's decisions are at the bottom.
 
 ## How the pieces fit
 
@@ -16,18 +16,58 @@ The scene is built as a second script, `game.js`, next to `app.js`, because pack
 
 ## New saved records
 
-Game records are new kinds, so they never mix with acorn totals (the acorn balance adds up every `rewardGranted`). Each carries the rules version inside it. Its unique key names only its source, for example `game:grant:wood:<sessionID>`, so a rules change can't grant twice.
+Game records are new kinds, separate from the old acorn `rewardGranted` records. Each carries `rulesVersion` inside it. Its unique key names only its source, so a rules change can't grant twice.
 
-- `gameStarted`: the line after which history counts. Only one ever exists.
-- `gameGranted`: one resource from one finished focus session, break, or day. After each saved change, the core writes any grant that's due and missing. Once written, the amount never changes, so new numbers never rewrite the past.
-- `gameOfferShown`: the 2 or 3 blueprints shown at a check-in. Saving it means a later rules change can't alter a past offer.
-- `gameChosen`: the blueprint picked from one offer.
-- `gameHelperAssigned`: a new helper's job.
-- `gameCheckedIn`: what was collected and celebrated.
+- `gameStarted` (key `game:started`): the line after which history counts, in saved order. Only one ever exists. The core writes it the first time it opens a database without one. It also stores the starting land and supplies, so a rules change can't rewrite the start.
+- `gameGranted`: what one finished focus session, one rest, or one whole day earned, as `{ rulesVersion, source: 'focus' | 'rest' | 'day', sourceID, dayKey, amounts: { wood, stone, ... }, restMinutes }`. Keys: `game:grant:focus:<sessionID>`, `game:grant:rest:<sessionID or away id>`, `game:grant:day:<dayKey>`. After each saved change, the core writes any grant that's due and missing. Once written, the amount never changes, so new numbers never rewrite the past.
+- `gameCheckedIn` (key `game:checkin:<number>`): one tap on the check-in card. It stores everything that happened: what was collected, new land, arrivals, the surprise, firsts, and the choice made (or none). The game state is these records added up, plus the next check-in worked out from grants since the last one. A rules change only affects check-ins that haven't happened yet. The card carries a `token`; a tap with an old token is refused, so a card that changed underneath can't pick the wrong thing.
 
-Two small additions to existing records, from now on: a break notes which focus session it follows, and a focus session notes why it started (a suggestion, after a break, after a snooze). Starlight needs both.
+A rest is a confirmed break (`breakConfirmed` + `breakEnded`), or time away during focus that the core counted as a break (from now on, its `awayEnded` notes `countedAsBreak`, `restSeconds`, and `targetSeconds`). Two small additions to existing records, from now on: `breakStarted` and a counted `awayEnded` note `followsSessionID` (the focus session just before), and `focusStarted` notes `reason` (`suggestion`, `afterBreak`, `snooze`, `manual`). Starlight needs both. Older records without them fall back to "the last focus session before it in saved order".
 
-The page gets a small `game` summary (a change number and whether a check-in is waiting) in the once-a-second status. It asks for the full world only when the change number moves.
+The page gets the game state as `status.game` in the once-a-second status. The core works it out only when the saved history changes, from the events it already read.
+
+## Shapes passed between the pieces
+
+**Game state** (rules → page). Amounts can have fractions; the page shows whole numbers.
+
+```js
+{
+  rulesVersion, change,                 // change: saved order of the newest game record
+  onHand: { wood, stone, planks, soil, saplings, starlight },
+  waiting: { ... },                     // earned since the last check-in
+  islands: [{ id, name, kind, size, land, golden,   // kind: home | mossy | rocky | meadow | crystal | misty
+    buildings: [{ id, blueprint, name, landWhenBuilt, checkIn }] }],
+  links: [{ id, from, to }],            // rope bridges between island ids
+  helpers: [{ id, name, job, island }], // job: wood | stone | planks | soil | saplings | null
+  wonders: [blueprint ids],
+  checkIn: null | { number, token, collected, newLand: [{ island, amount }],
+    arrivals: [text], moments: [text], surprise: text | null, nextUp: text | null,
+    choice: null
+      | { kind: 'job', helper, helperName, options: [{ job, name, doing }] }
+      | { kind: 'build', options: [{ blueprint, name, kind, does, price, island }] } },
+  lastCheckIn: null | { number, moments, built, job },  // what the last tap did, so the page can show it
+  nextUp: text | null, activeDays, checkIns,
+}
+```
+
+`land` is the island's number of building spots. The home island starts with 4. Buildings are listed in the order they were built, and `landWhenBuilt` lets the layout replay growth so nothing already placed moves.
+
+**World** (layout → scene). One shared square grid for all islands.
+
+```js
+{
+  islands: [{ id, kind, origin: [c, r], rows: ['..ggpg..', ...], heights }],  // '.' sky, 'g' grass, 'p' path
+  things: [{ id, kind, island, c, r, w, h, facing }],  // c, r: top-left cell on the shared grid; facing 0 south (toward camera), 1 east, 2 north, 3 west
+  bridges: [{ id, from: [c, r], to: [c, r] }],         // two coast cells on one row or column
+  helpers: [{ id, name, job, island }],
+}
+```
+
+Thing kinds, their sizes, and which job works at each live in `electron/renderer/game/kinds.js`. Layout and scene both read it. A thing kind is a blueprint id or a natural kind (tree, rock, bush, flower, pile, fire, seat, mushroom, crystal).
+
+**Scene** (`electron/renderer/game/scene/`): `createIslandScene(host)` returns `{ setWorld(world), setMood(mood), capture(), dispose() }`. Mood is `focus`, `break`, `away`, or `done`. `capture()` resolves after a fresh frame is drawn. It stops drawing when the page is hidden or the host is off screen, and puts helpers back at their starting spots when it's shown again.
+
+**Page glue** (`electron/renderer/game/index.js`, built as `electron/renderer/game.js`): sets `window.cozyGame = { mount(host), show({ game, mood }), capture() }`. It runs the layout and hands the world to the scene.
 
 ## Stages
 
@@ -38,8 +78,9 @@ Each stage is done when:
 - the screenshots have been shared with the user
 
 1. **The tiny island on Today.** This is the thinnest path through every piece.
+   - Remove the placeholders: acorns, the shop, and the pixel garden (see the decisions below). Update the core tests and `ui-smoke.sh` checks that expect acorns.
    - Add the `gameStarted` record, and rules that return the starting island: one tree, one rock, one helper.
-   - Build one-island layout, and the scene in style D in place of the pixel garden. Focus and break change only the light and sky.
+   - Build one-island layout, and the scene in style D where the pixel garden was. Focus and break change only the light and sky.
    - Make the live timer update in place, so the canvas survives Today's once-a-second refresh. This also fixes clicks that get lost when a refresh lands mid-click.
    - Pause drawing while the window is hidden. When it's shown again, put the helpers back at their starting spots.
    - Have the screenshot command ask the scene for a fresh frame before it captures.
@@ -48,7 +89,6 @@ Each stage is done when:
 2. **Earning and check-ins.** Focus earns wood and stone, and breaks earn soil and saplings on the 10/20-minute curve.
    - Grants are saved as sessions close, and they appear on the island only at a check-in.
    - Add the check-in card, and the "next up" line when there's nothing to choose.
-   - Acorns stop being earned (see the decisions below).
    - Add a long-run test that feeds months of made-up days through the real rules and checks the pacing targets:
      - about 3 choices on day 1
      - the first new island around active day 9
@@ -86,11 +126,20 @@ Each stage is done when:
   - Mark the canvas as hidden from screen readers, and respect the reduce-motion setting.
   - Handle the drawing context being lost and restored.
 
-## Decisions needed
+## Decisions made (by the user)
 
-These are the plan's current defaults. The user can change them.
-
-1. **Acorns.** The game replaces them. Acorns stop being earned once the game starts. The acorn counter on Today and the reward preview in Settings go away; the counter also breaks the "no score on screen" rule. Old acorn records stay in the history. The shop already has no screen.
-2. **Old history.** The game starts fresh on the day it's turned on, so the island starts tiny. Past weeks don't count.
-3. **Where it shows.** It replaces the pixel garden on Today.
-4. **Check-in timing.** The check-in is ready when you come back from a break, rather than the moment focus ends. Ending focus is exactly when you should be stepping away, and break growth is only known once the break is over. It waits on Today until you open the window. Collecting is one tap on a small card, because that tap is the "cash in" moment.
+1. **Acorns go.** They were a placeholder. Remove acorn earning, the shop, the acorn counter on Today, the acorn total in History, and the reward preview in Settings. Previously earned acorns are thrown away and don't carry over. Their old records stay in the saved history, because records are never deleted, but nothing reads or shows them.
+2. **Fresh start.** The game starts on the day it's turned on, so the island starts tiny. Past weeks don't count.
+3. **The island replaces the pixel garden on Today.** Delete the placeholder garden (`garden-scene.js` and its styles).
+4. **Anything that interrupts waits until you're back from a break.** That includes the check-in, choices, and celebrations. Ending focus is exactly when you should be stepping away, and break growth is only known once the break is over. The check-in waits on Today until you open the window. Collecting is one tap on a small card, because that tap is the "cash in" moment.
+5. **The islands become a Townscaper-style town.**
+   - **Grid:** each island gets its own uneven grid, made from triangles joined into four-sided cells. It is seeded from the island id and sized for the island's largest size, so growth only fills more cells.
+   - **Houses:** houses grow block by block and join their neighbours.
+   - **Special buildings:** the sawmill, windmill, wonders and the rest sit on small flat pads.
+   - **Paths:** joined lanes, not stepping stones.
+   - **Change stays local:** only pieces right next to a change reshape, and nothing farther away moves.
+   - **Settled by two look prototypes** on the branch `prototype/town-grid`:
+     - `bent/`: square grid, bent drawing, joined paths;
+     - `wonky/`: the full town, with a growth film from day 1 to day 180.
+   - **Next step:** this replaces the square-grid layout and ground drawing built in stages 1 to 5.
+6. **The view follows the action.** It frames the island where helpers are busiest, close enough to see them, with other islands peeking in at the edges. It moves only at a check-in, and slowly.

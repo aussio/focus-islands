@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '..');
 const files = [
   'electron/main.js', 'electron/preload.js', 'electron/core/index.js',
   'electron/renderer/index.html', 'electron/renderer/app.js', 'electron/renderer/app-source.js',
+  'electron/renderer/game.js', 'electron/renderer/game/index.js',
   'electron/renderer/break-reminder-effect.html', 'electron/renderer/break-reminder-effect.js',
   'electron/renderer/alarm-clock.svg',
   'electron/renderer/state.js', 'scripts/build-renderer.js',

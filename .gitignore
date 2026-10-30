@@ -4,3 +4,4 @@ NativeHost/__pycache__/
 __pycache__/
 node_modules/
 electron/renderer/app.js
+electron/renderer/game.js

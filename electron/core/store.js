@@ -91,9 +91,24 @@ function openStore(path) {
     (id, kind, schema_version, occurred_at, recorded_at, timezone, source, payload, unique_key)
     VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`);
   const select = db.prepare('SELECT * FROM events ORDER BY seq');
+  const selectAfter = db.prepare('SELECT * FROM events WHERE seq > ? ORDER BY seq');
   const selectLastSequence = db.prepare('SELECT COALESCE(MAX(seq), 0) AS sequence FROM events');
-  const allEvents = () => select.all().map(rowEvent);
+  const selectUniqueKey = db.prepare('SELECT 1 AS found FROM events WHERE unique_key = ?');
+  // Events are append-only, so the store keeps every row it has read and asks SQLite only for rows
+  // with a higher seq. Callers get a copy of the array; the event objects are shared and must not be changed.
+  // Rows read inside an open transaction are not kept, because a rollback would leave them behind.
+  const cache = [];
+  let cachedThrough = null, inTransaction = false;
+  function allEvents() {
+    const fresh = (cachedThrough === null ? select.all() : selectAfter.all(cachedThrough)).map(rowEvent);
+    if (inTransaction) return cache.concat(fresh);
+    for (const event of fresh) cache.push(event);
+    if (fresh.length) cachedThrough = fresh[fresh.length - 1].sequence;
+    return cache.slice();
+  }
+  const readAllEvents = () => select.all().map(rowEvent);
   const lastSequence = () => selectLastSequence.get().sequence;
+  const hasUniqueKey = key => Boolean(selectUniqueKey.get(key));
   const settingsRow = db.prepare('SELECT focus_minutes, break_minutes, notifications_enabled, start_time, end_time, activity_delay_seconds FROM settings WHERE id = 1');
   const updateSettings = db.prepare(`INSERT INTO settings (id, focus_minutes, break_minutes, notifications_enabled, start_time, end_time, activity_delay_seconds)
     VALUES (1, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET
@@ -115,8 +130,10 @@ function openStore(path) {
   }
   function transaction(work) {
     db.exec('BEGIN IMMEDIATE');
+    inTransaction = true;
     try { const result = work(); db.exec('COMMIT'); return result; }
     catch (error) { db.exec('ROLLBACK'); throw error; }
+    finally { inTransaction = false; }
   }
   function append(kind, payload = {}, { occurredAt = new Date(), source = 'user', uniqueKey = null } = {}) {
     const id = uuid();
@@ -132,22 +149,7 @@ function openStore(path) {
       throw error;
     }
   }
-  function purchase(itemID, cost, occurredAt = new Date()) {
-    if (!itemID || !(cost > 0)) throw new Error('Purchase item and cost must be valid.');
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const events = allEvents();
-      const unlocked = new Set(events.filter(event => ['itemPurchased', 'itemUnlocked'].includes(event.kind)).map(event => event.payload?.itemID));
-      const balance = events.filter(event => ['rewardGranted', 'rewardDebited', 'rewardAdjusted'].includes(event.kind)).reduce((sum, event) => sum + (event.payload?.amount || 0), 0);
-      if (unlocked.has(itemID) || balance < cost) { db.exec('ROLLBACK'); return false; }
-      const purchaseID = uuid();
-      append('rewardDebited', { amount: -cost, policyVersion: 1, sourceID: purchaseID, reason: `purchase:${itemID}` }, { occurredAt, uniqueKey: `purchase:${purchaseID}:debit` });
-      append('itemPurchased', { itemID, cost, purchaseID }, { occurredAt, uniqueKey: `purchase:${purchaseID}:unlock` });
-      db.exec('COMMIT');
-      return true;
-    } catch (error) { db.exec('ROLLBACK'); throw error; }
-  }
-  return { db, allEvents, lastSequence, append, purchase, getSettings, saveSettings, transaction, close: () => db.close() };
+  return { db, allEvents, readAllEvents, lastSequence, hasUniqueKey, append, getSettings, saveSettings, transaction, close: () => db.close() };
 }
 
 module.exports = { openStore, uuid, encodePayload, decodePayload, LEGACY_EPOCH };

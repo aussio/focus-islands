@@ -8,6 +8,7 @@ REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +24,16 @@ def status(action="status", value=None):
     assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"]
     return state
 
+def read(selector):
+    return json.loads(subprocess.run([str(control), "ui-read", selector], check=True, capture_output=True, text=True).stdout)["ui"]["value"]
+
+def found(selector):
+    result = subprocess.run([str(control), "ui-read", selector], capture_output=True, text=True)
+    return json.loads(result.stdout)["ok"] if result.stdout else False
+
+def events():
+    return json.loads(subprocess.run([str(control), "events"], check=True, capture_output=True, text=True).stdout)["events"]
+
 assert status()["todaySituation"] == "noPlan"
 now = datetime.now().astimezone()
 morning = now.replace(hour=9, minute=30, second=0, microsecond=0)
@@ -33,6 +44,17 @@ planned = status("save-plan", {"start": start, "end": end, "focusMinutes": 25, "
 assert planned["plannedTimeline"] and planned["todaySituation"] == "focus"
 started = status("today-suggestion")
 assert started["phase"] == "focus"
+assert [event["payload"].get("reason") for event in events() if event["kind"] == "focusStarted"] == ["suggestion"]
+# Today must not rebuild its page every second during focus: the full-render count stays flat,
+# while the countdown keeps moving in place and the day path redraws at most once a minute.
+time.sleep(1.5)
+renders, path_draws, countdown = read("#dev-render-count"), int(read("#dev-day-path-draw-count")), read("#timer-countdown")
+time.sleep(10)
+assert read("#dev-render-count") == renders, ("Today was rebuilt during focus", renders, read("#dev-render-count"))
+assert int(read("#dev-day-path-draw-count")) - path_draws <= 1
+assert read("#timer-countdown") != countdown
+assert found('.today-stage > #today-island[data-mood]')
+print(f"PASS Today kept its page through 10 seconds of focus ({renders} full renders before and after)")
 target = started["timerTargetSeconds"]
 assert 0 < target <= 25 * 60
 changed = status("rhythm", {"focusMinutes": 40, "breakMinutes": 10})
@@ -56,6 +78,10 @@ result = json.loads(subprocess.run([str(control), "screenshot"], check=True, cap
 print("End-day prompt screenshot:", result["screenshot"])
 ended = status("ui-click", "#end-day")
 assert ended["phase"] == "idle" and ended["dayEndedAt"] and ended["returnPrompt"] is None
+assert ended["game"]["checkIn"], "ending the day brings an island check-in"
+day_grants = lambda: [event["uniqueKey"] for event in events() if (event.get("uniqueKey") or "").startswith("game:grant:day:")]
+assert day_grants() == [f"game:grant:day:{ended['todayKey']}"]
+assert found('#today-island[data-mood="done"]')
 status("ui-fill", {"selector": "#today-reflection-input", "text": "A good day. More time outside tomorrow."})
 saved = status("ui-click", "#save-today-reflection")
 assert saved["todayReflection"] == "A good day. More time outside tomorrow."
@@ -75,5 +101,6 @@ status("ui-click", "#plan-tomorrow")
 assert status()["page"] == "plan"
 assert status("wall-jump", 24 * 60)["savedReflection"] == "A good day, with room for a longer walk."
 assert status()["dayEndedAt"] is None
-print("PASS end-day guidance, snooze, reflection editing, restart, and next-day reset")
+assert day_grants() == [f"game:grant:day:{ended['todayKey']}"]
+print("PASS end-day guidance, snooze, island day grant, reflection editing, restart, and next-day reset")
 PY

@@ -1,6 +1,6 @@
 # Game notes
 
-Notes for the game side of Cozy Focus Pet: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. No game code exists on `main` yet. Today's acorns and three-item shop live in `electron/core/index.js`.
+Notes for the game side of Cozy Focus Pet: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. No game code exists on `main` yet. Today's acorns, shop, and pixel garden are placeholders that the game replaces, starting fresh with nothing carried over.
 
 ## Prototypes (kept on a separate branch)
 
@@ -26,7 +26,8 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 
 **Check-ins:**
 
-- A check-in happens when a focus session ends. You collect what the helpers made and, if you can afford something, pick 1 of 2 or 3 blueprints. The aim is about 10 seconds.
+- A check-in is ready when you come back from a break. Anything that interrupts you waits until then, never at the moment focus ends. It waits on Today until you open the window.
+- You collect with one tap what the helpers made and, if you can afford something, pick 1 of 2 or 3 blueprints. The aim is about 10 seconds.
 - Many check-ins have nothing to decide yet because you haven't earned enough. Then you just collect.
 - Start with this and watch whether it distracts. Make it smaller if it does.
 
@@ -83,7 +84,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - No game notifications, and nothing is lost while you're away.
 - No score on screen.
 
-**Pacing defaults** (chosen by Claude using the pacing prototype on the prototype branch; adjust freely). The exact starting numbers are in `DEFAULT_RULES`, plus the building, wonder, island-kind, and surprise lists next to it, in that prototype's file:
+**Pacing defaults** (chosen by Claude using the pacing prototype on the prototype branch; adjust freely). The exact numbers and the building, wonder, island-kind, and surprise lists are in `electron/core/game/rules.js`, and `electron/core/game/pacing.test.js` checks the targets below over months of made-up days:
 
 - New islands follow "active days": days with at least one focus session and one real break. Vacations pause the clock, and long days don't speed it up. Timing by time spent rewarded overwork, and timing by plain calendar days handed out islands during vacations.
 - Each break counts fully for its first 10 minutes and at half value up to 20 minutes, so one long lunch can't stand in for a day of breaks.
@@ -104,7 +105,6 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 
 - The setting and characters: sky islands with little helpers, or something else.
 - How Starlight is measured from the plan.
-- Whether collecting at a check-in is one tap or fully automatic.
 - What decorating and personalizing looks like (colors, set decoration spots, names, outfits).
 
 ## Patterns to follow

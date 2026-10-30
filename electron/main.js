@@ -36,8 +36,8 @@ let activeProfile = initialProfile;
 const rendererActions = new Set([
   'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'snooze-break',
   'skip-break', 'end-day', 'snooze-end-day', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
-  'save-preferences', 'switch-profile', 'purchase', 'preview-rewards',
-  'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database',
+  'save-preferences', 'switch-profile',
+  'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database', 'game-check-in',
   'dev-scenario', 'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake',
 ]);
 
@@ -252,6 +252,40 @@ async function driveUI(action, value) {
   return outcome;
 }
 
+// Development only: draws a page built into this checkout's .build/ folder (such as the sky-island
+// gallery) in a window that is never shown, waits for window.galleryReady, and saves a picture of it.
+async function galleryScreenshot(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  const buildDir = path.join(repository, '.build');
+  const file = typeof input.file === 'string' ? fs.realpathSync(path.resolve(repository, input.file)) : '';
+  if (!file.startsWith(buildDir + path.sep) || !file.endsWith('.html')) throw new Error('The gallery page must be an .html file inside .build/.');
+  const hash = typeof input.hash === 'string' ? input.hash.replace(/^#/, '') : '';
+  if (!/^[\w-]{0,80}$/.test(hash)) throw new Error('Invalid gallery hash.');
+  const size = (number, fallback, max) => Math.round(Math.min(max, Math.max(200, Number(number) || fallback)));
+  const width = size(input.width, 1400, 4000), height = size(input.height, 1000, 8000);
+  const page = new BrowserWindow({
+    width, height, useContentSize: true, show: false, focusable: false, skipTaskbar: true, frame: false,
+    webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
+  });
+  try {
+    page.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    page.webContents.on('will-navigate', event => event.preventDefault());
+    await page.loadFile(file, { hash });
+    const deadline = Date.now() + 12000;
+    while (!(await page.webContents.executeJavaScript('window.galleryReady === true'))) {
+      if (Date.now() > deadline) throw new Error('The gallery page did not finish drawing in time.');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const image = await page.webContents.capturePage();
+    const screenshot = path.join(devState, `gallery-${hash || 'index'}-${Date.now()}.png`);
+    fs.writeFileSync(screenshot, image.toPNG());
+    return screenshot;
+  } finally {
+    if (!page.isDestroyed()) page.destroy();
+  }
+}
+
 async function processControl() {
   if (!controlDir) return;
   let names;
@@ -267,11 +301,18 @@ async function processControl() {
     try {
       if (request.action === 'screenshot') {
         await new Promise(resolve => setTimeout(resolve, 200));
+        // Ask the sky island for one fresh frame first, since a covered or hidden window may not be drawing.
+        // A missing scene, an error, or a slow answer just means the picture is taken without it.
+        const islandDrew = await Promise.race([
+          window.webContents.executeJavaScript('Promise.resolve(window.cozyGame?.capture?.()).then(drew => drew === true, () => false)')
+            .catch(() => false),
+          new Promise(resolve => setTimeout(() => resolve(false), 1500)),
+        ]);
         const image = await window.webContents.capturePage();
         const screenshot = path.join(devState, `screenshot-${Date.now()}.png`);
         fs.writeFileSync(screenshot, image.toPNG());
         const renderedPage = await window.webContents.executeJavaScript('document.querySelector("h1")?.textContent || document.querySelector("#today-guidance")?.textContent || ""');
-        result = { ok: true, screenshot, renderedPage, status: appStatus() };
+        result = { ok: true, screenshot, renderedPage, islandDrew, status: appStatus() };
       } else if (request.action === 'confetti-screenshot' || request.action === 'clock-screenshot') {
         const effect = request.action === 'clock-screenshot' ? 'clock' : 'confetti';
         const displayCount = showReminderEffect(effect);
@@ -282,6 +323,8 @@ async function processControl() {
         const screenshot = path.join(devState, `${effect}-${Date.now()}.png`);
         fs.writeFileSync(screenshot, image.toPNG());
         result = { ok: true, screenshot, displayCount, status: appStatus() };
+      } else if (request.action === 'gallery-screenshot') {
+        result = { ok: true, screenshot: await galleryScreenshot(request.value), status: appStatus() };
       } else if (request.action === 'status') {
         result = { ok: true, status: appStatus() };
       } else if (request.action === 'activity-sample') {

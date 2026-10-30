@@ -27,6 +27,10 @@ def status(action="status", value=None):
     assert state["profile"] == "testing" and not state["appActive"] and not state["dockIconActive"], (action, state["profile"], state["appActive"], state["dockIconActive"])
     return state
 
+def found(selector):
+    result = subprocess.run([str(control), "ui-read", selector], capture_output=True, text=True)
+    return json.loads(result.stdout)["ok"] if result.stdout else False
+
 def open_settings():
     status("ui-click", "#profile-badge summary")
     status("ui-click", "#profile-settings")
@@ -34,11 +38,17 @@ def open_settings():
 
 initial = status()
 assert initial["todaySituation"] == "noPlan"
+assert initial["game"] and initial["game"]["checkIn"] is None and len(initial["game"]["islands"]) == 1
+# Run the day from 9 AM on the Testing clock so the flow works at any real time of day.
+now = datetime.now().astimezone()
+status("wall-jump", (now.replace(hour=9, minute=0, second=0, microsecond=0) - now).total_seconds() / 60)
 assert initial["defaultFocusLength"] == 60 and initial["defaultBreakLength"] == 10
 assert initial["defaultStartTime"] == "09:00" and initial["defaultEndTime"] == "17:00"
 assert "Away in" not in call("ui-read", ".today-stage-copy")["ui"]["value"]
 assert "Settings" not in call("ui-read", "#navigation")["ui"]["value"]
 assert "Room" not in call("ui-read", "#navigation")["ui"]["value"]
+assert not found("#today-acorns") and not found(".today-garden")
+assert found('#today-island[aria-hidden="true"][data-mood]')
 assert "Use Testing" not in call("ui-read", "#profile-badge")["ui"]["value"]
 open_settings()
 assert call("ui-read", "#data-profile")["ui"]["value"] == "testing"
@@ -104,7 +114,7 @@ status("navigate", "today")
 today_image = call("screenshot")
 assert today_image["renderedPage"] == today_image["status"]["todayGuidance"]["title"]
 print("Today screenshot:", today_image["screenshot"])
-status("start-focus")
+first_focus = status("start-focus")
 stability = call("input-stability")
 assert stability["ok"] and stability["preserved"] and stability["afterBlur"] and stability["saved"] and stability["status"]["phase"] == "focus" and not stability["status"]["appActive"]
 due = status("advance", 60)
@@ -122,14 +132,23 @@ finished = status("finish-break")
 assert finished["phase"] == "focus" and finished["timerTargetSeconds"] == finished["focusLength"] * 60
 assert finished["focusMinutesToday"] >= 75 and finished["breakMinutesToday"] == 10
 assert [(item["start"], item["end"]) for item in finished["forecastTimeline"] if item["kind"] == "meeting"] == meeting_slots
+card = finished["game"]["checkIn"]
+assert card and card["number"] == 1 and card["choice"]["kind"] == "job", card
+job = card["choice"]["options"][0]["job"]
+collected = status("game-check-in", {"token": card["token"], "pick": job})
+assert collected["game"]["checkIn"] is None and collected["game"]["checkIns"] == 1 and collected["game"]["helpers"][0]["job"] == job
+assert status("game-check-in", {"token": card["token"], "pick": job})["game"]["checkIns"] == 1
 status("ui-click", "#nav-today")
-assert "+35 today" in call("ui-read", "#today-acorns summary")["ui"]["value"]
+assert not found("#today-acorns")
+assert found(".today-stage > #today-island")
 for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("settings", "Settings")):
     if page == "settings": open_settings()
     else: status("ui-click", f"#nav-{page}")
     assert heading in call("ui-read", ".page-head h1")["ui"]["value"]
     image = call("screenshot")
     assert image["renderedPage"] == heading, (page, image["renderedPage"])
+    if page == "history": assert "Acorns" not in call("ui-read", ".page")["ui"]["value"]
+    if page == "settings": assert "Reward preview" not in call("ui-read", ".page")["ui"]["value"] and not found("#preview-focus")
     print(f"{page} screenshot:", image["screenshot"])
 focus_starts_before_restart = sum(event["kind"] == "focusStarted" for event in call("events")["events"])
 subprocess.run([str(root / "scripts/run-dev.sh"), "--hidden-window"], check=True, capture_output=True, text=True)
@@ -139,6 +158,7 @@ assert sum(event["kind"] == "focusStarted" for event in call("events")["events"]
 assert restored["focusMinutesToday"] == finished["focusMinutesToday"] and restored["breakMinutesToday"] == 10
 assert restored["savedReflection"] == "A pause helped yesterday."
 assert restored["dayPlans"][restored["todayKey"]]["current"]["meetings"]
+assert restored["game"]["checkIns"] == 1 and restored["game"]["helpers"][0]["job"] == job
 
 instance = os.environ.get("COZY_FOCUS_INSTANCE", "default")
 state = root / ".build/dev-state" if instance == "default" else root / ".build/dev-instances" / instance
@@ -146,7 +166,12 @@ with sqlite3.connect(state / "events.sqlite") as database:
     events = [(kind, json.loads(payload)) for kind, payload in database.execute("SELECT kind, payload FROM events ORDER BY seq")]
 assert sum(kind == "dayPlan" for kind, _ in events) == 2
 assert sum(kind == "dayPlanRevised" for kind, _ in events) >= 1
-assert sum(kind == "rewardGranted" for kind, _ in events) == 2
+assert not any(kind in ("rewardGranted", "rewardDebited", "itemPurchased") for kind, _ in events)
+assert [payload.get("reason") for kind, payload in events if kind == "focusStarted"] == ["manual", "afterBreak"]
+assert [payload.get("followsSessionID") for kind, payload in events if kind == "breakStarted"] == [first_focus["timer"]["sessionID"]]
 assert any(kind == "reflection" for kind, _ in events)
-print("PASS isolated Testing loop, screenshots, rewards, reflection, and relaunch")
+assert sum(kind == "gameStarted" for kind, _ in events) == 1
+assert sorted(payload["source"] for kind, payload in events if kind == "gameGranted") == ["focus", "rest"]
+assert sum(kind == "gameCheckedIn" for kind, _ in events) == 1
+print("PASS isolated Testing loop, screenshots, island slot, focus and break notes, island grants and check-in, reflection, and relaunch")
 PY

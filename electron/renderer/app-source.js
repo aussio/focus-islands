@@ -1,5 +1,4 @@
 import { dayPath } from './day-path.js';
-import { gardenScene } from './garden-scene.js';
 import { appStore } from './state.js';
 
 const pages = [
@@ -13,6 +12,26 @@ let planSaveInFlight = false;
 let settingsSavePending = false;
 let settingsSaveFeedback = null;
 let timeDrag = null;
+// What Today last drew. A full render happens only when the page shell changes;
+// the countdown, Up next, day path, and presence badge update in place.
+let todayShell = null, todayUpNextMarkup = null, todayPathKey = null;
+let fullRenderCount = 0, dayPathDrawCount = 0;
+// One island slot lives for the whole window. Each Today render moves it into the new page,
+// so a canvas mounted inside it survives re-renders and is never rebuilt.
+const islandSlot = document.createElement('div');
+islandSlot.className = 'today-island';
+islandSlot.id = 'today-island';
+islandSlot.setAttribute('aria-hidden', 'true');
+// The sky island scene (game.js) mounts inside the slot once. If it is missing or fails, the slot keeps its CSS sky.
+try { window.cozyGame?.mount(islandSlot); } catch (error) { console.error('Sky island could not mount:', error); }
+let islandShownKey = null;
+// The check-in card (or, after a tap, one short note) sits over the island. It lives for the whole window too,
+// and is redrawn only when its card token (or the last check-in) changes, so it stays put through the
+// once-a-second status. Unlike the island, it is read by screen readers.
+const checkInSlot = document.createElement('div');
+checkInSlot.className = 'today-check-in';
+checkInSlot.id = 'today-check-in';
+let checkInKey = null;
 const activityMeterSetting = 'cozy-focus-show-activity-meter';
 const showActivityMeter = () => localStorage.getItem(activityMeterSetting) === 'true';
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -59,21 +78,167 @@ function acceptStatus(next, previous) {
   if (status === before) return;
   const changing = new Set(['countdown', 'displaySeconds', 'currentWallTime', 'currentWallTimeISO',
     'todayProposedSeconds', 'timer', 'events', 'appActive', 'activity', 'reminderSequence', 'breakCompleteSequence',
-    'publicationEpoch', 'publicationNumber', 'returnPrompt']);
-  if (state().page !== 'today') {
-    for (const key of ['guidance', 'todayGuidance', 'todaySituation', 'todayTitle']) changing.add(key);
-  }
+    'publicationEpoch', 'publicationNumber', 'returnPrompt', 'guidance', 'todayGuidance', 'todaySituation', 'todayTitle']);
   const stable = snapshot => JSON.stringify(Object.fromEntries(Object.entries(snapshot).filter(([key]) => !changing.has(key))));
   const editing = state().dirtyInputs.size > 0 || document.activeElement?.matches('input, textarea, select, [contenteditable]');
   if (before.page !== status.page || before.profile !== status.profile || before.todayKey !== status.todayKey || !editing) state().deferRender(false);
   else if (editing) state().deferRender(true);
   if (before.returnPrompt?.since !== status.returnPrompt?.since && !state().renderDeferred) render();
-  else if (stable(before) === stable(status) || state().renderDeferred) {
-    const timer = document.getElementById('timer-countdown');
-    if (timer) timer.textContent = shownCountdown(status);
-  } else render();
+  else if (state().renderDeferred) updateTodayLive(status);
+  else if (showingToday()) {
+    if (today() !== todayShell) render();
+    else updateTodayLive(status);
+  } else if (stable(before) !== stable(status)) render();
+  else updateTodayLive(status);
   updatePresenceDisplay();
   updateDayPathTime(status);
+}
+function showingToday() {
+  return !{ plan, history, settings }[state().page];
+}
+// The day path redraws only when this minute-rounded view of it changes: at most once a minute, or when
+// its blocks change. The marker, time label, and the two minute totals update in place every second.
+// Block times are rounded too, because each forecast recalculation can shift them by a millisecond.
+const toMinute = value => { const time = date(value).getTime(); return Number.isFinite(time) ? new Date(Math.round(time / 60000) * 60000).toISOString() : value; };
+const minuteBlocks = blocks => blocks?.map(block => ({ ...block, start: toMinute(block.start), end: toMinute(block.end) }));
+function dayPathDrawing(status) {
+  const minute = Math.floor(Number(status.currentWallTime) / 60) * 60;
+  return dayPath({ ...status, workingMinutesToday: 0, breakMinutesToday: 0,
+    ...(Number.isFinite(minute) ? { currentWallTime: minute, currentWallTimeISO: new Date(minute * 1000).toISOString() } : {}),
+    forecastTimeline: minuteBlocks(status.forecastTimeline), plannedTimeline: minuteBlocks(status.plannedTimeline),
+    defaultDayPath: status.defaultDayPath && { ...status.defaultDayPath, timeline: minuteBlocks(status.defaultDayPath.timeline) } });
+}
+function updateTodayLive(status) {
+  const timer = document.getElementById('timer-countdown');
+  if (timer) timer.textContent = shownCountdown(status);
+  const upNextSlot = document.querySelector('[data-up-next-slot]');
+  if (upNextSlot) {
+    const markup = todayUpNext(status);
+    if (markup !== todayUpNextMarkup) { upNextSlot.innerHTML = markup; todayUpNextMarkup = markup; }
+  }
+  const pathSlot = document.querySelector('[data-day-path-slot]');
+  const scrubbing = timeDrag || pathSlot?.querySelector('#dev-time-slider')?.dataset.scrubbing === 'true';
+  if (pathSlot && !scrubbing) {
+    const key = dayPathDrawing(status);
+    if (key !== todayPathKey) {
+      pathSlot.innerHTML = dayPath(status);
+      todayPathKey = key;
+      dayPathDrawCount++;
+      showRenderCounts();
+    }
+    const [working, resting] = pathSlot.querySelectorAll('.path-totals b');
+    if (working) working.textContent = String(status.workingMinutesToday || 0);
+    if (resting) resting.textContent = String(status.breakMinutesToday || 0);
+  }
+  updateCheckIn(status);
+}
+// ---- Sky island check-in. Amounts can have fractions; the page shows whole numbers and hides zeros.
+const resourceLabels = { wood: ['wood', 'wood'], stone: ['stone', 'stone'], planks: ['plank', 'planks'],
+  soil: ['soil', 'soil'], saplings: ['sapling', 'saplings'], starlight: ['Starlight', 'Starlight'] };
+function amountList(values) {
+  const keys = [...Object.keys(resourceLabels), ...Object.keys(values || {}).filter(key => !resourceLabels[key])];
+  return keys.map(key => [key, Math.round(Number(values?.[key]) || 0)]).filter(([, amount]) => amount > 0)
+    .map(([key, amount]) => { const [one, many] = resourceLabels[key] || [key, key]; return `${amount} ${amount === 1 ? one : many}`; });
+}
+const sentence = text => { const value = String(text ?? '').trim(); return value.charAt(0).toUpperCase() + value.slice(1); };
+const listWords = items => items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
+function checkInCard(status) {
+  const game = status.game, card = game.checkIn, choice = card.choice;
+  const islands = game.islands || [];
+  const islandName = id => islands.find(island => island.id === id)?.name || 'The island';
+  const brought = amountList(card.collected);
+  const notes = [
+    ...(card.newLand || []).filter(grown => Math.round(grown.amount) > 0).map(grown => {
+      const spots = Math.round(grown.amount);
+      return `${islandName(grown.island)} grew, with room for ${spots} more building${spots === 1 ? '' : 's'}.`;
+    }),
+    ...(card.arrivals || []), ...(card.moments || []), ...(card.surprise ? [card.surprise] : []),
+  ].filter(Boolean);
+  const pick = (value, label, inner) => `<button class="check-in-option" type="button" data-check-in-pick="${html(value)}" aria-label="${html(label)}">${inner}</button>`;
+  let ask = '', options = '';
+  if (choice?.kind === 'job') {
+    const helper = choice.helperName || 'your helper';
+    ask = `Pick a job for ${helper}`;
+    options = choice.options.map(option => pick(option.job, `Make ${helper} a ${option.name}: ${option.doing}.`,
+      `<strong>${html(option.name)}</strong><span>${html(sentence(option.doing))}</span>`)).join('');
+  } else if (choice?.kind === 'build') {
+    // With more than one island, say where it goes: once in the question when every option shares an island.
+    const places = new Set(choice.options.map(option => option.island));
+    const shared = islands.length > 1 && places.size === 1 && choice.options[0]?.island ? islandName(choice.options[0].island) : '';
+    ask = shared ? `Pick something to build on ${shared}` : 'Pick something to build';
+    options = choice.options.map(option => {
+      const price = amountList(option.price);
+      const where = islands.length > 1 && option.island ? islandName(option.island) : '';
+      const shownWhere = shared ? '' : where;
+      const label = `Build ${option.name}${where ? ` on ${where}` : ''}. ${option.does || ''} ${price.length ? `Costs ${listWords(price)}.` : ''}`;
+      return pick(option.blueprint, label.replace(/\s+/g, ' ').trim(),
+        `<strong>${html(option.name)}</strong>${option.does ? `<span>${html(option.does)}</span>` : ''}${shownWhere ? `<span class="check-in-where">On ${html(shownWhere)}</span>` : ''}${price.length ? `<small>${price.map(item => `<span class="check-in-price">${html(item)}</span>`).join(' · ')}</small>` : ''}`);
+    }).join('');
+  }
+  const heading = status.dayEndedAt ? 'End of the day' : 'Back from your break';
+  const choosing = Boolean(options);
+  return `<section class="check-in-card" data-token="${html(card.token)}" aria-labelledby="check-in-title">
+    <h3 id="check-in-title">${heading}</h3>
+    ${brought.length ? `<p class="check-in-brought">Your helpers brought ${brought.map(item => { const [amount, ...label] = item.split(' '); return `<span class="check-in-amount"><b>${html(amount)}</b> ${html(label.join(' '))}</span>`; }).join('<span class="check-in-dot" aria-hidden="true"> · </span>')}</p>` : ''}
+    ${notes.length ? `<ul class="check-in-notes">${notes.map(note => `<li>${html(note)}</li>`).join('')}</ul>` : ''}
+    ${choosing ? `<div class="check-in-ask"><span id="check-in-ask">${html(ask)}</span><button class="check-in-skip" type="button" data-check-in-pick="" id="check-in-skip">Just collect</button></div>
+      <div class="check-in-options" role="group" aria-labelledby="check-in-ask">${options}</div>`
+    : `<div class="check-in-collect">${card.nextUp ? `<p>${html(card.nextUp)}</p>` : '<p></p>'}<button class="button primary" type="button" data-check-in-pick="" id="check-in-collect">Collect</button></div>`}
+  </section>`;
+}
+// After a tap: what the last check-in did, as one gentle line that stays until the next check-in.
+function checkInNote(game) {
+  const last = game?.lastCheckIn;
+  if (!last) return '';
+  const islands = game.islands || [];
+  const where = last.built && islands.length > 1 ? islands.find(island => island.id === last.built.island)?.name : '';
+  const parts = [...(last.built ? [`Built: ${last.built.name}${where ? ` on ${where}` : ''}.`] : []), ...(last.moments || [])].filter(Boolean);
+  if (!parts.length) return '';
+  const text = parts.join(' ');
+  return `<p class="island-note" title="${html(text)}">${html(text)}</p>`;
+}
+function updateCheckIn(status) {
+  const game = status.game, card = game?.checkIn;
+  const key = card?.token ? `card:${card.token}` : game?.lastCheckIn ? `note:${status.profile}:${game.lastCheckIn.number}` : '';
+  if (key === checkInKey) return;
+  checkInKey = key;
+  let markup = '';
+  try { markup = card?.token ? checkInCard(status) : checkInNote(game); }
+  catch (error) { console.error('Could not show the island check-in:', error); }
+  checkInSlot.innerHTML = markup;
+  checkInSlot.dataset.state = !markup ? 'empty' : card?.token ? 'card' : 'note';
+}
+async function tapCheckIn(button) {
+  const cardNode = button.closest('.check-in-card');
+  if (!cardNode || cardNode.getAttribute('aria-busy') === 'true') return;
+  const buttons = [...cardNode.querySelectorAll('button')];
+  cardNode.setAttribute('aria-busy', 'true');
+  button.classList.add('is-picked');
+  buttons.forEach(node => { node.disabled = true; });
+  try {
+    await dispatch('game-check-in', { token: cardNode.dataset.token, pick: button.dataset.checkInPick || null });
+  } finally {
+    // The same card is still showing when the tap was refused; let it be tapped again.
+    if (checkInSlot.contains(cardNode)) {
+      cardNode.removeAttribute('aria-busy');
+      button.classList.remove('is-picked');
+      buttons.forEach(node => { node.disabled = false; });
+    }
+  }
+}
+// Development only: hidden counters that checks can read with dev-control.sh ui-read.
+function showRenderCounts() {
+  if (!state().status.developmentMode) return;
+  for (const [id, count] of [['dev-render-count', fullRenderCount], ['dev-day-path-draw-count', dayPathDrawCount]]) {
+    let node = document.getElementById(id);
+    if (!node) {
+      node = document.createElement('output');
+      node.id = id;
+      node.hidden = true;
+      document.body.append(node);
+    }
+    node.textContent = String(count);
+  }
 }
 function updateDayPathTime(status, previewSeconds) {
   const track = document.querySelector('.path-track');
@@ -134,14 +299,9 @@ function updatePresenceDisplay() {
   }
   const resting = away || status.inferredBreakActive || status.phase === 'rest' || status.phase === 'break';
   document.querySelector('.today-stage')?.classList.toggle('is-resting', resting);
-  const garden = document.querySelector('.today-garden');
-  if (garden) {
-    garden.querySelector('.garden-state').textContent = ended ? 'DAY COMPLETE' : resting ? 'REST' : 'FOCUS';
-    const note = !ended && !resting && status.breakMinutesToday > 0 ? 'A little rest made room for a new bloom.' : '';
-    garden.querySelector('.garden-note').textContent = note;
-    garden.querySelector('.garden-note').hidden = !note;
-    garden.setAttribute('aria-label', ended ? 'Pixel garden resting after the day ended' : resting ? 'Pixel garden resting beneath a dim sky' : 'Pixel garden with a cottage, acorn tree, flowers, path, and fox');
-  }
+  const mood = islandMood(status);
+  if (islandSlot.dataset.mood !== mood) islandSlot.dataset.mood = mood;
+  showIsland(status, mood);
   const threshold = activity.inactiveAfterSeconds || 5;
   const elapsed = activity.idleSeconds;
   const progress = elapsed === null || elapsed === undefined ? (away ? 1 : 0) : Math.min(1, Math.max(0, elapsed / threshold));
@@ -155,6 +315,21 @@ function updatePresenceDisplay() {
     track.setAttribute('aria-valuemax', String(threshold));
     track.setAttribute('aria-valuenow', String(Math.min(threshold, elapsed || 0)));
   });
+}
+// The island's mood: done after End day, break during a break, away during time away or inactivity, otherwise focus.
+function islandMood(status) {
+  if (status.dayEndedAt) return 'done';
+  if (status.phase === 'break' || status.phase === 'rest') return 'break';
+  if (status.inferredBreakActive || status.activity?.state === 'inactive') return 'away';
+  return 'focus';
+}
+// Hands the island its game and mood only when the game's saved order, the profile, or the mood changes.
+function showIsland(status, mood) {
+  const game = status.game ?? null;
+  const key = `${status.profile}|${game?.change ?? 'none'}|${mood}`;
+  if (key === islandShownKey) return;
+  islandShownKey = key;
+  try { window.cozyGame?.show({ game, mood, profile: status.profile }); } catch (error) { console.error('Sky island could not update:', error); }
 }
 function navigation() {
   const s = state().status;
@@ -203,10 +378,6 @@ function todayActions(g) {
 function timelineRows(items, actual = false) {
   return items.map(item => `<div class="timeline-row"><time>${clock(item.start)}</time><span class="title">${html(actual ? item.kind === 'away' ? 'Away' : item.kind === 'break' ? item.inferred ? 'Inferred break' : item.inProgress ? 'Break · in progress' : item.confirmed ? 'Confirmed break' : 'Break' : item.inProgress ? 'Focus · in progress' : 'Focus' : item.title || item.kind)}</span><span class="length">${mins(item.start, item.end)}m</span></div>`).join('');
 }
-function todayAcorns(status, open) {
-  const entries = status.todayRewardEntries || [];
-  return `<details class="today-acorns" id="today-acorns" ${open ? 'open' : ''}><summary aria-label="${html(status.balance ?? 0)} acorns available, ${html(status.todayAcornsEarned ?? 0)} earned today. Show acorn activity"><span class="acorn-star" aria-hidden="true">✦</span><span class="acorn-balance">${html(status.balance ?? 0)} <small>acorns</small></span><span class="acorn-today">+${html(status.todayAcornsEarned ?? 0)} today</span><span class="acorn-chevron" aria-hidden="true">⌄</span></summary><div class="acorn-dropdown"><h2>Acorns earned today</h2>${entries.length ? `<div class="acorn-entries">${entries.map(entry => `<div class="acorn-entry"><span>${html(entry.activity)}<small>${html(clock(entry.occurredAt))}</small></span><b>+${html(entry.amount)}</b></div>`).join('')}</div>` : '<p class="acorn-empty">No acorns earned yet today.</p>'}<div class="acorn-total"><span>Earned today</span><b>+${html(status.todayAcornsEarned ?? 0)}</b></div><div class="acorn-total available"><span>Available balance</span><b>${html(status.balance ?? 0)}</b></div></div></details>`;
-}
 function todayUpNext(status) {
   if (!status.plan || status.dayEndedAt) return '';
   const now = date(status.currentWallTimeISO || status.currentWallTime || Date.now()).getTime();
@@ -218,14 +389,15 @@ function todayUpNext(status) {
   const duration = mins(next.start, next.end);
   return `<section class="today-up-next" aria-label="Up next on your live day path"><span class="up-next-icon" aria-hidden="true">▦</span><div class="up-next-copy"><strong>Up next: ${html(title)}</strong><p>${html(duration)} min</p></div><span class="up-next-time">${html(clock(next.start))}</span></section>`;
 }
-function today(acornsOpen = false) {
+// Today's page shell. Live parts are empty placeholders here and are filled in place:
+// the countdown, Up next, the day path, the presence badge, the resting look, and the island slot.
+function today() {
   const s = state().status, g = guidance();
-  const resting = Boolean(s.dayEndedAt || s.inferredBreakActive || s.phase === 'rest' || s.phase === 'break' || s.activity?.state === 'inactive');
   const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
   return `<div class="today-page">
-    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text">${html(activityLabel(s))}</span></span>${todayAcorns(s, acornsOpen)}</div></header>
-    <section class="today-stage ${resting ? 'is-resting' : ''} ${s.breakMinutesToday > 0 ? 'has-breaks' : ''}" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown">${shownCountdown(s)}</span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div>${gardenScene({ resting, hasBreaks: s.breakMinutesToday > 0, ended: Boolean(s.dayEndedAt) })}</section>
-    ${todayUpNext(s)}${s.dayEndedAt ? todayReflection() : ''}${dayPath(s)}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
+    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span></div></header>
+    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div data-island-slot></div><div data-check-in-slot></div></section>
+    <div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
   const start = date(dayStart || items[0]?.start), end = date(dayEnd || new Date(start.getTime() + 8 * 3600000));
@@ -290,14 +462,14 @@ function plan() {
 }
 function history() {
   const s = state().status, plan = s.plannedTimeline || [], actual = s.actualTimeline || [], entries = s.history || [];
-  return `${header('Your rhythm', 'Today’s focus sessions and breaks.')}${card(`${section('Planned and actual timeline')}<div class="split"><div><h3>PLANNED</h3>${plan.length ? timelineRows(plan) : empty('No plan saved today.')}</div><div><h3>ACTUAL</h3>${actual.length ? timelineRows(actual, true) : empty('No sessions recorded today.')}</div></div>`)}${card(`${section('Today’s events')}${entries.length ? entries.map(entry => `<div class="line-row"><span class="green">●</span><span>${html(entry.title)}</span><span class="spacer"></span><time>${clock(entry.date)}</time></div>`).join('') : empty('Your first focus session will appear here.')}`)}${card(`${section('Today’s totals')}<div class="metric"><span>Focus time recorded</span><b>${s.focusMinutesToday || 0} min</b></div><div class="metric"><span>Break time detected</span><b>${s.breakMinutesToday || 0} min</b></div><div class="metric"><span>Acorns available</span><b>${s.balance ?? 0}</b></div>`)}`;
+  return `${header('Your rhythm', 'Today’s focus sessions and breaks.')}${card(`${section('Planned and actual timeline')}<div class="split"><div><h3>PLANNED</h3>${plan.length ? timelineRows(plan) : empty('No plan saved today.')}</div><div><h3>ACTUAL</h3>${actual.length ? timelineRows(actual, true) : empty('No sessions recorded today.')}</div></div>`)}${card(`${section('Today’s events')}${entries.length ? entries.map(entry => `<div class="line-row"><span class="green">●</span><span>${html(entry.title)}</span><span class="spacer"></span><time>${clock(entry.date)}</time></div>`).join('') : empty('Your first focus session will appear here.')}`)}${card(`${section('Today’s totals')}<div class="metric"><span>Focus time recorded</span><b>${s.focusMinutesToday || 0} min</b></div><div class="metric"><span>Break time detected</span><b>${s.breakMinutesToday || 0} min</b></div>`)}`;
 }
 function debugSettings() {
   return card(`${section('Debug')}<label class="check-field"><input type="checkbox" id="show-activity-meter" ${showActivityMeter() ? 'checked' : ''}> Show activity countdown</label><p class="small-note">Show the activity countdown on Today. This only changes the display.</p>`);
 }
 function settings() {
-  const s = state().status, preview = s.rebalancePreview;
-  return `${header('Settings', 'Default schedule and break settings.')}${card(`${section('Preferences')}<div class="inline-fields"><label class="field"><span>Start</span><select id="settings-start">${startChoices(s.defaultStartTime || '09:00')}</select></label><label class="field"><span>Finish</span><select id="settings-end">${finishChoices(s.defaultEndTime || '17:00')}</select></label><label class="field"><span>Focus · min</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Break · min</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><p class="small-note">Used for new days. Your saved plans keep their times.</p><div class="inline-fields"><label class="field"><span>Activity delay · sec</span><input type="number" id="settings-activity-delay" min="1" max="3600" step="1" value="${s.activityDelaySeconds ?? 120}"></label></div><p class="small-note">Today shows Away from computer after this much idle time.</p><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Visual reminders</label><p class="small-note">Confetti when a break is due, then a clock every five minutes until you respond.</p><div class="settings-save-row">${actionButton('Save settings', 'save-preferences', undefined, true, 'save-settings')}<span id="settings-save-feedback" class="settings-save-feedback ${settingsSaveFeedback?.error ? 'error' : ''}" role="status" aria-live="polite">${html(settingsSaveFeedback?.message || '')}</span></div>`)}${debugSettings()}${card(`${section('Reward preview')}<p class="muted">Try different reward values against your saved sessions. This preview does not change your balance or history.</p><div class="inline-fields"><label class="field"><span>Focus credit · per minute</span><input type="number" id="preview-focus" min="0" max="5" step="1" value="${state().rewardDraft?.focusCreditsPerMinute ?? s.previewFocusCredits ?? 1}"></label><label class="field"><span>Break bonus · acorns</span><input type="number" id="preview-break" min="0" max="50" step="5" value="${state().rewardDraft?.breakBonus ?? s.previewBreakBonus ?? 10}"></label></div>${preview ? `<p>${preview.focusSessions} focus sessions · ${preview.confirmedBreaks} confirmed breaks</p><b>Current ${preview.currentBalance} → Preview ${preview.projectedBalance} acorns</b>` : ''}`)}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history and rewards. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
+  const s = state().status;
+  return `${header('Settings', 'Default schedule and break settings.')}${card(`${section('Preferences')}<div class="inline-fields"><label class="field"><span>Start</span><select id="settings-start">${startChoices(s.defaultStartTime || '09:00')}</select></label><label class="field"><span>Finish</span><select id="settings-end">${finishChoices(s.defaultEndTime || '17:00')}</select></label><label class="field"><span>Focus · min</span><input type="number" id="settings-focus" min="5" max="120" step="5" value="${s.defaultFocusLength || 60}"></label><label class="field"><span>Break · min</span><input type="number" id="settings-break" min="5" max="60" step="5" value="${s.defaultBreakLength || 10}"></label></div><p class="small-note">Used for new days. Your saved plans keep their times.</p><div class="inline-fields"><label class="field"><span>Activity delay · sec</span><input type="number" id="settings-activity-delay" min="1" max="3600" step="1" value="${s.activityDelaySeconds ?? 120}"></label></div><p class="small-note">Today shows Away from computer after this much idle time.</p><label class="check-field"><input type="checkbox" id="notifications" ${s.notificationsEnabled !== false ? 'checked' : ''}> Visual reminders</label><p class="small-note">Confetti when a break is due, then a clock every five minutes until you respond.</p><div class="settings-save-row">${actionButton('Save settings', 'save-preferences', undefined, true, 'save-settings')}<span id="settings-save-feedback" class="settings-save-feedback ${settingsSaveFeedback?.error ? 'error' : ''}" role="status" aria-live="polite">${html(settingsSaveFeedback?.message || '')}</span></div>`)}${debugSettings()}${card(`${section('Data profile')}<label class="field"><span>Profile</span><select id="data-profile" ${s.canSwitchProfiles === false ? 'disabled' : ''}><option value="personal" ${s.profile === 'personal' ? 'selected' : ''}>Personal</option><option value="testing" ${s.profile === 'testing' ? 'selected' : ''}>Testing</option></select></label><p class="small-note">${s.canSwitchProfiles === false ? 'Development runs are locked to the isolated Testing profile.' : 'Each profile has its own history. Testing never writes to Personal.'}</p>`)}${card(`${section('Your data')}<p class="muted">Your timeline stays in a local SQLite database on this Mac.</p><div class="actions">${actionButton('Export JSON', 'export-json')}${actionButton('Back up database', 'backup-database')}</div>`)}${s.developmentMode ? card(`${section('Development scenarios')}<p class="muted">Exercise the full loop without waiting for real time.</p><div class="actions">${actionButton('Morning setup', 'dev-scenario', 'morning')}${actionButton('Break due', 'dev-scenario', 'breakDue')}${actionButton('Completed day', 'dev-scenario', 'completedDay')}${actionButton('Advance 5 min', 'dev-advance', 5)}${actionButton('Simulate away', 'dev-away')}${actionButton('Simulate return', 'dev-return')}${actionButton('Sleep / wake', 'dev-sleep-wake')}</div>`) : ''}${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}`;
 }
 function meetingDialog() {
   const view = selectedPlan(), meetings = view.plan.meetings || [], meeting = meetings.find(x => x.id === state().selectedMeeting);
@@ -317,13 +489,22 @@ function render() {
   const view = { today, plan, history, settings }[state().page] || today;
   const content = document.getElementById('content');
   const scroll = content.scrollTop;
-  const acornsOpen = content.querySelector('#today-acorns')?.open || false;
-  content.innerHTML = `<div class="page">${state().page === 'today' ? today(acornsOpen) : view()}</div>`;
+  const markup = view();
+  content.innerHTML = `<div class="page">${markup}</div>`;
+  todayShell = view === today ? markup : null;
+  todayUpNextMarkup = null; todayPathKey = null;
+  if (view === today) {
+    updateTodayLive(state().status);
+    content.querySelector('[data-island-slot]')?.replaceWith(islandSlot);
+    content.querySelector('[data-check-in-slot]')?.replaceWith(checkInSlot);
+  }
   content.scrollTop = scroll;
   updatePresenceDisplay();
   if (state().status.returnPrompt) returnDialog();
   else if (state().meetingEditor) meetingDialog();
   else document.getElementById('dialog-root').innerHTML = '';
+  fullRenderCount++;
+  showRenderCounts();
 }
 document.addEventListener('focusout', event => {
   if (planFields.has(event.target.id)) flushPlanDraft();
@@ -550,8 +731,6 @@ document.addEventListener('click', event => {
     toggle.querySelector('span').textContent = collapsed ? '›' : '‹';
     return;
   }
-  const acornDetails = document.querySelector('#today-acorns[open]');
-  if (acornDetails && !event.target.closest('#today-acorns')) acornDetails.open = false;
   const profileMenu = document.querySelector('.profile-menu[open]');
   if (profileMenu && !event.target.closest('.profile-menu')) profileMenu.open = false;
   const planDay = event.target.closest('[data-plan-day]');
@@ -561,6 +740,8 @@ document.addEventListener('click', event => {
   if (event.target.closest('#open-meetings')) { state().setUI({ meetingEditor: true }); meetingDialog(); return; }
   if (event.target.closest('#close-meetings') || (event.target.id === 'modal-backdrop' && !state().status.returnPrompt)) { closeMeetings(); return; }
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
+  const checkInButton = event.target.closest('#today-check-in [data-check-in-pick]');
+  if (checkInButton) { tapCheckIn(checkInButton); return; }
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const name = button.dataset.action;
@@ -602,10 +783,6 @@ document.addEventListener('change', event => {
   if (event.target.id === 'show-activity-meter') localStorage.setItem(activityMeterSetting, String(event.target.checked));
   if (planFields.has(event.target.id)) { const draft = savePlanFromFields(); if (draft) queuePlanSave(); }
   if (event.target.id === 'data-profile') dispatch('switch-profile', event.target.value);
-  if (['preview-focus', 'preview-break'].includes(event.target.id)) {
-    state().setUI({ rewardDraft: { focusCreditsPerMinute: Number(document.getElementById('preview-focus').value), breakBonus: Number(document.getElementById('preview-break').value) } });
-    dispatch('preview-rewards', state().rewardDraft);
-  }
   if (event.target.id === 'meeting-name') saveMeetingName();
 });
 document.addEventListener('input', event => {
@@ -634,7 +811,6 @@ document.addEventListener('input', event => {
 });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && state().meetingEditor) closeMeetings();
-  if (event.key === 'Escape') document.querySelector('#today-acorns[open]')?.removeAttribute('open');
   if (event.key === 'Escape') document.querySelector('.profile-menu[open]')?.removeAttribute('open');
   if (event.key === 'Enter' && event.target.id === 'today-reflection-input') { event.preventDefault(); document.getElementById('save-today-reflection')?.click(); }
   if (event.key === 'Enter' && event.target.id === 'reflection-input') { event.preventDefault(); document.getElementById('save-reflection')?.click(); }

@@ -10,7 +10,6 @@ export const appStore = createStore((set, get) => ({
   snoozeMinutes: 5,
   reflectionDraft: null,
   todayReflectionDraft: null,
-  rewardDraft: null,
   planDrafts: {},
   planBounds: {},
   dirtyInputs: new Set(),
@@ -42,7 +41,7 @@ export const appStore = createStore((set, get) => ({
     const dayChanged = previous.todayKey && previous.todayKey !== snapshot.todayKey;
     set({ status: snapshot, page: snapshot.page || get().page,
       ...(dayChanged ? { todayReflectionDraft: null, dirtyInputs: new Set([...get().dirtyInputs].filter(id => id !== 'today-reflection-input')) } : {}),
-      ...(profileChanged ? { planDay: 'today', planDrafts: {}, planBounds: {}, dirtyInputs: new Set(), reflectionDraft: null, todayReflectionDraft: null, rewardDraft: null } : {}) });
+      ...(profileChanged ? { planDay: 'today', planDrafts: {}, planBounds: {}, dirtyInputs: new Set(), reflectionDraft: null, todayReflectionDraft: null } : {}) });
     return true;
   },
   async refresh() { get().receive(await window.cozy.status()); },

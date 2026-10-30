@@ -1,8 +1,17 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { mkdtempSync, existsSync, writeFileSync, readFileSync } = require('node:fs');
+const { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { tmpdir } = require('node:os');
+
+// Every temporary folder a test makes is removed when this test file finishes.
+const madeFolders = [];
+process.on('exit', () => { for (const folder of madeFolders) rmSync(folder, { recursive: true, force: true }); });
+function tempFolder(prefix) {
+  const folder = mkdtempSync(join(tmpdir(), prefix));
+  madeFolders.push(folder);
+  return folder;
+}
 const { DatabaseSync } = require('node:sqlite');
 const { createCore } = require('./index');
 const { openStore } = require('./store');
@@ -164,7 +173,7 @@ test('a long break before a short meeting leads into focus afterward', () => {
 });
 
 function temporaryCore() {
-  const directory = mkdtempSync(join(tmpdir(), 'cozy-core-test-'));
+  const directory = tempFolder('cozy-core-test-');
   const dbPath = join(directory, 'events.sqlite');
   const statusPath = join(directory, 'focus-status.json');
   return { dbPath, statusPath, core: createCore({ dbPath, statusPath, profile: 'testing', development: true }) };
@@ -186,13 +195,13 @@ test('a fresh day opens on Today without starting a session or requiring a plan'
   assert.equal(status.defaultDayPath.end, status.dayEnd);
   assert.ok(status.defaultDayPath.timeline.some(block => block.kind === 'focus'));
   assert.ok(status.defaultDayPath.timeline.some(block => block.kind === 'break'));
-  assert.equal(status.events.length, 0);
+  assert.deepEqual(status.events.map(event => event.kind), ['gameStarted']);
   const updated = core.action('save-preferences', { startTime: '08:30', endTime: '16:45', focusMinutes: 35, breakMinutes: 5 });
   assert.equal(new Date(updated.defaultDayPath.start).getHours(), 8);
   assert.equal(new Date(updated.defaultDayPath.start).getMinutes(), 30);
   assert.equal(new Date(updated.defaultDayPath.end).getHours(), 16);
   assert.equal(updated.defaultDayPath.timeline[0].kind, 'focus');
-  assert.equal(updated.events.length, 0);
+  assert.deepEqual(updated.events.map(event => event.kind), ['gameStarted']);
   const now = new Date();
   const midmorning = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 10, 0);
   core.action('wall-jump', (midmorning - now) / 60000);
@@ -210,7 +219,7 @@ test('a removed Room route returns to Today', () => {
 });
 
 test('existing event schema and legacy date payloads replay without migration', () => {
-  const dbPath = join(mkdtempSync(join(tmpdir(), 'cozy-legacy-test-')), 'events.sqlite');
+  const dbPath = join(tempFolder('cozy-legacy-test-'), 'events.sqlite');
   const database = new DatabaseSync(dbPath);
   database.exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL);
     INSERT INTO schema_migrations VALUES (1, 0);
@@ -231,7 +240,7 @@ test('existing event schema and legacy date payloads replay without migration', 
   database.close();
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
   assert.equal(reopened.status().plan.start, start.toISOString());
-  assert.equal(reopened.status().events.length, 1);
+  assert.deepEqual(reopened.status().events.map(event => event.kind), ['dayPlan', 'gameStarted']);
   assert.equal(reopened.status().events[0].id, 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE');
   assert.equal(reopened.status().dayPlans[reopened.status().todayKey].baseline.provenance, 'legacy-first-save');
   reopened.close();
@@ -499,7 +508,7 @@ test('an explicit break automatically ends after sustained return activity', () 
 });
 
 test('profile settings import once into SQLite and do not change an existing day plan', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'cozy-settings-test-'));
+  const directory = tempFolder('cozy-settings-test-');
   const dbPath = join(directory, 'events.sqlite');
   const legacyPath = join(directory, 'preferences-testing.json');
   writeFileSync(legacyPath, JSON.stringify({ focusMinutes: 40, breakMinutes: 10, notificationsEnabled: false }));
@@ -525,7 +534,7 @@ test('profile settings import once into SQLite and do not change an existing day
 });
 
 test('normal profiles default activity delay to two minutes', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'cozy-activity-default-'));
+  const directory = tempFolder('cozy-activity-default-');
   const core = createCore({ dbPath: join(directory, 'events.sqlite'), profile: 'personal' });
   assert.equal(core.status().activityDelaySeconds, 120);
   core.close();
@@ -568,47 +577,154 @@ test('new day bounds stay between 7 AM and 9 PM in 15-minute steps', () => {
   core.close();
 });
 
-test('focus and confirmed break grant once and persist after restart', () => {
+test('focus and breaks no longer write acorn records, and the shop and reward preview are gone', () => {
   const { dbPath, statusPath, core } = temporaryCore();
   setLocalClock(core, 9, 0);
   core.action('start-focus'); core.action('advance', 60);
   assert.equal(core.status().breakDue, true);
   core.action('start-break');
-  core.action('advance', 10); core.action('finish-break');
-  assert.equal(core.status().balance, 35);
-  assert.equal(core.status().todayAcornsEarned, 35);
-  assert.deepEqual(core.status().todayRewardEntries.map(entry => [entry.activity, entry.amount]),
-    [['Completed break', 10], ['Focus session', 25]]);
-  assert.deepEqual(core.status().unlockedItems, []);
-  assert.equal(core.action('purchase', 'plant').balance, 0);
-  assert.equal(core.status().todayAcornsEarned, 35);
-  assert.deepEqual(core.status().unlockedItems, ['plant']);
-  assert.equal(core.action('purchase', 'plant').balance, 0);
+  core.action('advance', 10);
+  const finished = core.action('finish-break');
+  assert.equal(finished.events.some(event => ['rewardGranted', 'rewardDebited', 'itemPurchased'].includes(event.kind)), false);
+  for (const key of ['balance', 'todayAcornsEarned', 'todayRewardEntries', 'unlockedItems', 'policy', 'shopItems',
+    'previewFocusCredits', 'previewBreakBonus', 'rebalancePreview']) assert.equal(key in finished, false, key);
+  assert.throws(() => core.action('purchase', 'plant'), /Unknown action/);
+  assert.throws(() => core.action('preview-rewards', { breakBonus: 20 }), /Unknown action/);
   assert.ok(existsSync(statusPath));
   core.close();
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
-  assert.equal(reopened.status().balance, 0);
-  assert.deepEqual(reopened.status().unlockedItems, ['plant']);
+  assert.equal(reopened.status().events.some(event => event.kind === 'rewardGranted'), false);
   reopened.close();
 });
 
-test('today acorns count grants on the local day separately from balance and purchases', () => {
+test('old acorn records stay in the ledger untouched, and nothing reads or shows them', () => {
   const { dbPath, core } = temporaryCore();
   core.close();
   const database = openStore(dbPath);
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  database.append('rewardGranted', { amount: 12, reason: 'focus' }, { occurredAt: yesterday });
-  database.append('rewardGranted', { amount: 3, reason: 'focus' }, { occurredAt: today });
-  database.append('rewardDebited', { amount: -5, reason: 'purchase:plant' }, { occurredAt: today });
+  const kept = [
+    database.append('rewardGranted', { amount: 12, policyVersion: 1, sourceID: 'old-focus', reason: 'focus' }, { occurredAt: today, source: 'system', uniqueKey: 'grant:1:focus:old-focus' }),
+    database.append('rewardDebited', { amount: -5, policyVersion: 1, sourceID: 'old-purchase', reason: 'purchase:plant' }, { occurredAt: today, uniqueKey: 'purchase:old-purchase:debit' }),
+    database.append('itemPurchased', { itemID: 'plant', cost: 5, purchaseID: 'old-purchase' }, { occurredAt: today, uniqueKey: 'purchase:old-purchase:unlock' }),
+  ];
   database.close();
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
   const snapshot = reopened.status();
-  assert.equal(snapshot.balance, 10);
-  assert.equal(snapshot.todayAcornsEarned, 3);
-  assert.deepEqual(snapshot.todayRewardEntries.map(entry => [entry.activity, entry.amount]), [['Focus session', 3]]);
+  assert.deepEqual(snapshot.events.filter(event => event.kind !== 'gameStarted').map(event => [event.id, event.kind, event.payloadJSON, event.uniqueKey]),
+    kept.map(event => [event.id, event.kind, event.payloadJSON, event.uniqueKey]));
+  assert.equal('balance' in snapshot, false);
+  assert.equal('unlockedItems' in snapshot, false);
+  assert.deepEqual(snapshot.history, []);
+  reopened.action('start-focus');
+  const after = reopened.status();
+  assert.deepEqual(after.events.filter(event => event.kind !== 'gameStarted').slice(0, 3).map(event => [event.id, event.payloadJSON]), kept.map(event => [event.id, event.payloadJSON]));
+  assert.deepEqual(after.history.map(item => item.kind), ['focusStarted']);
   reopened.close();
+});
+
+test('a unique key is written once; a repeat throws and undoes the whole save', () => {
+  const dbPath = join(tempFolder('cozy-unique-key-'), 'events.sqlite');
+  const database = openStore(dbPath);
+  const first = database.append('gameStarted', { rulesVersion: 1 }, { uniqueKey: 'game:started' });
+  assert.throws(() => database.transaction(() => {
+    database.append('focusStarted', { sessionID: 'should-roll-back', targetSeconds: 60 });
+    database.append('gameStarted', { rulesVersion: 2 }, { uniqueKey: 'game:started' });
+  }), /unique key already exists/);
+  assert.deepEqual(database.allEvents().map(event => [event.id, event.kind, event.payloadJSON]), [[first.id, 'gameStarted', first.payloadJSON]]);
+  database.close();
+});
+
+test('a break that ends a running focus session notes that session', () => {
+  const { core } = temporaryCore();
+  setLocalClock(core, 9, 0);
+  const focus = core.action('start-focus');
+  core.action('advance', 20);
+  const resting = core.action('start-break');
+  const breakStarted = resting.events.findLast(event => event.kind === 'breakStarted');
+  assert.equal(breakStarted.payload.followsSessionID, focus.timer.sessionID);
+  assert.equal(breakStarted.payload.sessionID, resting.timer.sessionID);
+  core.action('advance', 10);
+  core.action('finish-break');
+  core.action('end-focus');
+  const idleBreak = core.action('start-break').events.findLast(event => event.kind === 'breakStarted');
+  assert.equal('followsSessionID' in idleBreak.payload, false);
+  const long = temporaryCore().core;
+  setLocalClock(long, 9, 0);
+  const longFocus = long.action('start-focus');
+  const longBreak = long.action('start-long-break').events.findLast(event => event.kind === 'breakStarted');
+  assert.equal(longBreak.payload.followsSessionID, longFocus.timer.sessionID);
+  assert.equal(longBreak.payload.targetSeconds, 30 * 60);
+  long.close(); core.close();
+});
+
+test('time away counted as a break notes its rest, target, and the focus session it ended', () => {
+  const { core, dbPath } = temporaryCore();
+  setLocalClock(core, 9, 0);
+  const focus = core.action('start-focus');
+  core.action('advance', 20);
+  core.action('away');
+  core.action('advance', 10);
+  core.action('return');
+  const returned = core.action('confirm-return');
+  const awayEnded = returned.events.findLast(event => event.kind === 'awayEnded');
+  assert.equal(awayEnded.payload.countedAsBreak, true);
+  assert.ok(Math.abs(awayEnded.payload.restSeconds - 600) < 2, awayEnded.payload.restSeconds);
+  assert.equal(awayEnded.payload.targetSeconds, 10 * 60);
+  assert.equal(awayEnded.payload.followsSessionID, focus.timer.sessionID);
+  for (const name of ['day', 'start', 'end']) assert.equal(name in awayEnded.payload, false);
+  const nextFocus = returned.events.findLast(event => event.kind === 'focusStarted');
+  assert.equal(nextFocus.payload.reason, 'afterBreak');
+  assert.equal(nextFocus.payload.sessionID, returned.timer.sessionID);
+  core.close();
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  const saved = reopened.status().events.findLast(event => event.kind === 'awayEnded');
+  assert.equal(saved.payload.countedAsBreak, true);
+  assert.equal(typeof saved.payload.restSeconds, 'number');
+  reopened.close();
+});
+
+test('short time away during focus is not noted as a counted break', () => {
+  const { core } = temporaryCore();
+  setLocalClock(core, 9, 0);
+  core.action('start-focus');
+  core.action('away');
+  core.action('advance', 2);
+  core.action('return');
+  const returned = core.action('confirm-return');
+  const awayEnded = returned.events.findLast(event => event.kind === 'awayEnded');
+  for (const key of ['countedAsBreak', 'restSeconds', 'targetSeconds', 'followsSessionID']) assert.equal(key in awayEnded.payload, false, key);
+  assert.equal(returned.events.filter(event => event.kind === 'focusStarted').length, 1);
+  core.close();
+});
+
+test('focus starts note why they began', () => {
+  const { core } = temporaryCore();
+  const real = new Date(), morning = new Date(real.getFullYear(), real.getMonth(), real.getDate(), 9);
+  core.action('wall-jump', (morning.getTime() - real.getTime()) / 60000);
+  core.action('save-plan', { start: morning.toISOString(), end: new Date(morning.getTime() + 4 * 3600000).toISOString(), focusMinutes: 60, breakMinutes: 10 });
+  const reasons = () => core.status().events.filter(event => event.kind === 'focusStarted').map(event => event.payload.reason);
+  assert.equal(core.action('today-suggestion').phase, 'focus');
+  assert.deepEqual(reasons(), ['suggestion']);
+  core.action('advance', 60);
+  core.action('start-break');
+  core.action('advance', 10);
+  assert.equal(core.action('finish-break').phase, 'focus');
+  assert.deepEqual(reasons(), ['suggestion', 'afterBreak']);
+  core.action('advance', 60);
+  core.action('end-focus');
+  assert.equal(core.status().guidance.situation, 'rest');
+  assert.equal(core.action('snooze-break', { minutes: 10 }).phase, 'focus');
+  assert.deepEqual(reasons(), ['suggestion', 'afterBreak', 'snooze']);
+  core.action('end-focus');
+  core.action('start-focus');
+  assert.deepEqual(reasons(), ['suggestion', 'afterBreak', 'snooze', 'manual']);
+  core.action('start-break');
+  core.action('away');
+  core.action('advance', 5);
+  core.action('return');
+  assert.equal(core.action('confirm-return').phase, 'focus');
+  assert.deepEqual(reasons(), ['suggestion', 'afterBreak', 'snooze', 'manual', 'afterBreak']);
+  core.close();
 });
 
 test('overdue focus and break keep counting, and finishing the break starts focus', () => {
@@ -646,7 +762,7 @@ test('a sleeping break resumes with its full elapsed time, including overtime', 
 });
 
 test('computer inactivity does not pause a running break', () => {
-  const dbPath = join(mkdtempSync(join(tmpdir(), 'cozy-idle-break-')), 'events.sqlite');
+  const dbPath = join(tempFolder('cozy-idle-break-'), 'events.sqlite');
   const core = createCore({ dbPath, profile: 'testing', development: false });
   core.action('start-break');
   core.action('tick', 120);
@@ -721,7 +837,6 @@ test('same-day relaunch resumes the same focus session without crediting the clo
   assert.equal(after.events.filter(event => event.kind === 'focusPaused').length, 1);
   assert.equal(after.events.filter(event => event.kind === 'focusResumed').at(-1).payload.sessionID, before.timer.sessionID);
   assert.ok(after.actualTimeline.some(item => item.kind === 'focus' && !item.inProgress && item.observedSeconds > 119));
-  assert.equal(after.balance, 0);
   assert.equal(JSON.parse(readFileSync(statusPath, 'utf8')).phase, 'focus');
   reopened.close();
 
@@ -743,12 +858,11 @@ test('same-day relaunch resumes an unfinished break without confirming it', () =
   assert.equal(after.timer.sessionID, before.timer.sessionID);
   assert.equal(after.events.filter(event => event.kind === 'breakEnded').length, 0);
   assert.equal(after.events.filter(event => event.kind === 'breakConfirmed').length, 0);
-  assert.equal(after.balance, 0);
   reopened.close();
 });
 
 test('relaunch recovers a focus left open by the previous app version', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'cozy-legacy-restart-'));
+  const directory = tempFolder('cozy-legacy-restart-');
   const dbPath = join(directory, 'events.sqlite');
   const database = openStore(dbPath);
   const launch = new Date(), startedAt = new Date(launch.getTime() - 30000), checkpointAt = new Date(launch.getTime() - 20000);
@@ -768,7 +882,7 @@ test('relaunch recovers a focus left open by the previous app version', () => {
 });
 
 test('an unfinished session from a prior day closes at its last checkpoint', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'cozy-overnight-restart-'));
+  const directory = tempFolder('cozy-overnight-restart-');
   const dbPath = join(directory, 'events.sqlite');
   const database = openStore(dbPath);
   const yesterday = new Date();
@@ -782,8 +896,11 @@ test('an unfinished session from a prior day closes at its last checkpoint', () 
   const reopened = createCore({ dbPath, profile: 'testing', development: true });
   const after = reopened.status();
   assert.equal(after.phase, 'idle');
-  assert.equal(after.events.filter(event => event.kind === 'focusEnded').at(-1).occurredAt, checkpoint.toISOString());
-  assert.equal(after.balance, 2);
+  const closed = after.events.filter(event => event.kind === 'focusEnded').at(-1);
+  assert.equal(closed.occurredAt, checkpoint.toISOString());
+  assert.equal(closed.payload.elapsedSeconds, 120);
+  assert.equal(closed.payload.interrupted, true);
+  assert.equal(after.events.some(event => event.kind === 'rewardGranted'), false);
   reopened.close();
 });
 
@@ -908,21 +1025,21 @@ test('export and backup include committed events', async () => {
   core.exportJSON(exported);
   await core.backup(backedUp);
   const exportedData = JSON.parse(require('node:fs').readFileSync(exported, 'utf8'));
-  assert.deepEqual(exportedData.events.map(event => event.kind), ['dayPlan', 'focusStarted']);
-  assert.equal(exportedData.events[0].payload.provenance, 'generated-default');
+  assert.deepEqual(exportedData.events.map(event => event.kind), ['gameStarted', 'dayPlan', 'focusStarted']);
+  assert.equal(exportedData.events[1].payload.provenance, 'generated-default');
   assert.equal(exportedData.settings.focusMinutes, 60);
   const copy = openStore(backedUp);
-  assert.equal(copy.allEvents().length, 2);
+  assert.equal(copy.allEvents().length, 3);
   assert.equal(copy.getSettings().focusMinutes, 60);
   copy.close(); core.close();
 });
 
 test('simulation actions are unavailable outside development', () => {
-  const dbPath = join(mkdtempSync(join(tmpdir(), 'cozy-personal-guard-')), 'events.sqlite');
+  const dbPath = join(tempFolder('cozy-personal-guard-'), 'events.sqlite');
   const core = createCore({ dbPath, profile: 'personal', development: false });
   assert.throws(() => core.action('dev-scenario', 'completedDay'), /Development action unavailable/);
   assert.throws(() => core.action('advance', 25), /Development action unavailable/);
-  assert.equal(core.status().events.length, 0);
+  assert.deepEqual(core.status().events.map(event => event.kind), ['gameStarted']);
   core.close();
 });
 
@@ -992,7 +1109,7 @@ test('a rejected event write leaves the committed timer and plan in place', () =
   const rejected = core.status();
   assert.equal(rejected.phase, 'idle');
   assert.equal(rejected.dayPlans[rejected.todayKey].baseline, undefined);
-  assert.equal(rejected.events.length, 0);
+  assert.deepEqual(rejected.events.map(event => event.kind), ['gameStarted']);
   database.exec('DROP TRIGGER reject_events');
   const started = core.action('start-focus', { planDraft: { focusMinutes: 40 } });
   assert.equal(started.phase, 'focus');
@@ -1085,7 +1202,7 @@ test('ended day ignores presence and session commands across restart, then reset
   reopened.close();
 });
 
-test('end day and snooze install no state or partial rewards when their transaction fails', () => {
+test('end day and snooze install no state or partial records when their transaction fails', () => {
   const { core, dbPath } = temporaryCore();
   setLocalClock(core, 16);
   core.action('start-focus'); core.action('advance', 60);
