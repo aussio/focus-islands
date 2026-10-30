@@ -211,7 +211,10 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
 - `priceOf` reads a blueprint's own `step` when it has one, before `fastRepeatPriceStep` and `repeatPriceStep`.
 - `KIND_NAMES` gains `homes: 'homes'`, and `decor` becomes `'pretty things'`. An offer now draws its 2 or 3 blueprints from four kinds: making, growing, decor, homes. A wonder can still come on its own.
 - Pad buildings keep their prices, `perIsland` caps and `maxShareOfIsland`, now counted against each island's things.
-- `placeFor` picks the island with the most room that has enough room for the blueprint's ground. Rooms and floors only go to islands with a house.
+- `placeFor` picks, among the islands with enough room for the blueprint's ground, the one with the fewest buildings for its land (buildings ÷ land, homes included). Ties go to the most room, then the earlier island. Rooms and floors only go to islands with a house, and the `perIsland` caps still apply.
+  - This way every island fills up alike, and a young island gets the next things until it runs out of room.
+  - Room ÷ land was tried first. It counts the coast, which takes most of a small young island (about 63% of 40 points), so a new island looked full while nearly empty. By day 180 the newest island had only 1 or 2 buildings besides flower beds, and month 3 rose to 6.3 choices a week.
+  - The house rule counts each island's own houses and rooms, so a new island can always start its first house.
 - `teaser` counts the land points still missing, not spots, when it says "about N more breaks".
 - The arrival line "A Cottage would give them a home" becomes "A new house or room would give them a home."
 
@@ -226,7 +229,9 @@ The targets in `pacing.test.js` stay: about 3 choices on day 1 (2 to 4), the fir
   - home has the most land on every day, for every person in `PEOPLE`;
   - the biggest new island has at least 1.4 × the land of the smallest;
   - every island is joined, with at least one loop;
-  - 2 to 4 fancy bridges.
+  - 2 to 4 fancy bridges;
+  - every island that arrived at least 30 days earlier has at least 3 buildings besides flower beds (houses, rooms and floors count);
+  - home holds at most 60% of all blocks.
 - **Simulated player** (`simulate.js`): a wonder first. Then homes if a helper is waiting for a bed. Then a rope bridge if some island isn't joined yet. Then the homes option on every third build choice where it's offered, standing in for a player who likes the town. Otherwise something new before something repeated.
 - The test that compared with the pacing prototype's own replay is removed. Its export is no longer in `.build`, so it was already skipped, and it has done its job of checking the port.
 
@@ -504,6 +509,8 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
 
 ### Speed
 
+**On hold (decision 10):** the budgets below are measured and reported, but they are not limits yet. Nothing is simplified for speed until the look is settled.
+
 - Each island is its own group at its `lift`, built from the existing `Batch` (one mesh per material).
 - Only islands whose part of the world changed are rebuilt (key: that island's data without the grid). An island that drifts just moves its group. Bridges are their own groups (see "Bridges").
 - **Budgets for the steady planner at day 180 (5 islands), at Today's size:**
@@ -684,3 +691,4 @@ Each stage ends with the app still working.
 9. **Islands differ in size and float at different heights.** "Lack of uniformity is pleasing to the eye."
    - Home is always the largest, because it's the oldest. Older islands are generally bigger, and each island has its own appetite for growth, so sizes vary. Every island still keeps growing a little.
    - Each island floats at its own height: home in the middle, others a little above or below. Bridges slope between them, and a water slide always runs downhill.
+10. **Pretty first, fast later.** Make the town look nice now. Don't simplify models or merge pieces to meet the speed budgets; that work comes later, once the look is settled.
