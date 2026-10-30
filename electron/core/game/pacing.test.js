@@ -41,7 +41,8 @@ test('every person: saved records stay clean and every offer is a real choice', 
     const end = result.timeline.at(-1);
     for (const r of R.RESOURCES) assert.ok(end.onHand[r] >= -0.01, `${person.id}: ${r} never goes below zero`);
     // Every building fit the room its island had when it was built, so the town layout never needs extra land.
-    for (const island of result.states[DAYS].islands) assert.deepEqual(roomProblems(island), [], `${person.id} ${island.id}`);
+    const state = result.states[DAYS];
+    for (const island of state.islands) assert.deepEqual(roomProblems(island, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, state.links), [], `${person.id} ${island.id}`);
   }
 });
 

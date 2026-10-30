@@ -11,9 +11,11 @@
 // building id and point numbers. Nothing placed ever moves, so a longer history only adds.
 //
 // If something has no place, the replay first tries looser rules (houses and pads may touch the coast,
-// pads may sit beside blocks, lanterns needn't touch a lane). If it still has none, the replay adds the
-// next land points until it fits and counts them in `borrowed`. On the real rules that should never
-// happen (long-run.test.js checks it).
+// pads may sit beside blocks, lanterns needn't touch a lane). A pad that still has none may then squeeze
+// in: it may cut off coast points and points that already hold something, and any free point it leaves
+// that nobody can walk to gets a hedge. If it still has none, the replay adds the next land points until
+// it fits and counts them in `borrowed`. On the real rules that should never happen (long-run.test.js
+// checks it).
 import { KINDS, BLOCK_BLUEPRINTS } from '../kinds.js';
 import { gridFor, roll, canFill } from './grid.js';
 import { growthOrder } from './growth.js';
@@ -27,6 +29,10 @@ export const START_LAND = { home: 40, small: 30, medium: 40, large: 55 };
 // Kinds that stop helpers walking through.
 const blocking = kind => Boolean(KINDS[kind]?.blocks);
 const MAX_BORROW = 80; // a building that still has no place after this many extra points is left out
+// How loose the placement rules are (isle.loose): the usual rules, then LOOSE (see Isle.withRoom), then
+// SQUEEZE for pads only (pads.js).
+export const LOOSE = 1;
+export const SQUEEZE = 2;
 const EXTRA_BY_KIND = { mossy: 'mushroom', rocky: 'rock', meadow: 'flower', crystal: 'crystal', misty: 'bush' };
 
 export const round4 = v => Math.round(v * 1e4) / 1e4 + 0;
@@ -68,7 +74,7 @@ export class Isle {
     this.plaza = -1;
     this.golden = -1;
     this.borrowed = 0;
-    this.loose = false; // true while withRoom tries the looser placement rules
+    this.loose = 0; // LOOSE or SQUEEZE while withRoom tries looser placement rules
     this.newest = null; // the newest building: { checkIn, points }
     this.version = 0; // grows with every change, for cached searches
     this.pos = 0; // growth: the next point in the order
@@ -111,16 +117,26 @@ export class Isle {
   // With these points shut, does every free point the lanes can reach now (through free points) stay
   // reachable, so a lane can still get to it later? And does every point helpers can walk to stay
   // walkable from the plaza?
-  staysReachable(shut) {
+  // With a `hedges` list (a pad squeezing in), only free inland points must stay reachable: coast points
+  // and points that hold something may be cut off. The free ones nobody can walk to any more are added
+  // to `hedges`, for the caller to cover.
+  staysReachable(shut, hedges = null) {
     if (this.plaza < 0) return true;
     const closed = new Set(shut);
     if (closed.has(this.plaza)) return false;
+    const cut = new Set(), stranded = [];
     const lane = this.laneSteps();
     const laneAfter = stepsFrom(this.grid, this.lanes.filter(p => !closed.has(p)), p => !closed.has(p) && this.isFree(p));
-    for (const p of this.land) if (lane[p] > 0 && !closed.has(p) && laneAfter[p] < 0) return false;
+    for (const p of this.land) {
+      if (lane[p] > 0 && !closed.has(p) && laneAfter[p] < 0) { if (!hedges) return false; cut.add(p); }
+    }
     const walk = this.walkSteps();
     const walkAfter = stepsFrom(this.grid, [this.plaza], p => !closed.has(p) && this.isWalkable(p));
-    for (const p of this.land) if (walk[p] >= 0 && !closed.has(p) && walkAfter[p] < 0) return false;
+    for (const p of this.land) {
+      if (walk[p] >= 0 && !closed.has(p) && walkAfter[p] < 0) { if (!hedges) return false; cut.add(p); stranded.push(p); }
+    }
+    if ([...cut].some(p => this.isFree(p) && !this.isCoast(p))) return false;
+    if (hedges) hedges.push(...stranded.filter(p => this.isFree(p)));
     return true;
   }
 
@@ -158,11 +174,13 @@ export class Isle {
     this.changed();
   }
 
-  // Can point p become land now? It must touch land helpers can walk on (so land stays one piece and
-  // every new point can be walked to). A pier strip point waits for the strip point inward of it, and a
-  // point near a deck's line waits until that pier's foot has passed it (sky.js pierOf).
+  // Can point p become land now? It must touch land helpers can walk to from the plaza (so land stays
+  // one piece and every new point can be walked to, even beside a corner a pad squeezed off). A pier
+  // strip point waits for the strip point inward of it, and a point near a deck's line waits until that
+  // pier's foot has passed it (sky.js pierOf).
   canGrow(p) {
-    if (!this.grid.neighbours[p].some(n => this.isLandMark[n] && this.isWalkable(n))) return false;
+    const walk = this.plaza < 0 ? null : this.walkSteps();
+    if (!this.grid.neighbours[p].some(n => this.isLandMark[n] && (walk ? walk[n] >= 0 : this.isWalkable(n)))) return false;
     const i = this.pierAt[p];
     if (i >= 0 && this.piers[i].chain[this.piers[i].at] !== p) return false;
     const holds = this.holds.get(p);
@@ -191,7 +209,10 @@ export class Isle {
   }
 
   // Tries `attempt` and, while it finds no place, adds one more land point and tries again.
-  withRoom(attempt) {
+  // Before each new point it tries looser rules, up to `most`: LOOSE lets houses and pads touch the
+  // coast (and pads sit beside blocks, and lanterns away from lanes); SQUEEZE lets a pad cut off coast
+  // points (pads.js).
+  withRoom(attempt, most = LOOSE) {
     for (let extra = 0; extra <= MAX_BORROW; extra++) {
       if (extra) {
         const before = this.land.length;
@@ -199,14 +220,12 @@ export class Isle {
         if (this.land.length === before) return null;
         this.borrowed++;
       }
-      const done = attempt();
-      if (done) return done;
-      // Nothing fits the usual way: let houses and pads touch the coast (and pads sit beside blocks,
-      // and lanterns away from lanes) before borrowing land.
-      this.loose = true;
-      const squeezed = attempt();
-      this.loose = false;
-      if (squeezed) return squeezed;
+      for (let level = 0; level <= most; level++) {
+        this.loose = level;
+        const done = attempt();
+        this.loose = 0;
+        if (done) return done;
+      }
     }
     return null;
   }
@@ -239,7 +258,7 @@ function build(isle, building) {
   if (blueprint === 'room') return isle.withRoom(() => addRoom(isle, id));
   if (blueprint === 'floor') return addFloor(isle, id);
   if (BLOCK_BLUEPRINTS.includes(blueprint) || !KINDS[blueprint]) return null; // the rope bridge, or a kind this layout doesn't know
-  return isle.withRoom(() => placeBuilding(isle, id, blueprint));
+  return isle.withRoom(() => placeBuilding(isle, id, blueprint), SQUEEZE);
 }
 
 // ---------- The start ----------

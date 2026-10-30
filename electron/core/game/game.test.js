@@ -490,6 +490,28 @@ test('the room sum: home starts with room for one cell pad, and a day of breaks 
   assert.deepEqual(state.islands.map(i => R.maxLandOf(i, rules)), [600, 320]);
 });
 
+test('each bridge end takes groundPerBridgeEnd on its island, rope or fancy, and a bridge never waits for room', () => {
+  const rules = R.DEFAULT_RULES;
+  const end = rules.groundPerBridgeEnd;
+  assert.ok(end > 0, 'a foot needs a lane to the other lanes');
+  const { state, island, bridge } = bareState();
+  state.counts.sawmill = 1;
+  for (const id of ['isle-1', 'isle-2']) island(id, 'small', 30);
+  const used = () => state.islands.map(i => i.used);
+  const [home, one, two] = used();
+  bridge('home', 'isle-1');
+  assert.deepEqual(used(), [home + end, one + end, two], 'a rope bridge: both ends');
+  bridge('home', 'isle-2', 'rainbow');
+  assert.deepEqual(used(), [home + 2 * end, one + end, two + end], 'a fancy bridge from a surprise: both ends too');
+  assert.ok(play.roomOn(state.islands[2], rules) < 0, 'a young island can dip below 0 room until its land catches up');
+  // Bridges need no spot, so they are offered and placed whatever the room.
+  island('isle-3', 'small', 30);
+  for (const each of state.islands) each.used = 1000;
+  const bp = R.DEFAULT_BLUEPRINTS.find(b => b.id === 'bridge');
+  assert.equal(play.available(bp, state, rules, R.DEFAULT_BLUEPRINTS), true);
+  assert.equal(placeOf('bridge', state), 'none');
+});
+
 test("priceOf reads a blueprint's own step before the shared ones", () => {
   const bp = id => R.DEFAULT_BLUEPRINTS.find(b => b.id === id);
   const price = (id, owned) => R.priceOf(bp(id), { counts: { [id]: owned } }, R.DEFAULT_RULES);

@@ -29,7 +29,7 @@ const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
 // The starting state and replaying saved check-ins.
 
 // An island as the rules keep it. fields: { id, name, kind, size, land, ring, angle, lift, appetite }.
-// used: ground taken by start things and buildings (see R.roomOf). blocks and storeys: house blocks
+// used: ground taken by start things, buildings and bridge ends (see R.roomOf). blocks and storeys: house blocks
 // on the ground and block storeys. pads: buildings that aren't homes.
 function makeIsland(fields, rules) {
   const island = { ...fields, golden: false, buildings: [], counts: {}, used: 0, blocks: 0, storeys: 0, pads: 0 };
@@ -63,12 +63,12 @@ function applyCollect(state, p) {
   state.landProgress = p.landProgress;
   for (const grown of p.newLand || []) islandById(state, grown.island).land += grown.amount;
 }
-function applySurprise(state, p) {
+function applySurprise(state, p, rules) {
   const s = p.surprise;
   if (!s) return;
   addInto(state.onHand, s.gifts);
   if (s.golden) islandById(state, s.island).golden = true;
-  if (s.link) addLink(state, s.link, p.number);
+  if (s.link) addLink(state, s.link, p.number, rules);
   if (s.upgrade) {
     const link = state.links.find(l => l.id === s.upgrade.link);
     if (link) link.type = s.upgrade.type; // only the type changes, so the bridge's feet never move
@@ -82,9 +82,14 @@ function applyIslands(state, p, rules) {
     state.islands.push(makeIsland({ id, name, kind, size, land, ring, angle, lift, appetite }, rules));
   }
 }
-// link: { id, from, to, type, land: { [from]: n, [to]: m } }, made at check-in `number`.
-function addLink(state, link, number) {
+// link: { id, from, to, type, land: { [from]: n, [to]: m } }, made at check-in `number`. Each end takes
+// groundPerBridgeEnd of its island's room, for the lane from its foot to the island's other lanes.
+function addLink(state, link, number, rules) {
   state.links.push({ id: link.id, from: link.from, to: link.to, type: link.type, checkIn: number, land: { ...link.land } });
+  for (const id of [link.from, link.to]) {
+    const island = islandById(state, id);
+    if (island) island.used += rules.groundPerBridgeEnd || 0;
+  }
 }
 function applyHelpers(state, p) {
   for (const helper of p.helpersQueued || []) {
@@ -103,7 +108,7 @@ function applyJob(state, job) {
   helper.job = job.job;
   helper.island = job.island;
 }
-function applyBuild(state, built, number, blueprints) {
+function applyBuild(state, built, number, rules, blueprints) {
   if (!built) return;
   addInto(state.onHand, built.price, -1);
   state.counts[built.blueprint] = (state.counts[built.blueprint] || 0) + 1;
@@ -117,16 +122,16 @@ function applyBuild(state, built, number, blueprints) {
     island.used += bp.ground || 0;
     if (bp.kind === 'homes') { island.blocks += bp.blocks || 0; island.storeys += bp.storeys || 0; } else island.pads += 1;
   }
-  if (built.link) addLink(state, { ...built.link, id: built.id }, number);
+  if (built.link) addLink(state, { ...built.link, id: built.id }, number, rules);
   if (built.kind === 'wonder') state.wonders.push(built.blueprint);
 }
 function applyRecord(state, p, sequence, rules, blueprints) {
   applyCollect(state, p);
-  applySurprise(state, p);
+  applySurprise(state, p, rules);
   applyIslands(state, p, rules);
   applyHelpers(state, p);
   applyJob(state, p.job);
-  applyBuild(state, p.built, p.number, blueprints);
+  applyBuild(state, p.built, p.number, rules, blueprints);
   for (const key of p.firsts || []) state.firsts[key] = p.number;
   state.checkIns = p.number;
   state.covered = p.covered ?? sequence;
@@ -545,7 +550,7 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   const chance = (since.restSince ? rules.surpriseChanceAfterBreak : rules.surpriseChance) * catchUp;
   if (roll(`${key}:surprise`) < chance && work.lastSurpriseDay !== draft.dayKey) {
     draft.surprise = makeSurprise(work, draft, rules, key);
-    applySurprise(work, draft);
+    applySurprise(work, draft, rules);
   }
 
   // New islands arrive by active days.
@@ -638,7 +643,7 @@ function pick(prepared, choiceID, env) {
       draft.moments.push(bp.moment);
     }
     if (bp.onlyOn) draft.moments.push(`The ${bp.name} is the first of its kind on ${island.name}.`);
-    applyBuild(work, draft.built, draft.number, blueprints);
+    applyBuild(work, draft.built, draft.number, rules, blueprints);
   }
   draft.picked = choiceID;
   for (const key of draft.firsts) work.firsts[key] = draft.number;

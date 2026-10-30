@@ -6,16 +6,19 @@
 //   padFit(grid, cells) => number   a pad's cell size ÷ 0.62, kept between 0.85 and 1.15
 //
 // A pad sits on free land off the coast, not next to a block, and never cuts off a free point from the
-// lanes or a point helpers can walk to (when nothing fits, the coast and spots beside blocks are allowed). Its front is the point next to it closest to the lanes; a lane joins it and the model faces
-// it. Coast buildings (lighthouse, sky waterfall, airship dock) sit with one side on the coast, face
-// the sky, and keep a bay of sky in front of them open for good: every grid point ahead of that side
-// within a wedge that starts as wide as the side and widens by BAY_ANGLE on each side (bayOf). It must
-// be all sky when the building comes, and it never crosses a bridge's pier.
+// lanes or a point helpers can walk to (when nothing fits, the coast and spots beside blocks are allowed;
+// when still nothing fits, it may squeeze in and cut off coast points and points that hold something,
+// and a free point nobody can walk to any more gets a hedge). Its front is the point next to it closest
+// to the lanes; a lane joins it and the model faces it. Coast buildings (lighthouse, sky waterfall,
+// airship dock) sit with one side on the coast, face the sky, and keep a bay of sky in front of them
+// open for good: every grid point ahead of that side within a wedge that starts as wide as the side and
+// widens by BAY_ANGLE on each side (bayOf). It must be all sky when the building comes, and it never
+// crosses a bridge's pier.
 import { KINDS } from '../kinds.js';
 import { roll, canFill } from './grid.js';
 import { straightOut } from './growth.js';
 import { joinLane } from './lanes.js';
-import { round4, yawOf, middleOf } from './island.js';
+import { round4, yawOf, middleOf, SQUEEZE } from './island.js';
 
 const NO_WAY = 99;
 export const BAY_ANGLE = 35; // degrees: how fast a coast building's bay widens on each side
@@ -30,9 +33,9 @@ export function placeBuilding(isle, id, kind) {
   const def = KINDS[kind];
   const { grid } = isle;
   const lanterns = kind === 'lanterns';
-  // Pads stay off the coast and away from blocks, unless nothing fits that way (isle.loose: see
-  // Isle.withRoom). Flower beds and lanterns aren't pads and may stand on the coast; lanterns need a lane
-  // beside them unless nothing fits.
+  // Pads stay off the coast and away from blocks, unless nothing fits that way (isle.loose, LOOSE or
+  // SQUEEZE: see Isle.withRoom). Flower beds and lanterns aren't pads and may stand on the coast; lanterns
+  // need a lane beside them unless nothing fits.
   const ok = p => isle.isFree(p) && (def.edge || !def.pad || isle.loose || !isle.isCoast(p))
     && (!def.pad || isle.loose || !isle.nextToBlock(p))
     && (!lanterns || isle.loose || grid.neighbours[p].some(n => isle.isLane[n]));
@@ -77,7 +80,8 @@ export function placeBuilding(isle, id, kind) {
   }
   options.sort((a, b) => a.score - b.score || a.points[0] - b.points[0]);
   for (const option of options) {
-    if (!isle.staysReachable(option.points)) continue;
+    const hedges = def.pad && isle.loose === SQUEEZE ? [] : null;
+    if (!isle.staysReachable(option.points, hedges)) continue;
     const thing = isle.addThing({
       id, kind, island: isle.id, points: [...option.points], at: [...option.at], yaw: yawFor(isle, def, option, id),
       scale: def.pad ? padFit(grid, option.cells) : 1, pad: Boolean(def.pad), front: option.front,
@@ -92,6 +96,9 @@ export function placeBuilding(isle, id, kind) {
       continue;
     }
     if (def.edge) isle.keep(option.bay);
+    // Free points the pad squeezed off, which nobody can walk to: a hedge on each, so none stays empty.
+    (hedges ?? []).forEach((p, k) => isle.addThing({ id: `${id}:hedge-${k + 1}`, kind: 'bush', island: isle.id, points: [p], at: [...grid.points[p]],
+      yaw: round4(roll('yaw', id, 'hedge', p) * Math.PI * 2), scale: 1, pad: false, front: null, coast: null }));
     return option.points;
   }
   return null;

@@ -141,8 +141,8 @@ The rules only say which island a house, room or floor goes on. The layout picks
 ### Land is counted in grid points
 
 - One unit of `land` is one point of the island's grid. One old building spot is about 7 points.
-- The room an island has for buildings: `land − 4 × √land − 0.12 × land − used`. The `4 × √land` part is the coast, where houses and pads don't go. The `0.12 × land` part is lanes. `used` is the start things plus every building's ground.
-- Ground each building needs, as a new `ground` field on each blueprint: point 1, pair 2, cell 5, cells 7, ring 11, house 3, room 1, floor 0, bridge 0. Start things use 4 on home and 2 on a new island.
+- The room an island has for buildings: `land − 4 × √land − 0.12 × land − used`. The `4 × √land` part is the coast, where houses and pads don't go. The `0.12 × land` part is lanes. `used` is the start things plus every building's ground, plus 4 for each bridge end on the island (`groundPerBridgeEnd`).
+- Ground each building needs, as a new `ground` field on each blueprint: point 1, pair 2, cell 5, cells 7, ring 11, house 3, room 1, floor 0, bridge 0. Start things use 4 on home and 2 on a new island. Each bridge end, rope or fancy, uses 4 on its island instead: its foot needs a lane to the other lanes (about 5 points when it is laid). Bridges are never refused for room, so room may dip below 0 until the land catches up.
 - Example: home starts with 40 points, which gives room 5, enough for one cell pad. After day 1's breaks (about +7 points), it has room for a second pad. That matches today's day 1 (garden and nursery).
 - Each island has a most land it can hold, `maxLand`, sized to fit its grid: small 320, medium 450, large 600, home 600. Land skips islands that are full. If all are full, extra rest minutes wait in `landProgress`.
 
@@ -224,7 +224,7 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
 The targets in `pacing.test.js` stay: about 3 choices on day 1 (2 to 4), the first island on active day 7 to 9, the first wonder in weeks 2 to 3 (now day 18 for the steady planner), and 2.5 to 6 choices a week in month 3 (was 5; widened because homes are offered whenever they fit, decision 7).
 
 - **Unchanged,** because they don't depend on land or buildings: grants, the rest curve, Starlight, island and helper timing, how often surprises come, wonder prices. Islands and wonders should land on the same days as now. The surprise mix gains fancy bridges.
-- **To retune together** until the targets pass and the layout never needs extra land: `startingLand` (40, was `startingSpots` 4), `restMinutesPerLand` (5, was `restMinutesPerNewSpot` 35), the new islands' `startLand` (small 30, medium 40, large 55, was 2, 3, 5), the coast and lane parts of the room sum (4 and 0.12), the homes prices, steps and weights, `homesShareOfIsland`, and the land share (`landAgeStep` 0.3, `homeAppetite` 1.3, `homeLead` 0.85).
+- **To retune together** until the targets pass and the layout never needs extra land: `startingLand` (40, was `startingSpots` 4), `restMinutesPerLand` (5, was `restMinutesPerNewSpot` 35), the new islands' `startLand` (small 30, medium 40, large 55, was 2, 3, 5), the coast and lane parts of the room sum (4 and 0.12), the ground per bridge end (`groundPerBridgeEnd` 4), the homes prices, steps and weights, `homesShareOfIsland`, and the land share (`landAgeStep` 0.3, `homeAppetite` 1.3, `homeLead` 0.85).
 - **New town targets,** for the steady planner by day 180 unless it says otherwise:
   - at least 20 blocks over all islands, with at least 8 on home, so the town reads as a town;
   - home has the most land on every day, for every person in `PEOPLE`;
@@ -259,7 +259,8 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 ### Replaying an island
 
 - Start the island (below). Then take its buildings and bridge feet in check-in order. For each one, grow land to its `landWhenBuilt` (or the link's `land`, for built and surprise links alike), then place it. Upgrades place nothing. At the end, grow to the island's `land`.
-- If something has no place, add the next land points until it fits, and count them in `borrowed`. The long-run check requires `borrowed` to be 0 on the real rules.
+- If something has no place, try looser rules first: houses and pads may touch the coast, pads may sit beside blocks, and lanterns needn't touch a lane. Then a pad may squeeze in (see "Free for a pad"). Only then add the next land points until it fits, and count them in `borrowed`. The long-run check requires `borrowed` to be 0 on the real rules.
+- Land only grows next to land helpers can walk to from the plaza, so new land never starts from a corner a pad squeezed off.
 - Every choice uses a roll from the island id, the building id and point numbers, never positions in the sky.
 
 ### The start of each island
@@ -295,7 +296,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
   - ring: a point with exactly four cells around it, all nine points free;
   - pair: two neighbouring free points;
   - point: one free point.
-- **Free for a pad:** land, not coast, not a lane, not taken, not the golden point, not next to a block, and not a door's outside. Afterwards every free point must still be reachable from the lanes.
+- **Free for a pad:** land, not coast, not a lane, not taken, not the golden point, not next to a block, and not a door's outside. Afterwards every free point must still be reachable from the lanes. When nothing fits, a pad may touch the coast and sit beside blocks. When still nothing fits, it may squeeze in: it may cut off coast points and points that already hold something, never a free inland point. Each free point it cuts off gets a hedge (a bush), so no free point is left that nobody can walk to.
 - **Front:** the point next to the pad that is closest to the lanes. A lane joins it. The model faces it.
 - **Score, lowest wins:**
   - 10 × the gap between its steps from the plaza and a wanted distance (3 + things on the island ÷ 4, so the town fills outward),

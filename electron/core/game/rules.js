@@ -77,10 +77,14 @@ const DEFAULT_RULES = Object.freeze({
   startLand: Object.freeze({ small: 30, medium: 40, large: 55 }), // a new island's land when it drifts in
   maxLand: Object.freeze({ small: 320, medium: 450, large: 600, home: 600 }), // most land each island's grid holds
   // Room for buildings: land - coastPerRootLand * sqrt(land) - laneShareOfLand * land - used, where used is
-  // the start things (startGround) plus every building's ground. The coast takes no houses or pads.
+  // the start things (startGround), every building's ground, and groundPerBridgeEnd for each bridge end on
+  // the island. The coast takes no houses or pads.
   coastPerRootLand: 4,
   laneShareOfLand: 0.12,
   startGround: Object.freeze({ home: 4, island: 2 }),
+  // A bridge's foot needs a lane to the island's other lanes: about 5 points when it's laid, the foot
+  // itself on the coast. Bridges are never refused for room, so room may dip below 0 until land catches up.
+  groundPerBridgeEnd: 4,
   // Who gets each new land point: a roll weighted by appetite / (1 + landAgeStep * order), where order
   // is 0 for home, 1 for the first new island, and so on. No island may pass homeLead of home's land.
   landAgeStep: 0.3,
@@ -122,7 +126,8 @@ const DEFAULT_RULES = Object.freeze({
 // kind: making / growing / decor / homes / wonder. perIsland caps repeatable items on each island.
 // tier 2 needs a Sawmill; tier 3 needs a Workshop and 3 islands. Ids match electron/renderer/game/kinds.js.
 // ground: land points it takes from an island's room, from its footprint in kinds.js (point 1, pair 2,
-// cell 5, cells 7, ring 11); bridges take none. linkType: it builds a link between two sky-table
+// cell 5, cells 7, ring 11); a bridge takes none of its own, but each end takes groundPerBridgeEnd on its
+// island, rope or fancy alike (see play.js addLink). linkType: it builds a link between two sky-table
 // neighbours instead of standing on an island (offered while some neighbour pair has no link).
 // Homes are parts of block houses, never things on a pad. blocks: new blocks on the ground; storeys:
 // new block storeys (one bed each); weight: how often the homes slot shows it (lowest owned / weight);
@@ -211,7 +216,8 @@ function dayPlanMatch(day, rules) {
   return (focusMatch + breakMatch) / 2;
 }
 // Room an island has for buildings, in land points: its land less the coast (no houses or pads there),
-// the lanes, and the ground already used. The layout relies on this sum to never need extra land.
+// the lanes, and the ground already used (start things, buildings, bridge ends). The layout relies on this
+// sum to never need extra land.
 function roomOf(land, used, rules) {
   return land - rules.coastPerRootLand * Math.sqrt(land) - rules.laneShareOfLand * land - used;
 }

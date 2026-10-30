@@ -34,12 +34,8 @@ test('every snapshot passes checkTown, and neighbouring snapshots keep every pro
 });
 
 // Borrowed land means the rules let a building in that the layout couldn't fit. The layout and the
-// rules' room sum are tuned together (BUILD_PLAN.md, "To retune together"); until they agree this is
-// marked todo, so it reports without failing the run.
-const borrowedNow = () => runs.flatMap(({ person, snapshots }) => {
-  const last = snapshots.at(-1).world;
-  return last.islands.filter(i => i.borrowed).map(i => `${person} ${i.id} ${i.borrowed}`);
-});
-test('the layout never borrows land', { todo: borrowedNow().length ? `borrowing left: ${borrowedNow().join(', ')}` : false }, () => {
-  assert.deepEqual(borrowedNow(), []);
+// rules' room sum are tuned together (BUILD_PLAN.md, "To retune together").
+test('the layout never borrows land', () => {
+  const borrowed = runs.flatMap(({ person, snapshots }) => snapshots.at(-1).world.islands.filter(i => i.borrowed).map(i => `${person} ${i.id} ${i.borrowed}`));
+  assert.deepEqual(borrowed, []);
 });
