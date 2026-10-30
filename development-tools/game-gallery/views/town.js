@@ -1,8 +1,9 @@
 // The town scene (stream E): whole worlds drawn the way Today draws them, with the follow camera.
 // Real states (data.town.states) once the layout draws them; the sample towns (town/samples.js) until then.
 import * as THREE from 'three';
-import { createSceneCore } from '../../../electron/renderer/game/scene/core.js';
+import { CLEAR_TOP, createSceneCore } from '../../../electron/renderer/game/scene/core.js';
 import { AIM_SECONDS } from '../../../electron/renderer/game/scene/stage.js';
+import { SWAY, driftPose, swayYaw } from '../../../electron/renderer/game/scene/drift.js';
 import { SAMPLE_NAMES, sampleFilm, sampleTown } from '../../../electron/renderer/game/town/samples.js';
 import { buildTown } from '../../../electron/renderer/game/town/index.js';
 
@@ -145,9 +146,58 @@ function sceneTriangles(scene) {
 
 const framing = core => (core.aimed ? `frames ${core.aimed.island} ${core.aimed.close ? 'close (view points + 4 steps)' : 'whole'}` : '');
 
+// ---------- The drift ----------
+// A picture with a faint band over the top CLEAR_TOP pixels, where Today's resource bar sits.
+function banded(img, size) {
+  const box = document.createElement('div');
+  box.style.cssText = `position:relative;width:${size[0]}px;height:${size[1]}px;`;
+  const band = document.createElement('div');
+  band.style.cssText = `position:absolute;left:0;right:0;top:0;height:${CLEAR_TOP}px;background:#ffffff40;border-bottom:1px dashed #ffffffb0;pointer-events:none;`;
+  box.append(img, band);
+  return box;
+}
+// One state's steady-planner world, by day; or null.
+function steadyDay(tools, day) {
+  const real = realStates(tools);
+  return real && steady(real).find(s => s.day === day);
+}
+// What the camera does in a segment of the drift's route, in words.
+function segmentName(route, segment) {
+  const name = pose => (pose === route.home ? 'home (busy view)' : pose === route.wide ? 'the whole group' : `island ${route.places.indexOf(pose) + 2} of ${route.places.length + 1}`);
+  return segment.from === segment.to ? `rest at ${name(segment.from)}` : `${name(segment.from)} → ${name(segment.to)}`;
+}
+// Pictures of one world's drift: the middle of each rest and of each move, for the first `count`
+// segments, in each mood side by side. The core's clock is moved by hand, so the pictures repeat exactly.
+async function driftPictures(tools, entry, { moods = ['focus', 'break'], count = 12 } = {}) {
+  if (!entry) { tools.note('No state for this day.'); return; }
+  const { core, clock, draw, renderer } = coreAt(TODAY);
+  try {
+    core.setWorld(entry.world);
+    const route = core.stage.route;
+    if (!route) { tools.note(`${entry.label ?? ''}: nowhere else to look, so the camera stays on the busy view.`); return; }
+    const segments = route.segments.slice(0, count);
+    tools.note(`steady, day ${entry.day}: ${describe(entry.world)}. One round of trips takes ${Math.round(route.period)} s; `
+      + `these are its first ${segments.length} parts. ${framing(core)}. The faint band is the top ${CLEAR_TOP} px kept clear for the resource bar.`);
+    const grid = tools.grid('gallery-today');
+    for (const segment of segments) {
+      const seconds = segment.start + segment.seconds / 2;
+      const images = [];
+      for (const mood of moods) {
+        core.setMood(mood);
+        clock.ms = seconds * 1000;
+        draw(seconds);
+        images.push(banded(await picture(renderer, TODAY), TODAY));
+      }
+      const pose = core.stage.look;
+      grid.append(tools.card(`${Math.round(seconds)} s: ${segmentName(route, segment)}${segment.from === segment.to ? '' : ' (half way)'}`,
+        `${moods.join(' · ')} · distance ${pose.distance.toFixed(1)} · ${segment.seconds.toFixed(1)} s long`, images));
+    }
+  } finally { core.dispose(); }
+}
+
 export default {
   id: 'town',
-  title: 'Town scene (stream E): worlds with the follow camera, film, moods, camera moves and speed',
+  title: 'Town scene (stream E): worlds with the follow camera, film, moods, camera moves, the drift and speed',
   sections: [
     {
       id: 'states', title: 'States, large and at Today\'s size (591 × 357), with the follow camera',
@@ -230,6 +280,51 @@ export default {
           grid.append(tools.card('half way', `${AIM_SECONDS / 2} s in`, [half]));
           grid.append(tools.card(`after: ${pair[1].label}`, framing(core), [after]));
         } finally { core.dispose(); }
+      },
+    },
+    {
+      id: 'drift-early', title: 'The drift, day 21 (two islands): rests and moves at Today\'s size, focus and break',
+      async render(host, tools) { await driftPictures(tools, steadyDay(tools, 21)); },
+    },
+    {
+      id: 'drift-month', title: 'The drift, day 30 (three islands): rests and moves at Today\'s size, focus and break',
+      async render(host, tools) { await driftPictures(tools, steadyDay(tools, 30)); },
+    },
+    {
+      id: 'drift-year', title: 'The drift, day 180 (five islands): rests and moves at Today\'s size, focus and break',
+      async render(host, tools) { await driftPictures(tools, steadyDay(tools, 180)); },
+    },
+    {
+      id: 'sway', title: `The sway style: the busy view turned ${SWAY.degrees}° each way, large, focus and break`,
+      async render(host, tools) {
+        tools.note(`The sway style turns the view up to ${SWAY.degrees}° left and right of north over ${SWAY.seconds} s. These are the busy view at each end of the swing, large, to check join walls, the north coast, shadows and the sun's side.`);
+        const size = LARGE;
+        for (const day of [30, 180]) {
+          const entry = steadyDay(tools, day);
+          if (!entry) continue;
+          const { core, clock, draw, renderer } = coreAt(size);
+          try {
+            core.cameraStyle = 'sway';
+            core.setWorld(entry.world);
+            const route = core.stage.route;
+            // The first moments at each end of the swing while the drift rests at home.
+            const atHome = s => !route || driftPose(route, s) === route.home;
+            const find = sign => { for (let s = 0; s < 20000; s += 0.5) if (Math.abs(swayYaw(s) - sign * SWAY.degrees * Math.PI / 180) < 1e-4 && atHome(s)) return s; return null; };
+            const grid = tools.grid('gallery-wide');
+            for (const sign of [-1, 1]) {
+              const seconds = find(sign);
+              if (seconds === null) continue;
+              const images = [];
+              for (const mood of ['focus', 'break']) {
+                core.setMood(mood);
+                clock.ms = seconds * 1000;
+                draw(seconds);
+                images.push(await picture(renderer, size));
+              }
+              grid.append(tools.card(`day ${day}, turned ${sign > 0 ? 'left (camera to the east)' : 'right (camera to the west)'} ${SWAY.degrees}°`, `${seconds} s · focus · break`, images));
+            }
+          } finally { core.dispose(); }
+        }
       },
     },
     {

@@ -500,13 +500,26 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
 - **Moods:** unchanged (`MOODS`, `moodMaterials`, mood hooks). Block windows use the glass material, so the town lights up at dusk.
 - **Camera (decision 6):**
   - The yaw stays fixed (looking north), so the north coast stays hidden.
-  - It frames `view.island` whole if helpers there stay at least 18 px tall, with a size boost of at most 1.4 (was 1.7). Otherwise it frames `view.points` plus 4 steps around them.
-  - Other islands are not forced into view; they peek in at the edges.
-  - A new `stage.aim(points, aspect, { ease })` moves smoothly over 2.5 s, and only when `setWorld` changes where it should look. That only happens at a check-in.
+  - **The busy view (home):** it frames `view.island` whole if helpers there stay at least 18 px tall, with a size boost of at most 1.4 (was 1.7). Otherwise it frames `view.points` plus 4 steps around them.
+  - **The drift (`scene/drift.js`), between check-ins:** the camera shows the rest of the world slowly, so other islands and bridges are seen whole now and then instead of only peeking in at the edges.
+    - After every world change it rests on the busy view for 60 s.
+    - Then it takes a trip and comes home. On every other trip it first pulls back to show the whole group of islands. Each trip then glides to one other island, framed whole, and back. Trips visit the other islands in turn, nearest first. It rests 20 s at each stop, then 60 s at home before the next trip. Then the round repeats.
+    - An island is never framed much closer than home (at least 0.9 × home's distance). Stops that look like home are skipped. With one island and a busy view that already shows it whole, there is no drift.
+    - Moves ease in and out with no jolt (smootherstep). They take 16 to 40 s, longer the farther they go, so at their fastest they cross about 6% of the picture's width a second. A round takes about 4½ minutes with two or three islands (days 8 to 30), and about 11½ minutes with five (day 180). The camera rests at home about 40% of the time.
+    - The pose is a pure function of the seconds since the drift started (the stage clock), not of frames drawn. It stays the same if frames are skipped, and `capture()` shows wherever the drift is at that moment.
+    - The drift restarts at home at every world change (a check-in) and every style change. A resize keeps its place (the stops are framed again for the new size).
+  - **A check-in:** `stage.aim(points, aspect, { ease, top, wide, others })` plans the new drift. The camera eases from where it is to the new busy view in 2.5 s, up to 6 s for a big move (smoothstep), then the new drift goes on from there.
+  - **Styles:** `createIslandScene(host, { cameraStyle })`, and `scene.cameraStyle` to change it later. `'drift'` (default), `'sway'` or `'still'` (the busy view only, as first built). `'sway'` is the drift plus a slow turn of up to 14° each way over 150 s. It is there to try by eye, not as the default: turning shows walls the art was not checked from (join-wall windows that only face the camera, the lit sliver under the sun, the edge of the north coast). The gallery uses `'still'` for its plain town pictures.
+  - **The top band:** the page lays a resource bar over the top of the island (about 64 px). Every framing keeps its points below that band. The band is `clearTop` (64 by default, `scene.clearTop` to change it), and the framing always keeps at least 30% of the picture's top half for the town, however tall the band. When the busy view is close (from about day 60), the town fills the whole picture, so land and roofs past the framed points still show under the bar.
   - Mood changes never move it.
-  - It jumps without moving on the first world, on resize, with reduced motion, and while hidden.
-  - `capture()` finishes any move first.
-- **Shadows:** the shadow area covers the framed island. Islands at the edges can go without shadows.
+  - It jumps without moving on the first world, on resize, with reduced motion, and while hidden. With reduced motion it also never drifts.
+  - `capture()` finishes any check-in move first.
+- **Shadows:** the shadow box follows the view in steps so that a moving camera never makes shadows shimmer.
+  - The box covers the ground in view, from the grass (−0.6) up to the roofs (2.2), so islands at the edges get shadows too.
+  - Its size comes in fixed steps (4 per doubling). Its middle moves in whole steps of 1/8 of its half width (128 texels of the 2048 map), so the shadow map only ever moves by whole texels and shadows don't crawl.
+  - The shadow map is drawn again only when the box steps: about once every 2 s while moving and never while resting.
+  - Soft edges are set from the camera's distance, so they look the same at every zoom.
+- **Gallery:** `views/town.js` adds `drift-early`, `drift-month` and `drift-year` (each stop and the middle of each move, in focus and break, with the top band drawn faintly) and `sway` (the turn at its widest, both ways).
 
 ### Speed
 

@@ -6,7 +6,12 @@ Things we chose to leave for later, so the town could reach a whole stopping poi
 
 - **Roofs from the Today camera.** A roof whose ridge runs across the view can read as a flat lid. The roof height went from 0.25 to 0.3 to help (`roofRise` in `electron/renderer/game/scene/style.js`). Still to try: a gable at three-way row ends, which get a hip today, and a stronger ridge trim. Code: `scene/town/blocks.js`.
 - **Bridge feet.** Each bridge foot used to leave a thin strip of sky that looked like a crack. The layout now turns it into a pier, and coast buildings move aside. Look at it again in the gallery's map and pads views.
-- **How close the camera sits.** On Today, a month-old town fills the picture with part of home, and the other islands are out of view. That follows the "follow the helpers" camera rule (decision 6), but it may be worth pulling back a little or showing the other islands now and then.
+- **How close the camera sits.** Mostly done: between check-ins the camera now drifts slowly. It rests on the busy view, pulls back to the whole group now and then, and visits each other island framed whole (BUILD_PLAN "Moods and camera", `scene/drift.js`). Left to judge by eye:
+  - The speed and rest times (`DRIFT` in `drift.js`), watched in the real app for a few minutes, not only in still pictures.
+  - Whether shadow edges crawl faintly while the camera moves. The shadow box moves in whole texel steps, but the soft-edge filter's grain is fixed to the screen, so it may shift a little against the ground.
+  - The `'sway'` style (a slow turn of up to 14°). It shows walls from angles the art was never checked from: join-wall windows that only face the camera, the lit sliver under a lower roof (below), and the edge of the north coast. Try it before making it the default.
+  - From about day 60 the busy view is close, so the town still shows under the page's resource bar at home.
+  - The drift clock keeps running while the window is hidden (nothing is drawn). When the window is shown again, the camera may be mid-trip rather than at home.
 - **Numbers to tune by eye:** land per break, model size on pads (`MODEL_SCALE` 0.9 in `kinds.js`), underside depth, how many trees and flowers, lane stones.
 - **Shadows at dusk.** The tree's shadow used to print as a hard box on the grass apart from the tree in the break and away moods. The dusk sun now stands higher with softer edges, which fixed it but made dusk shadows shorter and less dramatic. Shadows are also faint in focus.
 - **Small things a look review saw** (pictures were in `/tmp/look/`, which the Mac clears; the gallery sections are named so they can be found again):

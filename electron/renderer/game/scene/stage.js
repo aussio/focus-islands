@@ -5,10 +5,33 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MOODS, moodOf } from './style.js';
 import { blobTexture, glowTexture, moonTexture, skyTexture } from './parts.js';
 import { hash01 } from './ground.js';
+import { blendPose, driftPose, moveSize, planDrift, samePlace, swayYaw } from './drift.js';
 
 export const ELEVATION = 0.8; // about 46 degrees above the horizon: the base-builder view
 const FOV = 20; // a narrow lens, so the island reads almost like a little map
 const MAX_STARS = 160;
+
+// How the town camera behaves between check-ins (scene/drift.js):
+//   drift: rests on the busy view, then takes slow trips to the whole group and the other islands (default);
+//   sway: the same trips, and the view also turns slowly up to 14° left and right of north;
+//   still: stays on the busy view, as first built (decision 6).
+export const CAMERA_STYLES = ['drift', 'sway', 'still'];
+
+// Shadows follow the view in steps, so a moving camera never makes them shimmer. The shadow box covers
+// the ground in view. Its size comes in fixed steps (4 per doubling), and its middle moves only in steps
+// of 1/8 of its half width: 128 texels of the 2048 shadow map, so the shadow map moves by whole texels and
+// every shadow stays exactly where it was. It is drawn again only when the box steps, never while the
+// camera rests. Soft edges are set from the camera's distance, so they look the same at every zoom.
+const SHADOW_MAP = 2048;
+const SHADOW = {
+  levels: 4, // box sizes per doubling
+  steps: 8, // steps per half width
+  planes: [-0.6, 2.2], // the heights the box must cover in view: island grass (lift ±0.5) up to the roofs
+  soft: 2.8, // edge softness: radius in texels × box half width ÷ camera distance (12 texels at today's old fit)
+  bias: 0.022, // shadow bias in world units
+  rise: 8, // the sun sits this much farther out than the box's half width
+};
+const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
 
 // The world point that appears at screen position (x, y) (-1..1, y up) at a given distance from the camera.
 const ray = new THREE.Vector3();
@@ -39,9 +62,12 @@ function cloudGeometry(seed) {
   return merged;
 }
 
-// Fits the camera so every point is in view with even margins, seen from the base-builder angle.
+// Fits the camera so every point is in view with margins, seen from the base-builder angle.
+// margin: [x, y] or [x, bottom, top], how far from the middle points may reach (1 is the frame's edge). A
+// lower top keeps a band clear across the top of the picture (the page's resource bar sits there).
 // elevation: the camera's angle above the horizon, in radians (the gallery tilts it; the scene never does).
 export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elevation = ELEVATION } = {}) {
+  const bottom = margin[1], top = margin[2] ?? margin[1];
   camera.fov = FOV;
   camera.aspect = aspect;
   camera.updateProjectionMatrix();
@@ -54,12 +80,12 @@ export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elev
     for (let i = 0; i < 32; i++) {
       distance = (lo + hi) / 2;
       const e = extentsAt(side);
-      if (e.x1 - e.x0 > margin[0] * 2 || e.y1 - e.y0 > margin[1] * 2) lo = distance; else hi = distance;
+      if (e.x1 - e.x0 > margin[0] * 2 || e.y1 - e.y0 > bottom + top) lo = distance; else hi = distance;
     }
     distance = hi;
     const e = extentsAt(side);
     const halfHeight = Math.tan(FOV * Math.PI / 360) * distance;
-    target += (e.y0 + e.y1) / 2 * halfHeight * 0.9;
+    target += ((e.y0 + e.y1) / 2 - (top - bottom) / 2) * halfHeight * 0.9;
     side += (e.x0 + e.x1) / 2 * halfHeight * aspect * 0.9;
   }
   extentsAt(side);
@@ -83,22 +109,28 @@ export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elev
 // Where the camera looks to fit every point, without moving the real camera:
 // { look: [x, y, z], distance, elevation }. The same fit as frameCamera, for points anywhere in the sky:
 // the yaw stays fixed (looking north) and the look point follows the points' middle. Used by aim().
+// top: how high points may reach (frame edge 1; see frameCamera's margin).
+export const TOP = 0.86;
 const scratch = new THREE.PerspectiveCamera(FOV, 1.6, 0.1, 400);
-export function fitView(points, aspect, { elevation = ELEVATION } = {}) {
+export function fitView(points, aspect, { elevation = ELEVATION, top = TOP } = {}) {
   if (!points.length) return { look: [0, 0, 0], distance: 20, elevation };
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of points) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]); }
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-  const fit = frameCamera(scratch, points.map(p => [p[0] - cx, p[1], p[2] - cz]), aspect, undefined, { elevation });
+  const fit = frameCamera(scratch, points.map(p => [p[0] - cx, p[1], p[2] - cz]), aspect, [0.9, 0.86, top], { elevation });
   return { look: [cx + fit.side, fit.target, cz], distance: fit.distance, elevation };
 }
 
 // How tall one world unit is on screen, in pixels, at the look point.
 export const pixelsPerUnit = (distance, height) => height / (2 * distance * Math.tan(FOV * Math.PI / 360));
 
-// Camera moves: 2.5 s, easing in and out.
+// Check-in moves: 2.5 s, easing in and out; up to 2.4 times longer when the camera is far from the new
+// busy view (out on a trip), so a big way home is never fast.
 export const AIM_SECONDS = 2.5;
+const AIM_LONGEST = 2.4;
 const easeInOut = t => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+const aimSeconds = (from, to) => AIM_SECONDS * Math.min(AIM_LONGEST, Math.max(1, moveSize(from, to)));
+const copyPose = pose => pose && { ...pose, at: pose.at.slice() };
 
 // now: a clock in milliseconds, for the town camera's moves (tests pass their own).
 export function createStage({ now = () => globalThis.performance?.now?.() ?? Date.now() } = {}) {
@@ -107,7 +139,7 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
   const hemi = new THREE.HemisphereLight('#ffffff', '#b7cff5', 1.35);
   const sun = new THREE.DirectionalLight('#fff3dc', 2.3);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
   sun.shadow.bias = -0.0005;
   sun.shadow.normalBias = 0.02;
   // Soft edges (in shadow map texels): at 4 a faceted tree crown printed as a hard-edged polygon.
@@ -143,30 +175,87 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
   scene.add(fireflies);
 
   let mood = MOODS.focus, distance = 20, half = [2, 2], spots = [];
-  // The town camera: where it looks now, and a move in progress ({ from, to, start }) or null.
-  let look = null, target = null, move = null;
-  const placeCamera = (at, d, elevation = ELEVATION) => {
+  // The town camera. look: the pose on screen now. target: the busy view, where every drift starts and
+  // rests. route: the drift's trips (drift.js), or null. started: when the drift started (ms, now()).
+  // move: a check-in move in progress ({ from, start, seconds }) or null; it eases from where the camera
+  // was toward the drift's pose, which is the busy view for the drift's first DRIFT.home (60) seconds.
+  let look = null, target = null, route = null, started = 0, move = null, style = CAMERA_STYLES[0];
+  let shadowKey = '', shadowMoved = false;
+  const placeCamera = pose => {
+    const { at, distance: d, elevation, yaw = 0 } = pose;
     distance = d;
-    camera.position.set(at[0], at[1] + Math.sin(elevation) * d, at[2] + Math.cos(elevation) * d);
+    const flat = Math.cos(elevation) * d;
+    camera.position.set(at[0] + Math.sin(yaw) * flat, at[1] + Math.sin(elevation) * d, at[2] + Math.cos(yaw) * flat);
     camera.lookAt(at[0], at[1], at[2]);
     camera.far = Math.max(400, d * 4);
     camera.near = Math.max(0.05, d * 0.02);
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     if (scene.fog) { scene.fog.near = d * mood.fogNear; scene.fog.far = d * mood.fogFar; }
-    look = { at: at.slice(), distance: d, elevation };
+    look = { at: at.slice(), distance: d, elevation, yaw };
   };
-  // Moves the camera along a move in progress. Returns true while it is still moving.
-  const stepMove = () => {
-    if (!move) return false;
-    const k = easeInOut((now() - move.start) / (AIM_SECONDS * 1000));
-    const at = move.from.at.map((v, i) => v + (move.to.at[i] - v) * k);
-    // Distance eases on a log scale, so zooming in and out feel the same.
-    const elevation = move.from.elevation + (move.to.elevation - move.from.elevation) * k;
-    placeCamera(at, move.from.distance * Math.pow(move.to.distance / move.from.distance, k), elevation);
+  // The pose for now: the drift's pose (or the busy view when still), eased from a check-in move's start.
+  const poseNow = (still = false) => {
+    if (!target) return null;
+    const seconds = (now() - started) / 1000;
+    let base = target;
+    if (!still && style !== 'still') {
+      base = driftPose(route, seconds) ?? target;
+      if (style === 'sway') base = { ...base, yaw: (base.yaw ?? 0) + swayYaw(seconds) };
+    }
+    if (!move) return base;
+    const k = (now() - move.start) / (move.seconds * 1000);
+    if (k >= 1) { move = null; return base; }
+    return blendPose(move.from, base, easeInOut(k));
+  };
+  // Puts the camera at the pose for now. Nothing happens while the pose holds still (a rest), unless forced.
+  const show = (still = false, force = false) => {
+    const pose = poseNow(still);
+    if (!pose) return false;
+    if (!force && look && pose.distance === look.distance && pose.elevation === look.elevation && (pose.yaw ?? 0) === look.yaw && pose.at.every((v, i) => v === look.at[i])) return false;
+    placeCamera(pose);
     placeSky();
-    if (k >= 1) move = null;
-    return Boolean(move);
+    fitShadow();
+    return true;
+  };
+  // The shadow box for the camera as it is now (see SHADOW above). force: set it even if it hasn't
+  // stepped (a new mood turns the sun).
+  const lightX = new THREE.Vector3(), lightY = new THREE.Vector3(), lightZ = new THREE.Vector3();
+  const corner = new THREE.Vector3(), hit = new THREE.Vector3();
+  const fitShadow = (force = false) => {
+    lightZ.set(...mood.sun.dir).normalize();
+    lightX.set(0, 1, 0).cross(lightZ).normalize();
+    lightY.copy(lightZ).cross(lightX);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [sx, sy] of CORNERS) {
+      corner.set(sx, sy, 0.5).unproject(camera).sub(camera.position).normalize();
+      for (const plane of SHADOW.planes) {
+        // A corner that looks above the horizon (only in the gallery's low views) reaches 4 distances out.
+        const k = corner.y < -1e-3 ? Math.min((plane - camera.position.y) / corner.y, distance * 4) : distance * 4;
+        hit.copy(camera.position).addScaledVector(corner, Math.max(0, k));
+        const x = hit.dot(lightX), y = hit.dot(lightY);
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+      }
+    }
+    // Snapping moves the middle by up to half a step, so the box needs that much more room.
+    const need = Math.max(x1 - x0, y1 - y0) / 2 * (1 + 1 / SHADOW.steps);
+    const level = Math.ceil(Math.log2(Math.max(0.5, need)) * SHADOW.levels);
+    const size = 2 ** (level / SHADOW.levels);
+    const step = size / SHADOW.steps;
+    const ix = Math.round((x0 + x1) / 2 / step), iy = Math.round((y0 + y1) / 2 / step);
+    const iz = Math.round((look?.at ?? [0, 0, 0]).reduce((sum, v, i) => sum + v * lightZ.getComponent(i), 0) / size);
+    sun.shadow.radius = SHADOW.soft * distance / size;
+    const key = `${mood.key}|${level}|${ix}|${iy}|${iz}`;
+    if (key === shadowKey && !force) return;
+    shadowKey = key;
+    shadowMoved = true;
+    const reach = size + SHADOW.rise;
+    sun.target.position.set(0, 0, 0).addScaledVector(lightX, ix * step).addScaledVector(lightY, iy * step).addScaledVector(lightZ, iz * size);
+    sun.position.copy(sun.target.position).addScaledVector(lightZ, reach);
+    Object.assign(sun.shadow.camera, { left: -size, right: size, top: size, bottom: -size, near: 0.5, far: reach * 2 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -SHADOW.bias / (reach * 2 - 0.5);
+    sun.userData.reach = reach;
   };
   const placeSky = () => {
     for (const cloud of clouds) {
@@ -206,7 +295,10 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
     // elevation: the camera's angle above the horizon (gallery only; the scene keeps Today's).
     frame(points, aspect, land = [], { elevation = ELEVATION } = {}) {
       spots = land;
-      look = target = move = null; // a framed view never moves the camera
+      look = target = move = route = null; // a framed view never moves the camera
+      shadowKey = '';
+      sun.shadow.bias = -0.0005;
+      sun.shadow.radius = 12;
       const fit = frameCamera(camera, points, aspect, undefined, { elevation });
       distance = fit.distance;
       camera.far = Math.max(400, distance * 4);
@@ -226,58 +318,71 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       makeFireflies();
       return fit;
     },
-    // The town camera. Fits the camera to the points (world [x, y, z]) with the yaw fixed, looking north.
-    // ease: move there over AIM_SECONDS; otherwise (and for the first aim) jump. Aiming at the place it
-    // already looks at, or is moving to, does nothing. The shadow area covers the points.
+    // The town camera. Fits the busy view to the points (world [x, y, z]) looking north, and plans the
+    // drift's trips from it (drift.js): wide is every island's points (the whole group), others one list
+    // of points per other island. Without them the camera stays on the busy view.
+    // ease: move from where the camera is now to the busy view, over AIM_SECONDS (longer from far away);
+    // otherwise (and for the first aim) jump. restart: start the drift again from its rest on the busy
+    // view (every new world); a resize keeps its place in the drift. A new aim at the busy view it is
+    // already moving to keeps that move. The shadow box follows the view (fitShadow).
     // land: [x, z, y] spots over grass, where fireflies may hover. elevation: the camera's angle above the
-    // horizon (gallery only; the scene keeps Today's). Returns { look, distance, elevation } of the end.
-    aim(points, aspect, { ease = false, land = [], elevation = ELEVATION } = {}) {
+    // horizon (gallery only; the scene keeps Today's). top: how high points may reach in the picture (see
+    // frameCamera; lower keeps a band clear at the top). Returns { look, distance, elevation } of the busy view.
+    aim(points, aspect, { ease = false, land = [], elevation = ELEVATION, top = TOP, wide = null, others = [], restart = true } = {}) {
       camera.fov = FOV;
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
-      const fit = fitView(points, aspect, { elevation });
-      const end = { at: fit.look, distance: fit.distance, elevation };
-      const same = target && end.distance.toFixed(3) === target.distance.toFixed(3) && end.elevation === target.elevation && end.at.every((v, i) => v.toFixed(3) === target.at[i].toFixed(3));
-      // Already there, or on the way: an eased aim changes nothing; a jump finishes the move.
-      if (same && ease) return fit;
-      if (same && move) { move.start = -Infinity; stepMove(); return fit; }
+      const fit = fitView(points, aspect, { elevation, top });
+      const end = { at: fit.look, distance: fit.distance, elevation, yaw: 0 };
+      const poseFor = list => { const f = fitView(list, aspect, { elevation, top }); return { at: f.look, distance: f.distance, elevation, yaw: 0 }; };
+      const keep = ease && move && samePlace(target, end, 1e-3);
+      route = planDrift({ home: end, wide: wide?.length ? poseFor(wide) : null, others: others.filter(list => list?.length).map(poseFor) });
       target = end;
       spots = land;
-      // Shadows: a box around the look point that holds every point.
-      let span = 1;
-      for (const p of points) span = Math.max(span, Math.hypot(p[0] - end.at[0], p[1] - end.at[1], p[2] - end.at[2]));
-      span += 0.5;
-      const reach = Math.max(14, span * 2);
-      Object.assign(sun.shadow.camera, { left: -span, right: span, top: span, bottom: -span, near: 0.5, far: reach * 3 });
-      sun.shadow.camera.updateProjectionMatrix();
-      sun.userData.reach = reach;
-      sun.target.position.set(...end.at);
       let sx = 1, sz = 1;
       for (const p of points) { sx = Math.max(sx, Math.abs(p[0] - end.at[0])); sz = Math.max(sz, Math.abs(p[2] - end.at[2])); }
       half = [sx, sz];
-      if (ease && look) {
-        move = { from: { ...look, at: look.at.slice() }, to: end, start: now() };
-        this.setMood(mood.key);
-        stepMove();
-      } else {
+      if (restart || !look) started = now();
+      if (!keep) {
         move = null;
-        placeCamera(end.at, end.distance, end.elevation);
-        this.setMood(mood.key);
-        placeSky();
+        const to = poseNow();
+        if (ease && look && !samePlace(look, to, 1e-3)) move = { from: copyPose(look), start: now(), seconds: aimSeconds(look, to) };
       }
+      show(false, true);
+      fitShadow(true);
       makeFireflies();
       return fit;
     },
-    // Finishes any camera move at once.
+    // Finishes a check-in move at once. The drift goes on from where it is.
     settle() {
       if (!move) return false;
-      move.start = -Infinity;
-      stepMove();
+      move = null;
+      show();
       return true;
     },
+    // How the camera behaves between check-ins: one of CAMERA_STYLES. A change starts the drift again
+    // from its rest on the busy view, and the camera eases there from wherever it is.
+    get style() { return style; },
+    set style(next) {
+      if (!CAMERA_STYLES.includes(next) || next === style) return;
+      style = next;
+      started = now();
+      if (!target || !look) return;
+      move = null;
+      const to = poseNow();
+      if (!samePlace(look, to, 1e-3)) move = { from: copyPose(look), start: now(), seconds: aimSeconds(look, to) };
+      show();
+    },
+    // True while a check-in (or style) move is under way. The drift itself never counts as moving.
     get moving() { return Boolean(move); },
-    get look() { return look && { ...look, at: look.at.slice() }; },
-    get target() { return target && { ...target, at: target.at.slice() }; },
+    // The drift's plan (drift.js planDrift), or null when the camera has nowhere else to look.
+    get route() { return route; },
+    // Seconds since the drift started (it starts again at each new world and style).
+    get driftSeconds() { return target ? (now() - started) / 1000 : 0; },
+    get look() { return copyPose(look); },
+    get target() { return copyPose(target); },
+    // True once after the shadow box stepped, so the shadow map needs drawing again.
+    takeShadowMoved() { const was = shadowMoved; shadowMoved = false; return was; },
     setMood(name) {
       const key = moodOf(name);
       mood = { key, ...MOODS[key] };
@@ -285,9 +390,12 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       scene.fog = new THREE.Fog(mood.fog, distance * mood.fogNear, distance * mood.fogFar);
       hemi.color.set(mood.hemi[0]); hemi.groundColor.set(mood.hemi[1]); hemi.intensity = mood.hemi[2];
       sun.color.set(mood.sun.color); sun.intensity = mood.sun.intensity;
-      const reach = sun.userData.reach ?? 14;
-      const aimAt = sun.target.position;
-      sun.position.set(aimAt.x + mood.sun.dir[0] * reach, aimAt.y + mood.sun.dir[1] * reach, aimAt.z + mood.sun.dir[2] * reach);
+      if (look) fitShadow(true); // the town camera: the sun turns, so its shadow box turns with it
+      else {
+        const reach = sun.userData.reach ?? 14;
+        const aimAt = sun.target.position;
+        sun.position.set(aimAt.x + mood.sun.dir[0] * reach, aimAt.y + mood.sun.dir[1] * reach, aimAt.z + mood.sun.dir[2] * reach);
+      }
       fill.color.set(mood.fill[0]); fill.intensity = mood.fill[1];
       fill.position.set(-3, -4, 8);
       cloudMaterial.color.set(mood.cloud.color); cloudMaterial.emissive.set(mood.cloud.emissive);
@@ -297,10 +405,13 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       moon.visible = moonGlow.visible = mood.moon;
       fireflies.visible = mood.fireflies > 0;
     },
-    update(t) {
-      stepMove();
-      const range = distance * 1.4;
-      for (const cloud of clouds) cloud.position.x = ((cloud.userData.x0 + t * 0.05 + range) % (range * 2) + range * 2) % (range * 2) - range;
+    // Moves the camera along the drift or a check-in move, then the clouds and fireflies.
+    // still: the camera stays on the busy view (reduced motion), and only a check-in move finishes.
+    update(t, still = false) {
+      show(still);
+      // Clouds drift slowly to the right and wrap around within a band centred on the view.
+      const range = distance * 1.4, middle = look?.at[0] ?? 0;
+      for (const cloud of clouds) cloud.position.x = middle + ((cloud.userData.x0 - middle + t * 0.05 + range) % (range * 2) + range * 2) % (range * 2) - range;
       if (!fireflies.visible) return;
       for (const fly of fireflies.children) {
         const { x, z, h, s, i, phase } = fly.userData;

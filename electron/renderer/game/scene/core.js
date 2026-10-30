@@ -3,11 +3,12 @@
 //
 // The world is a town (town/shape.js, from town/index.js buildTown). Each island is its own group,
 // rebuilt only when its own part of the world changes (scene/town/build.js). The camera aims at
-// view.island and moves there slowly when a new world asks it to look somewhere else (stage.aim).
+// view.island and moves there slowly when a new world asks it to look somewhere else (stage.aim). Between
+// check-ins it drifts: slow trips to the whole group and to each other island, and back (drift.js).
 // Anything that isn't a town world (a missing or broken world, or one with no islands) draws as an
 // empty sky.
 import { MOODS, moodOf, createMaterials, moodMaterials } from './style.js';
-import { createStage, fitView, pixelsPerUnit } from './stage.js';
+import { TOP, createStage, fitView, pixelsPerUnit } from './stage.js';
 import { createActors } from './actors.js';
 import { isTownWorld, parseTown } from './town/world.js';
 import { createTownBuilder } from './town/build.js';
@@ -19,6 +20,10 @@ const HELPER_HEIGHT = 0.4; // a helper's height in world units at scale 1
 const CLOSE_STEPS = 4; // the close view keeps this many grid steps around view.points
 const EMPTY = 'empty'; // the key of the empty sky
 const SKY_POINTS = [[-2, 0, -2], [2, 0, -2], [-2, 0, 2], [2, 0, 2]]; // what the camera frames with nothing to show
+// Pixels kept clear of the town across the top of the picture, where Today's resource bar sits (about 60
+// to 70 px tall). The picture's own top margin already keeps about 25 px of a 357 px picture clear.
+export const CLEAR_TOP = 64;
+const LOWEST_TOP = 0.3; // however tall the band, the town keeps at least this much of the frame's top half
 
 // A text key for a world; one that can't be written down gets a key of its own, so it is always built.
 function keyOf(world) {
@@ -26,8 +31,9 @@ function keyOf(world) {
   try { return townKey(world); } catch { return `unkeyed:${Math.random()}`; }
 }
 
-// now: a clock in milliseconds (camera moves and rebuild timing). log: a Map for the town's piece logs.
-export function createSceneCore({ now, log = null } = {}) {
+// now: a clock in milliseconds (camera moves, the drift and rebuild timing). log: a Map for the town's
+// piece logs. clearTop: pixels kept clear across the top (CLEAR_TOP).
+export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) {
   const materials = createMaterials();
   const stage = createStage(now ? { now } : {});
   const actors = createActors(stage.scene);
@@ -39,11 +45,14 @@ export function createSceneCore({ now, log = null } = {}) {
 
   // The camera (decision 6). It frames view.island whole if helpers there stay at least 18 px tall with a
   // boost of at most 1.4; otherwise view.points and 4 steps around them. ease: move there slowly.
+  // Between check-ins it drifts (stage.aim's wide and others): out to the whole group, to each other
+  // island framed whole, and back. restart: start the drift again from its rest (false on a resize).
   let aimed = null;
-  const aim = (ease = false) => {
+  const aim = (ease = false, { restart = true } = {}) => {
     if (!town || !model) return;
     const aspect = size[0] / Math.max(1, size[1]);
-    const boostAt = points => HELPER_MIN_PX / Math.max(1e-3, HELPER_HEIGHT * pixelsPerUnit(fitView(points, aspect).distance, size[1]));
+    const top = Math.max(LOWEST_TOP, Math.min(TOP, 1 - 2 * clearTop / Math.max(1, size[1])));
+    const boostAt = points => HELPER_MIN_PX / Math.max(1e-3, HELPER_HEIGHT * pixelsPerUnit(fitView(points, aspect, { top }).distance, size[1]));
     const view = model.view;
     const id = view.island ?? model.islands[0]?.id ?? null;
     let points = id ? town.framePoints(id) : [];
@@ -56,8 +65,10 @@ export function createSceneCore({ now, log = null } = {}) {
       if (near.length) { points = near; boost = boostAt(points); close = true; }
     }
     actors.setScale(Math.min(TOWN_MAX_BOOST, Math.max(1, boost)));
-    stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [] });
-    aimed = { island: id, close, points: points.length };
+    const others = model.islands.filter(i => i.id !== id).map(i => town.framePoints(i.id)).filter(list => list.length);
+    const wide = model.islands.flatMap(i => town.framePoints(i.id));
+    stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [], top, wide, others, restart });
+    aimed = { island: id, close, points: points.length, top };
     changed = true;
   };
 
@@ -122,13 +133,24 @@ export function createSceneCore({ now, log = null } = {}) {
     resize(width, height) {
       if (width === size[0] && height === size[1]) return false;
       size = [width, height];
-      if (town && model) aim(false);
+      if (town && model) aim(false, { restart: false });
       else { stage.camera.aspect = width / Math.max(1, height); stage.camera.updateProjectionMatrix(); }
       return true;
     },
-    // Finishes any camera move at once (before a capture, or when the page is hidden).
+    // Finishes a check-in move at once (before a capture, or when the page is hidden). The drift goes on.
     settle() { return stage.settle(); },
     get moving() { return stage.moving; },
+    // How the camera behaves between check-ins: drift (default), sway or still (stage.js CAMERA_STYLES).
+    get cameraStyle() { return stage.style; },
+    set cameraStyle(style) { stage.style = style; },
+    // Pixels kept clear across the top of the picture. A change frames again at once.
+    get clearTop() { return clearTop; },
+    set clearTop(pixels) {
+      const next = Math.max(0, Number(pixels) || 0);
+      if (next === clearTop) return;
+      clearTop = next;
+      if (town && model) aim(false, { restart: false });
+    },
     // Builds every island and bridge again (after a lost drawing context comes back).
     rebuild() {
       if (!town || !model) return false;
@@ -136,12 +158,15 @@ export function createSceneCore({ now, log = null } = {}) {
       applyMood();
       return true;
     },
-    // Moves helpers and the few living details. still: everyone stands at their spot, nothing moves.
+    // Moves helpers, the few living details and the camera's drift. still: everyone stands at their spot,
+    // nothing moves, and the camera stays on the busy view.
     update(t, still = false) {
       const time = still ? 0 : t;
       actors.update(time, still);
       town?.animate(time);
-      stage.update(time);
+      stage.update(time, still);
+      // The shadow box stepped with the view: the shadow map needs drawing again.
+      if (stage.takeShadowMoved()) changed = true;
     },
     // Triangles and meshes in the static island groups (helpers and sky not counted).
     stats() { return town ? { ...town.stats(), rebuildMs: lastReport?.ms ?? 0, islandMs: lastReport?.islandMs ?? {} } : null; },

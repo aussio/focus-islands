@@ -18,8 +18,10 @@ globalThis.document ??= { createElement: element, createElementNS: (_, tag) => e
 
 const { SAMPLE_NAMES, sampleTown, sampleFilm } = await import('../../town/samples.js');
 const { parseTown, isTownWorld, drawKey } = await import('./world.js');
-const { createSceneCore } = await import('../core.js');
+const { CLEAR_TOP, createSceneCore } = await import('../core.js');
 const { AIM_SECONDS, ELEVATION, createStage } = await import('../stage.js');
+const { DRIFT, samePlace } = await import('../drift.js');
+const THREE = await import('three');
 
 test('parseTown reads every sample town', () => {
   for (const name of SAMPLE_NAMES) {
@@ -302,6 +304,179 @@ test('the camera frames the view island whole, or closes in so helpers stay read
   assert.ok(scale() <= 1.4 + 1e-9);
   core.resize(591, 357);
   assert.equal(core.aimed.close, false);
+  core.dispose();
+});
+
+// True when every point shows inside the picture, and no higher than `top` (1 is the top edge).
+const inView = (camera, points, top = 1) => points.every(p => {
+  const v = new THREE.Vector3(...p).project(camera);
+  return Math.abs(v.x) <= 1 + 1e-6 && v.y >= -1 - 1e-6 && v.y <= top + 1e-6;
+});
+const restingAt = (route, seconds) => route.segments.find(g => (seconds % route.period) < g.start + g.seconds);
+const at = (core, clock, seconds) => { clock.ms = seconds * 1000; core.update(seconds); };
+// A town big enough to drift in: several islands, at Today's size.
+function driftingCore(options) {
+  const world = sampleTown('manyIslands');
+  const { core, clock } = clockedCore(options);
+  core.resize(591, 357);
+  core.setWorld(world);
+  return { world, core, clock, route: core.stage.route };
+}
+
+test('between check-ins the camera drifts: a rest on the busy view, then the whole group and every island whole', () => {
+  const { world, core, clock, route } = driftingCore();
+  assert.ok(route, 'a town with several islands has somewhere else to look');
+  const home = core.stage.look;
+  for (const s of [1, 30, DRIFT.home - 0.5]) {
+    at(core, clock, s);
+    assert.deepEqual(core.stage.look, home, `at ${s} s it still rests on the busy view`);
+  }
+  assert.equal(core.moving, false, 'the drift is not a check-in move');
+  // At the middle of each rest, what it rests on is fully in view; over a round, every island is.
+  const seen = new Set();
+  let wholeGroup = false;
+  for (const g of route.segments.filter(g => g.from === g.to)) {
+    at(core, clock, g.start + g.seconds / 2);
+    for (const island of world.islands) if (inView(core.camera, core.town.framePoints(island.id))) seen.add(island.id);
+    if (g.from === route.wide) wholeGroup ||= world.islands.every(island => inView(core.camera, core.town.framePoints(island.id)));
+  }
+  assert.deepEqual([...seen].sort(), world.islands.map(i => i.id).sort(), 'every island is seen whole at some point');
+  assert.ok(wholeGroup, 'the pull back shows every island at once');
+  // The yaw stays fixed all the way round.
+  for (let s = 0; s < route.period; s += 5) {
+    at(core, clock, s);
+    const d = core.camera.getWorldDirection(new THREE.Vector3());
+    assert.ok(Math.abs(d.x) < 1e-6 && d.z < 0, 'the drift always looks north');
+  }
+  // The same moment gives exactly the same picture, in another core too.
+  const twin = driftingCore();
+  for (const s of [12, 75.5, 140.25]) {
+    at(core, clock, s);
+    at(twin.core, twin.clock, s);
+    assert.deepEqual(twin.core.camera.position.toArray(), core.camera.position.toArray());
+  }
+  twin.core.dispose();
+  core.dispose();
+});
+
+test('a check-in eases from wherever the drift is to the busy view, then the drift starts again from its rest', () => {
+  const { world, core, clock, route } = driftingCore();
+  const away = route.segments.find(g => g.from === g.to && g.from !== route.home);
+  at(core, clock, away.start + away.seconds / 2);
+  const out = core.stage.look;
+  assert.ok(!samePlace(out, core.stage.target), 'out on a trip');
+  // A mood change never moves it.
+  core.setMood('break');
+  assert.deepEqual(core.stage.look, out);
+  // A new world (here only a helper's name changed): ease home from right here.
+  const renamed = copy(world);
+  renamed.helpers[0].name = 'Pippa';
+  core.setWorld(renamed);
+  assert.equal(core.moving, true, 'it eases home');
+  assert.ok(samePlace(core.stage.look, out, 1e-9), 'starting where it was');
+  assert.equal(core.stage.driftSeconds, 0, 'the drift starts again');
+  at(core, clock, clock.ms / 1000 + AIM_SECONDS / 2);
+  assert.equal(core.moving, true, 'it takes at least AIM_SECONDS');
+  at(core, clock, clock.ms / 1000 + AIM_SECONDS * 2.4);
+  assert.equal(core.moving, false, 'and at most 2.4 times that');
+  assert.ok(samePlace(core.stage.look, core.stage.target, 1e-9), 'then it rests on the busy view');
+  at(core, clock, clock.ms / 1000 + DRIFT.home - AIM_SECONDS * 3);
+  assert.ok(samePlace(core.stage.look, core.stage.target, 1e-9), 'for the rest of the drift\'s first rest');
+  core.dispose();
+});
+
+test('reduced motion and the still style keep the camera on the busy view; sway turns it a little', () => {
+  const { core, clock, route } = driftingCore();
+  const away = route.segments.find(g => g.from === g.to && g.from !== route.home);
+  const seconds = away.start + away.seconds / 2;
+  // A still frame (reduced motion) shows the busy view even while the drift is out.
+  clock.ms = seconds * 1000;
+  core.update(seconds, true);
+  assert.ok(samePlace(core.stage.look, core.stage.target, 1e-9));
+  core.update(seconds);
+  assert.ok(!samePlace(core.stage.look, core.stage.target), 'a moving frame shows the drift');
+  // The still style eases home and stays there.
+  core.cameraStyle = 'still';
+  assert.equal(core.cameraStyle, 'still');
+  assert.equal(core.moving, true);
+  for (const later of [10, 100, 1000]) {
+    at(core, clock, seconds + later);
+    assert.ok(samePlace(core.stage.look, core.stage.target, 1e-9), `still home ${later} s later`);
+  }
+  core.cameraStyle = 'spin';
+  assert.equal(core.cameraStyle, 'still', 'an unknown style is ignored');
+  // Sway: the drift, plus a slow turn of at most 14° from north.
+  core.cameraStyle = 'sway';
+  const from = clock.ms / 1000;
+  let most = 0;
+  for (let s = 0; s < 300; s += 2) {
+    at(core, clock, from + s);
+    if (core.moving) continue;
+    most = Math.max(most, Math.abs(core.stage.look.yaw));
+  }
+  assert.ok(most > 0.2 && most <= 14 * Math.PI / 180 + 1e-9, `sway turned ${most}`);
+  core.dispose();
+});
+
+test('the shadow box covers the view, moves only by whole shadow texels, and is never redrawn during a rest', () => {
+  const { core, clock, route } = driftingCore();
+  const sun = core.scene.children.find(node => node.isDirectionalLight && node.castShadow);
+  core.update(0);
+  core.takeChanged();
+  for (let s = 0.5; s < DRIFT.home; s += 0.5) {
+    at(core, clock, s);
+    assert.equal(core.takeChanged(), false, `no shadow redraw while resting (${s} s)`);
+  }
+  const check = () => {
+    const z = sun.position.clone().sub(sun.target.position).normalize();
+    const x = new THREE.Vector3(0, 1, 0).cross(z).normalize();
+    const y = z.clone().cross(x);
+    const half = sun.shadow.camera.right;
+    const texel = 2 * half / sun.shadow.mapSize.x;
+    for (const axis of [x, y]) {
+      const steps = sun.target.position.dot(axis) / texel;
+      assert.ok(Math.abs(steps - Math.round(steps)) < 1e-4, 'the box sits on the texel grid');
+    }
+    // Every corner of the picture, on the ground at any island height, is inside the box.
+    const ray = new THREE.Vector3(), hit = new THREE.Vector3();
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) for (const plane of [-0.5, 0.5]) {
+      ray.set(sx, sy, 0.5).unproject(core.camera).sub(core.camera.position).normalize();
+      hit.copy(core.camera.position).addScaledVector(ray, (plane - core.camera.position.y) / ray.y).sub(sun.target.position);
+      assert.ok(Math.abs(hit.dot(x)) <= half && Math.abs(hit.dot(y)) <= half, 'the ground in view has shadows');
+    }
+  };
+  check();
+  let redraws = 0;
+  for (let s = 0; s < route.period; s += 1 / 30) {
+    at(core, clock, s);
+    if (!core.takeChanged()) continue;
+    redraws++;
+    const g = restingAt(route, s);
+    assert.notEqual(g.from, g.to, `a redraw during a rest at ${s.toFixed(2)} s`);
+    check();
+  }
+  assert.ok(redraws > 0 && redraws <= route.period / 2, `${redraws} shadow redraws in a ${route.period.toFixed(0)} s round`);
+  // A new mood turns the sun: the box is set again for it.
+  core.setMood('break');
+  check();
+  core.dispose();
+});
+
+test('the busy view keeps a band clear across the top, and a resize keeps the drift\'s place', () => {
+  const { world, core, clock } = driftingCore();
+  const top = 1 - 2 * CLEAR_TOP / 357;
+  const island = core.aimed.island;
+  assert.ok(inView(core.camera, core.town.framePoints(island), top + 0.01), 'nothing framed reaches into the band');
+  assert.ok(!inView(core.camera, core.town.framePoints(island), top - 0.08), 'and the town reaches up close to it');
+  core.clearTop = 0;
+  assert.ok(!inView(core.camera, core.town.framePoints(island), top + 0.01), 'with no band, the town frames higher');
+  core.clearTop = CLEAR_TOP;
+  at(core, clock, 100);
+  const seconds = core.stage.driftSeconds;
+  core.resize(600, 360);
+  assert.equal(core.stage.driftSeconds, seconds, 'a resize keeps the drift\'s place');
+  assert.equal(core.moving, false, 'and jumps');
+  void world;
   core.dispose();
 });
 

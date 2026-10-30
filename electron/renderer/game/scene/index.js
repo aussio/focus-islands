@@ -1,27 +1,40 @@
-// The sky-island scene. createIslandScene(host) draws a town world (town/index.js buildTown) in style D
-// and returns { setWorld(world), setMood(mood), capture(), stats(), dispose() }.
+// The sky-island scene. createIslandScene(host, { cameraStyle, clearTop }) draws a town world
+// (town/index.js buildTown) in style D and returns
+// { setWorld(world), setMood(mood), capture(), stats(), dispose(), cameraStyle, clearTop }.
 //
 // - setWorld rebuilds geometry only when the world data changed. setMood (focus | break | away | done)
 //   changes only the sky, the light, what glows and what the helpers do.
 // - Draws at most about 30 frames a second, and stops completely while the page is hidden, the host is
 //   detached, has no size, or is scrolled off screen. When shown again, helpers start fresh.
 // - With reduced motion, it draws one still frame per change with helpers standing at their spots.
-// - capture() draws one fresh frame right away (even while paused), with any camera move finished
-//   first, and resolves with the canvas (or null when nothing can be drawn).
+// - capture() draws one fresh frame right away (even while paused), with any check-in move finished
+//   first and the camera where the drift is at that moment, and resolves with the canvas (or null when
+//   nothing can be drawn).
 // - The camera moves slowly to where a new world should be seen. It jumps instead on the first world, on
 //   resize, with reduced motion, and while hidden or off screen. After a lost drawing context comes back,
 //   every island is built again. A world that isn't a town draws as an empty sky (scene/core.js).
+// - Between check-ins the camera drifts (scene/drift.js): it rests on the busy view, then slowly pulls back
+//   to the whole group now and then, visits each other island framed whole, and comes home. Where it is
+//   depends only on the time since the world last changed, so nothing is drawn while hidden; when shown
+//   again it is wherever the drift has got to. With reduced motion it stays on the busy view.
+// - cameraStyle (get or set): 'drift' (default), 'sway' (the drift plus a slow turn of up to 14° left and
+//   right) or 'still' (the busy view only). CAMERA_STYLES lists them. A change eases back to the busy view.
+// - clearTop (get or set): pixels kept clear of the town across the top, where the page's resource bar
+//   sits (scene/core.js CLEAR_TOP, 64 by default).
 // - stats() is a speed readout for the gallery: triangles, draw calls, frame time and rebuild time.
 // - If WebGL cannot start, the host gets a soft sky-coloured background instead, and nothing throws.
 // The canvas fills the host (width and height 100%), so the host needs a size of its own.
 import * as THREE from 'three';
 import { MOODS, moodOf } from './style.js';
-import { createSceneCore } from './core.js';
+import { CLEAR_TOP, createSceneCore } from './core.js';
+import { CAMERA_STYLES } from './stage.js';
+
+export { CAMERA_STYLES };
 
 const FRAME_MS = 1000 / 30;
 const MAX_PIXEL_RATIO = 2;
 
-export function createIslandScene(host) {
+export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearTop = CLEAR_TOP } = {}) {
   const doc = host?.ownerDocument ?? globalThis.document;
   const view = doc?.defaultView ?? globalThis.window ?? globalThis;
   const now = () => (globalThis.performance?.now?.() ?? Date.now());
@@ -59,7 +72,8 @@ export function createIslandScene(host) {
     renderer.shadowMap.type = THREE.PCFShadowMap;
     // Only helpers move and they use soft blob shadows, so the island's shadows are drawn once per change.
     renderer.shadowMap.autoUpdate = false;
-    core = createSceneCore();
+    core = createSceneCore({ clearTop });
+    core.cameraStyle = cameraStyle;
     host.appendChild(canvas);
   } catch (error) {
     try { renderer?.dispose(); } catch { /* ignore */ }
@@ -207,6 +221,20 @@ export function createIslandScene(host) {
         console.error('Island scene could not change mood:', error);
         return;
       }
+      if (running) draw(false);
+      sync();
+    },
+    get cameraStyle() { return core?.cameraStyle ?? null; },
+    set cameraStyle(style) {
+      if (disposed || !core) return;
+      core.cameraStyle = style;
+      if (running) draw(false);
+      sync();
+    },
+    get clearTop() { return core?.clearTop ?? null; },
+    set clearTop(pixels) {
+      if (disposed || !core) return;
+      core.clearTop = pixels;
       if (running) draw(false);
       sync();
     },

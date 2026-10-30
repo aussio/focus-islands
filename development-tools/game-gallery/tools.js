@@ -20,7 +20,7 @@
 //       shows the error instead.
 //   worldShot(world, mood, { width, height }) => Promise<img>
 //       Draws a whole town world (islands with a grid) through createIslandScene, the same way Today does,
-//       with Today's follow camera (it frames world.view). If the scene can't build the world, the image
+//       with Today's follow camera resting on the busy view (it frames world.view; no drift). If the scene can't build the world, the image
 //       says so. The image carries img.stats from the scene's stats().
 //   card(title, note, images) => <figure>         a labelled card; append it yourself
 //   heading(text, note) => <h2>                   added to the section's host (and returned)
@@ -221,14 +221,15 @@ export async function shot(build, options = {}) {
 }
 
 // ---------- worldShot ----------
-// One hidden scene draws every world in turn, the way Today draws it.
+// One hidden scene draws every world in turn, the way Today draws it. Its camera stays on the busy view
+// (the still style), so pictures never depend on how long the page took; views/town.js shows the drift.
 let worldStage = null, worldScene = null;
 function sharedScene() {
   if (worldScene) return worldScene;
   worldStage = document.createElement('div');
   worldStage.className = 'gallery-stage';
   document.body.append(worldStage);
-  worldScene = createIslandScene(worldStage);
+  worldScene = createIslandScene(worldStage, { cameraStyle: 'still' });
   return worldScene;
 }
 
