@@ -1,5 +1,5 @@
 import { dayPath } from './day-path.js';
-import { amountList, checkInCard, checkInNote, createHud, hudLook, looks, saveHudLook } from './game-hud.js';
+import { amountList, checkInCard, checkInNote, createHud } from './game-hud.js';
 import { appStore } from './state.js';
 
 const pages = [
@@ -195,15 +195,11 @@ function demoControls(s) {
     const warn = step === 'start-over' && confirming;
     return `<button class="button${step === demoBusy ? ' is-busy' : ''}${warn ? ' is-warning' : ''}" type="button" data-demo-step="${step}" title="${html(hint(s))}"${off ? ' disabled' : ''}>${html(warn ? 'Click again to wipe' : label(s))}</button>`;
   }).join('')}</div>`).join('');
-  // Trial looks for the island's resource bar and card (game-hud.js). The choice is kept in this window's storage.
-  const look = hudLook(s);
-  const lookGroup = `<div class="demo-group" role="group" aria-label="Look"><span class="demo-group-title">Look</span>${looks.map(([name, label]) =>
-    `<button class="button${name === look ? ' is-on' : ''}" type="button" data-hud-look="${name}" aria-pressed="${name === look}" title="Try this look for the resource bar and the check-in card.">${html(label)}</button>`).join('')}</div>`;
   const note = demoError || (demoBusy ? (demoBusy === 'week' ? 'Playing 7 days…' : demoBusy === 'month' ? 'Playing 30 days…' : 'Fast-forwarding…')
     : confirming ? 'Click Start over again within 5 seconds to delete this demo and begin again.'
       : s.dayEndedAt ? `The day is done. ${s.game?.checkIn ? 'Pick on the card when you like, then press' : 'Press'} Next morning.`
         : s.game?.checkIn ? 'A card is waiting on the island. Pick on it when you like. If you keep going first, it stays and gathers what you earn next, as in the real app.' : '');
-  return `${groups}${lookGroup}${note ? `<p class="demo-note${demoError ? ' error' : ''}" id="demo-note">${html(note)}</p>` : ''}`;
+  return `${groups}${note ? `<p class="demo-note${demoError ? ' error' : ''}" id="demo-note">${html(note)}</p>` : ''}`;
 }
 function demoLogItems(s) {
   return (s.demo.log || []).slice(-4).reverse().map(entry => `<li><time>${entry.day ? `Day ${html(entry.day)} · ` : ''}${html(clock(entry.at))}</time><span>${html(entry.text)}</span></li>`).join('');
@@ -240,9 +236,9 @@ async function runDemoStep(step) {
   }
 }
 // ---- Sky island check-in. The bar and the card are drawn by game-hud.js; this keeps them in step with the status.
-function updateCheckIn(status, look) {
+function updateCheckIn(status) {
   const game = status.game, card = game?.checkIn;
-  const key = `${look}|${card?.token ? `card:${card.token}` : game?.lastCheckIn ? `note:${status.profile}:${game.lastCheckIn.number}` : ''}`;
+  const key = card?.token ? `card:${card.token}` : game?.lastCheckIn ? `note:${status.profile}:${game.lastCheckIn.number}` : '';
   if (key === checkInKey) return;
   checkInKey = key;
   let markup = '';
@@ -250,17 +246,14 @@ function updateCheckIn(status, look) {
   catch (error) { console.error('Could not show the island check-in:', error); }
   checkInSlot.innerHTML = markup;
   checkInSlot.dataset.state = !markup ? 'empty' : card?.token ? 'card' : 'note';
-  checkInSlot.dataset.look = look;
 }
 function updateGameHud(status) {
-  const look = hudLook(status);
-  try { hud.update(status, look); } catch (error) { console.error('Could not show the island resources:', error); }
-  updateCheckIn(status, look);
+  try { hud.update(status); } catch (error) { console.error('Could not show the island resources:', error); }
+  updateCheckIn(status);
 }
 async function tapCheckIn(button) {
   const cardNode = button.closest('.check-in-card');
   if (!cardNode || cardNode.getAttribute('aria-busy') === 'true') return;
-  try { hud.noteTap(cardNode); } catch { /* only the look B flight needs this */ }
   const buttons = [...cardNode.querySelectorAll('button')];
   cardNode.setAttribute('aria-busy', 'true');
   button.classList.add('is-picked');
@@ -350,7 +343,7 @@ function updatePresenceDisplay() {
   const resting = away || status.inferredBreakActive || status.phase === 'rest' || status.phase === 'break';
   document.querySelector('.today-stage')?.classList.toggle('is-resting', resting);
   const mood = islandMood(status);
-  if (islandSlot.dataset.mood !== mood) islandSlot.dataset.mood = hud.slot.dataset.mood = mood;
+  if (islandSlot.dataset.mood !== mood) islandSlot.dataset.mood = mood;
   showIsland(status, mood);
   const threshold = activity.inactiveAfterSeconds || 5;
   const elapsed = activity.idleSeconds;
@@ -800,8 +793,6 @@ document.addEventListener('click', event => {
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
   const checkInButton = event.target.closest('#today-check-in [data-check-in-pick]');
   if (checkInButton) { tapCheckIn(checkInButton); return; }
-  const lookButton = event.target.closest('#demo-panel [data-hud-look]');
-  if (lookButton) { saveHudLook(lookButton.dataset.hudLook); updateGameHud(state().status); updateDemoPanel(state().status); return; }
   const demoButton = event.target.closest('#demo-panel [data-demo-step]');
   if (demoButton) { if (!demoButton.disabled) runDemoStep(demoButton.dataset.demoStep); return; }
   const button = event.target.closest('[data-action]');

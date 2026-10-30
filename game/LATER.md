@@ -24,7 +24,7 @@ Things we chose to leave for later, so the town could reach a whole stopping poi
 - **Where a lower roof meets a taller wall.** A little sunlight can slip through the notch where a tall block steps down to a lower one, leaving a thin lit sliver in the house's shadow. Today's camera never sees it (the sun always comes from the camera's side), so it was left. The real fix is running the lower roof up to the wall, which changes how steps look. Walls just behind a lower roof now get windows only when they face the camera, which removed window frames poking out along the roof.
 - **A lane tip under a gable corner.** The review saw a small shard under the left corner of a gabled wing, which turned out to be the tip of a lane end. The smoother lane ends added afterward may have fixed it; check in `#blocks-real`.
 - **Town planning by eye:** at day 180 the main row of houses reads as one long wall of roofs; the day-30 town has four windmills and a lighthouse in the middle of town. Both come from where the layout puts things.
-- **The check-in card covers most of the island** when it's open (tour pictures 02, 06, 08, 09). Maybe a smaller card, or move the camera aside while it's open.
+- **The check-in card** is now a slim strip that covers about a quarter to a third of the island (look C, the user's pick). The camera doesn't make room for it; it's only up briefly.
 
 ## Speed (decision 10: pretty first, fast later)
 

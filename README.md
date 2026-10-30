@@ -22,6 +22,6 @@ scripts/run-personal.sh
 
 This builds and installs `/Applications/Focus Islands.app`. Open it from Spotlight afterward; rerun the script after quitting to install code updates. Use the menu bar island to open or quit the app.
 
-To try the game without waiting through real sessions: `scripts/run-game-demo.sh`. Its **Look** buttons switch between three trial looks for the island's resource bar and check-in card; the choice is kept, and the normal app uses look A.
+To try the game without waiting through real sessions: `scripts/run-game-demo.sh`.
 
 For development, see [AGENTS.md](AGENTS.md). State ownership is documented in [STATE_PLAN.md](STATE_PLAN.md).
