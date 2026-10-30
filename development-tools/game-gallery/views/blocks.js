@@ -18,6 +18,7 @@ import { parseTown } from '../../../electron/renderer/game/scene/town/world.js';
 import { buildGround } from '../../../electron/renderer/game/scene/town/ground.js';
 import { buildLanes } from '../../../electron/renderer/game/scene/town/lanes.js';
 import { buildBlocks, planRoofs } from '../../../electron/renderer/game/scene/town/blocks.js';
+import { checkTown } from '../../../electron/renderer/game/town/check.js';
 
 const SMALL = [300, 210];
 const TODAY = [591, 357];
@@ -55,6 +56,16 @@ function fourth(grid, a, b, c) {
   const cell = grid.around[a].find(i => [b, c].every(p => grid.cells[i].includes(p)));
   return cell === undefined ? -1 : grid.cells[cell].find(p => ![a, b, c].includes(p));
 }
+// Grid steps from a to b (Infinity when b can't be reached).
+function hops(grid, a, b) {
+  const seen = new Map([[a, 0]]);
+  const queue = [a];
+  for (let h = 0; h < queue.length; h++) {
+    if (queue[h] === b) return seen.get(b);
+    for (const q of grid.neighbours[queue[h]]) if (!seen.has(q)) { seen.set(q, seen.get(queue[h]) + 1); queue.push(q); }
+  }
+  return Infinity;
+}
 function within(grid, start, steps) {
   const seen = new Map([[start, 0]]);
   const queue = [start];
@@ -68,35 +79,94 @@ function within(grid, start, steps) {
 
 // ---------- Made-up islands ----------
 // houses: [{ blocks: [[point, floors], ...], look, door: point (optional: the block that gets the door) }].
-// The door opens toward the camera where it can; a short lane runs from it toward the south.
+// The lanes are one joined network, as on a real island, so no lane stops short against a house:
+// - the first house's door opens toward the camera where it can, and a short lane runs south from it
+//   (stopping before it would touch another house);
+// - each other house gets the door whose outside point is fewest steps from the lanes so far (toward
+//   the camera on a tie), and a lane joins it on, around the blocks.
+// The returned island carries `problems`: what checkTown (town/check.js) finds wrong with the made-up
+// world, so a stand-in that drifts from the real rules says so on its card.
 function makeIsland(id, houses, { grid = GRID, centre, radius = 4 } = {}) {
-  const blockPoints = new Set(houses.flatMap(h => h.blocks.map(([p]) => p)));
+  const owner = new Map(houses.flatMap((h, i) => h.blocks.map(([p]) => [p, i])));
   const middle = centre ?? houses[0].blocks[0][0];
-  const land = within(grid, middle, radius);
+  // At least two steps of land all round the houses, so no lane or free point is cut off at the coast.
+  const far = Math.max(...[...owner.keys()].map(p => hops(grid, middle, p)));
+  const land = within(grid, middle, Math.max(radius, far + 2));
   const landSet = new Set(land);
-  const lanes = [];
-  const shaped = houses.map((house, i) => {
-    const mine = house.blocks.map(([p]) => p);
-    let door = null;
-    for (const p of house.door !== undefined ? [house.door] : mine) {
+  const free = p => p >= 0 && landSet.has(p) && !owner.has(p);
+  // Free land in pieces (blocks can wall some off): point -> how many points its piece has.
+  const pieceSize = new Map();
+  for (const p of land) {
+    if (!free(p) || pieceSize.has(p)) continue;
+    const piece = [p], seen = new Set(piece);
+    for (let h = 0; h < piece.length; h++) for (const q of grid.neighbours[piece[h]]) if (free(q) && !seen.has(q)) { seen.add(q); piece.push(q); }
+    for (const q of piece) pieceSize.set(q, piece.length);
+  }
+  const lanes = [], laneSet = new Set();
+  const addLane = p => { if (!laneSet.has(p)) { laneSet.add(p); lanes.push(p); } };
+  // Each place a house's door could go: a block and a free neighbour, scored by how much it faces south.
+  const doorOptions = house => {
+    const options = [];
+    for (const p of house.door !== undefined ? [house.door] : house.blocks.map(([q]) => q)) {
       for (const n of grid.neighbours[p]) {
-        if (blockPoints.has(n) || !landSet.has(n)) continue;
-        const south = (at(grid, n)[1] - at(grid, p)[1]) / (Math.hypot(at(grid, n)[0] - at(grid, p)[0], at(grid, n)[1] - at(grid, p)[1]) || 1);
-        const score = south + at(grid, p)[1] * 0.2;
-        if (!door || score > door.score) door = { point: p, outside: n, score };
+        if (!free(n)) continue;
+        const [dx, dz] = [at(grid, n)[0] - at(grid, p)[0], at(grid, n)[1] - at(grid, p)[1]];
+        options.push({ point: p, outside: n, score: dz / (Math.hypot(dx, dz) || 1) + at(grid, p)[1] * 0.2 });
       }
     }
-    if (door) {
-      let p = door.outside;
-      for (let k = 0; k < 3 && p >= 0 && landSet.has(p) && !blockPoints.has(p); k++) { if (!lanes.includes(p)) lanes.push(p); p = toward(grid, p, 'S'); }
+    return options.sort((a, b) => b.score - a.score);
+  };
+  const doors = houses.map((house, i) => {
+    const options = doorOptions(house);
+    if (!options.length) return null;
+    if (!laneSet.size) {
+      // The first lane starts in the biggest piece of free land, not in a corner the blocks wall off.
+      const door = options.reduce((best, o) => (pieceSize.get(o.outside) > pieceSize.get(best.outside) ? o : best));
+      addLane(door.outside);
+      const touchesOther = q => grid.neighbours[q].some(n => owner.has(n) && owner.get(n) !== i);
+      for (let k = 0, p = door.outside; k < 2; k++) {
+        const q = toward(grid, p, 'S');
+        if (!free(q) || laneSet.has(q) || touchesOther(q)) break;
+        addLane(q);
+        p = q;
+      }
+      return door;
     }
-    return { id: `${id}-house-${i}`, look: house.look ?? 0, door: door && { point: door.point, outside: door.outside }, blocks: house.blocks.map(([point, floors]) => ({ point, floors })) };
+    // Fewest steps from the lanes so far, through free land.
+    const from = new Map(lanes.map(p => [p, -1]));
+    const queue = [...lanes];
+    for (let h = 0; h < queue.length; h++) {
+      for (const q of grid.neighbours[queue[h]]) if (free(q) && !from.has(q)) { from.set(q, queue[h]); queue.push(q); }
+    }
+    const steps = p => { let n = 0; for (let q = p; from.get(q) !== -1; q = from.get(q)) n++; return n; };
+    const reached = options.filter(o => from.has(o.outside));
+    if (!reached.length) { addLane(options[0].outside); return options[0]; } // cut off: checkTown says so
+    const door = reached.reduce((best, o) => (steps(o.outside) < steps(best.outside) ? o : best));
+    for (let q = door.outside; q !== -1; q = from.get(q)) addLane(q);
+    return door;
   });
+  const shaped = houses.map((house, i) => ({
+    id: `${id}-house-${i}`, look: house.look ?? 0, door: doors[i] && { point: doors[i].point, outside: doors[i].outside },
+    blocks: house.blocks.map(([point, floors]) => ({ point, floors })),
+  }));
   const world = {
     islands: [{ id, kind: 'home', size: grid.size, grid, at: [0, 0], lift: 0, land, kept: [], lanes, houses: shaped, reach: 3 }],
     things: [], bridges: [], helpers: [], view: { island: id, points: [] },
   };
-  return parseTown(world).islands[0];
+  const island = parseTown(world).islands[0];
+  island.problems = checkTown(world);
+  return island;
+}
+
+// A card with checkTown's problems for a made-up island under its picture (none: the card as it is).
+function checked(card, island) {
+  const problems = island.problems ?? [];
+  if (!problems.length) return card;
+  const box = document.createElement('div');
+  box.style.cssText = 'color:#b3261e;font-size:12px;max-width:560px;margin-top:4px';
+  box.textContent = `Breaks the town rules (checkTown): ${problems.slice(0, 4).join(' · ')}${problems.length > 4 ? ' · …' : ''}`;
+  card.append(box);
+  return card;
 }
 
 // Frame the houses: their points, up to their roofs, with a margin.
@@ -193,13 +263,11 @@ function chimneyIsland(houses, centre) {
 async function shapes(tools, mood) {
   tools.heading(`Shapes (${mood})`, 'ridges run along rows, end in gables, and meet in valleys and hips');
   const row = tools.grid('gallery-medium');
-  shapeCases().forEach(([title, note], i) => row.append(tools.card(title, note, [])));
-  const cards = [...row.children];
   let i = 0;
-  for (const [, , houses] of shapeCases()) {
+  for (const [title, note, houses] of shapeCases()) {
     const island = makeIsland(`shape-${i}`, houses.map(h => ({ ...h, look: h.look ?? i % HOUSE_LOOKS.length })));
     const img = await tools.shot(drawIsland(island), { width: SMALL[0], height: SMALL[1], mood, aim: aimAt(island) });
-    cards[i].querySelector('.gallery-images').append(img);
+    row.append(checked(tools.card(title, note, [img]), island));
     i++;
   }
 }
@@ -219,7 +287,7 @@ export default {
           let i = 0;
           for (const [title, note, houses] of storeyCases()) {
             const island = makeIsland(`storeys-${i++}`, houses);
-            row.append(tools.card(title, note, [await tools.shot(drawIsland(island), { width: SMALL[0], height: SMALL[1], mood, aim: aimAt(island) })]));
+            row.append(checked(tools.card(title, note, [await tools.shot(drawIsland(island), { width: SMALL[0], height: SMALL[1], mood, aim: aimAt(island) })]), island));
           }
         }
       },
@@ -236,21 +304,21 @@ export default {
         const ridge = makeIsland('detail-ridge', [{ blocks: [...row3.map(p => [p, 1]), [toward(g, c, 'S'), 1]], look: 0 }, { blocks: [[toward(g, toward(g, c, 'E'), 'E'), 2]], look: 2 }]);
         for (const [label, options] of [['From above', { pitch: 1.25 }], ['Today\'s angle', {}]]) {
           const img = await tools.shot(drawIsland(ridge), { width: TODAY[0], height: TODAY[1], aim: aimAt(ridge, 0.3), ...options });
-          grid.append(tools.card(label, statsNote(img), [img]));
+          grid.append(checked(tools.card(label, statsNote(img), [img]), ridge));
         }
         tools.heading('Doors and windows', 'one door per house, facing its lane; framed windows with sills; a round window in some gables');
         grid = tools.grid();
         const front = makeIsland('detail-door', [{ blocks: ns.map((p, i) => [p, i === 0 ? 2 : 1]), look: 3, door: ns[2] }]);
         for (const [label, options] of [['Low, from the south', { pitch: 0.35 }], ['Low, from the south-east', { pitch: 0.4, yaw: 0.7 }]]) {
           const img = await tools.shot(drawIsland(front), { width: TODAY[0], height: TODAY[1], aim: aimAt(front, 0.25), ...options });
-          grid.append(tools.card(label, statsNote(img), [img]));
+          grid.append(checked(tools.card(label, statsNote(img), [img]), front));
         }
         tools.heading('Chimneys', 'on some blocks, by roll');
         grid = tools.grid();
         const chimneys = chimneyIsland([{ blocks: row3.map(p => [p, 1]), look: 1 }, { blocks: [[toward(g, toward(g, c, 'S'), 'S'), 2]], look: 4 }, { blocks: [[toward(g, toward(g, c, 'N'), 'N'), 1], [toward(g, toward(g, toward(g, c, 'N'), 'N'), 'E'), 1]], look: 5 }], c);
         for (const mood of ['focus', 'break']) {
           const img = await tools.shot(drawIsland(chimneys), { width: TODAY[0], height: TODAY[1], mood, aim: aimAt(chimneys, 0.3) });
-          grid.append(tools.card(`${planRoofs(chimneys).chimneys.size} chimneys (${mood})`, statsNote(img), [img]));
+          grid.append(checked(tools.card(`${planRoofs(chimneys).chimneys.size} chimneys (${mood})`, statsNote(img), [img]), chimneys));
         }
       },
     },
@@ -262,7 +330,7 @@ export default {
         const grid = tools.grid();
         for (const mood of tools.MOODS) {
           const img = await tools.shot(drawIsland(town), { width: TODAY[0], height: TODAY[1], mood, aim: aimAt(town, 0.2) });
-          grid.append(tools.card(mood, statsNote(img), [img]));
+          grid.append(checked(tools.card(mood, statsNote(img), [img]), town));
         }
       },
     },
@@ -274,7 +342,7 @@ export default {
         const grid = tools.grid();
         for (const [label, yaw] of [['From the south (Today)', 0], ['From the east', Math.PI / 2], ['From the north', Math.PI], ['From the west', -Math.PI / 2]]) {
           const img = await tools.shot(drawIsland(town), { width: TODAY[0], height: TODAY[1], yaw, aim: aimAt(town, 0.2) });
-          grid.append(tools.card(label, '', [img]));
+          grid.append(checked(tools.card(label, '', [img]), town));
         }
       },
     },
@@ -293,7 +361,7 @@ export default {
         for (const [title, island] of cases) {
           const grid = tools.grid();
           for (const [label, yaw] of [['Today\'s angle', 0], ['from the north-west', Math.PI * 0.8]]) {
-            grid.append(tools.card(`${title}, ${label}`, '', [await tools.shot(drawIsland(island), { width: 640, height: 456, yaw, aim: aimAt(island, 0.15) })]));
+            grid.append(checked(tools.card(`${title}, ${label}`, '', [await tools.shot(drawIsland(island), { width: 640, height: 456, yaw, aim: aimAt(island, 0.15) })]), island));
           }
         }
       },

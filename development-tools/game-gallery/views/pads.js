@@ -12,8 +12,10 @@
 //                          as Today frames them and grown by the town's helper size boost
 // Each section fits one gallery screenshot.
 //
-// The ground, lanes and blocks here are simple stand-ins (stream C draws the real ones): a grass slab of
-// corner pieces under each land point, a pale lane slab, and a plain 0.5-tall box per storey.
+// The ground and blocks here are simple stand-ins (stream C draws the real ones): a grass slab of corner
+// pieces under each land point and a plain 0.5-tall box per storey. The lanes are the real ones
+// (scene/town/lanes.js buildLanes), so they reach under pad fronts and doors and end in round caps as on
+// Today. The sample towns are checked with checkTown (town/check.js); any problem shows as a red note.
 import * as THREE from 'three';
 import { place } from '../../../electron/renderer/game/scene/ground.js';
 import { rbox } from '../../../electron/renderer/game/scene/parts.js';
@@ -23,6 +25,8 @@ import { sampleTown } from '../../../electron/renderer/game/town/samples.js';
 import { parseTown } from '../../../electron/renderer/game/scene/town/world.js';
 import { addPiece, piecesAt, slabPiece } from '../../../electron/renderer/game/scene/town/pieces.js';
 import { buildThings, thingMiddle } from '../../../electron/renderer/game/scene/town/pads.js';
+import { buildLanes } from '../../../electron/renderer/game/scene/town/lanes.js';
+import { checkTown } from '../../../electron/renderer/game/town/check.js';
 import { buildBridge, bridgeWays } from '../../../electron/renderer/game/scene/town/bridges.js';
 import { legSteps, planHelpers } from '../../../electron/renderer/game/scene/town/walk.js';
 import { driveHelper, timeline } from '../../../electron/renderer/game/scene/motion.js';
@@ -30,12 +34,11 @@ import { buildHelper, helperMaterials, restExtras, HELPER_SCALE } from '../../..
 import { fitView, pixelsPerUnit } from '../../../electron/renderer/game/scene/stage.js';
 
 const SOIL = '#e9b98a';
-const LANE_TOP = '#f6e7c8', LANE_SIDE = '#e4cfa6';
 const BLOCK = ['#fff3e2', '#ffe2b8'];
 const models = {};
 const sampleModel = name => (models[name] ??= parseTown(sampleTown(name)));
 
-// ---------- Stand-ins for stream C's ground, lanes and blocks ----------
+// ---------- Stand-ins for stream C's ground and blocks, and its real lanes ----------
 
 // Grass slab pieces under the given land points, 0.14 deep, top at y = 0.
 function standInGround(ctx, island, points = island.land) {
@@ -48,14 +51,24 @@ function standInGround(ctx, island, points = island.land) {
   return on;
 }
 
-function standInLanes(ctx, island, on) {
-  for (const p of island.lanes) {
-    if (!on.has(p)) continue;
-    for (const c of piecesAt(island.grid, p)) {
-      const lane = q => island.lanes.has(q) && on.has(q);
-      addPiece(ctx, `stand-in:lane:${c.key}`, slabPiece(c, { width: TOWN.laneWidth ?? 0.42, rise: 0.02, fA: lane(c.next), fB: lane(c.prev), fO: lane(c.opp), top: LANE_TOP, side: LANE_SIDE }), 'matte');
-    }
-  }
+// The real lanes (lanes.js), on the drawn land points only. They reach under the given things' pad fronts
+// and the given doors (the ones drawn), and onto the bridge feet on drawn lanes.
+function drawLanes(ctx, island, on, { things = island.things, doors = island.doors } = {}) {
+  const lanes = new Set([...island.lanes].filter(p => on.has(p)));
+  buildLanes(ctx, {
+    ...island, lanes,
+    doors: doors.filter(d => lanes.has(d.outside) && on.has(d.point)),
+    things: things.filter(t => t.points.every(p => on.has(p))),
+    feet: island.feet.filter(f => lanes.has(f.point)),
+  });
+}
+
+// checkTown's problems with a sample town, as a red note (nothing when it passes).
+function ruleNote(tools, world, label) {
+  const problems = checkTown(world);
+  if (!problems.length) return;
+  const el = tools.note(`${label} breaks the town rules (checkTown): ${problems.slice(0, 6).join(' · ')}${problems.length > 6 ? ' · …' : ''}`);
+  el.style.color = '#b3261e';
 }
 
 // A plain box per storey on each block point.
@@ -159,9 +172,10 @@ function drawTown(ctx, model, { mood = 'focus', t = 0, plans = null, near = null
     inIsland(ctx, island, () => {
       const points = near ? [...island.land].filter(p => near(island, p)) : island.land;
       const on = standInGround(ctx, island, points);
-      standInLanes(ctx, island, on);
+      const things = island.things.filter(thing => thing.points.every(p => on.has(p)));
+      drawLanes(ctx, island, on, { things });
       standInBlocks(ctx, island, on);
-      buildThings(ctx, island, island.things.filter(thing => thing.points.every(p => on.has(p))));
+      buildThings(ctx, island, things);
     });
   }
   for (const bridge of model.bridges) buildBridge(ctx, bridge, model);
@@ -225,7 +239,7 @@ function lineUp(kind, samples) {
   return ctx => {
     const { island, thing, mx, mz, yaw, fx, fz, sx, sz } = lineUpPlace(kind, samples);
     const on = standInGround(ctx, island, [...island.land].filter(p => Math.hypot(island.grid.points[p][0] - mx, island.grid.points[p][1] - mz) < 2.3));
-    standInLanes(ctx, island, on);
+    drawLanes(ctx, island, on, { things: [thing], doors: [] }); // the island's own houses aren't drawn here
     buildThings(ctx, island, [thing]);
     const size = stepNear(island, thing.points[0]) * 0.86;
     box(ctx, mx + sx * 1.25, mz + sz * 1.25, 0, size, yaw);
@@ -465,7 +479,8 @@ export default {
         const size = tools.TODAY_SIZE;
         const plans = { focus: planHelpers(model, 'focus'), break: planHelpers(model, 'break') };
         const say = mood => plans[mood].map((p, i) => `${model.helpers[i].name} ${p.job ? `${p.job} → ${p.carriesTo ?? 'nowhere'}` : p.rest}`).join(', ');
-        tools.note(`Stand-in ground, lanes and blocks; helpers posed from walk.js plans, grown by the town's size boost. Top: every island (the boost stops at 1.4). Bottom: Today's own view of this town (${model.view.island}).`);
+        ruleNote(tools, sampleTown('manyIslands'), 'The manyIslands sample');
+        tools.note(`Stand-in ground and blocks, real lanes; helpers posed from walk.js plans, grown by the town's size boost. Top: every island (the boost stops at 1.4). Bottom: Today's own view of this town (${model.view.island}).`);
         tools.note(`focus: ${say('focus')}. break: ${say('break')}.`);
         const views = [['every island', townView(model, size, { whole: true }), 4], ["Today's view", townView(model, size), 19]];
         const row = tools.grid('gallery-medium');
@@ -481,6 +496,7 @@ export default {
       id: 'village', title: "Helpers on one island, at Today's size",
       async render(host, tools) {
         tools.note("Framed as Today's town camera frames the view island: whole if helpers stay 18 px tall with a boost of at most 1.4, else 4 steps around the view's points.");
+        ruleNote(tools, sampleTown('village'), 'The village sample');
         const village = sampleModel('village');
         const { aim, boost, close } = townView(village, tools.TODAY_SIZE);
         const row = tools.grid('gallery-medium');

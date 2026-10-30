@@ -11,6 +11,7 @@ import { buildLanes } from '../../../electron/renderer/game/scene/town/lanes.js'
 import { buildBlocks } from '../../../electron/renderer/game/scene/town/blocks.js';
 import { buildThings } from '../../../electron/renderer/game/scene/town/pads.js';
 import { buildBridge } from '../../../electron/renderer/game/scene/town/bridges.js';
+import { checkTown } from '../../../electron/renderer/game/town/check.js';
 
 const SMALL = [300, 210];
 const MEDIUM = [400, 270];
@@ -59,6 +60,8 @@ function line(grid, from, to, count) {
 }
 
 // One made-up island as parseTown's model. extra: more island fields (houses, kept ...), things, bridges.
+// problems: what checkTown (town/check.js) finds wrong with the made-up world, shown on its cards (checked
+// below), so a stand-in that drifts from the real rules says so.
 function madeIsland({ id = 'pieces', size = 'small', kind = 'home', land, lanes = [], kept = [], houses = [], things = [] }) {
   const grid = gridFor(id, size);
   const world = {
@@ -66,7 +69,17 @@ function madeIsland({ id = 'pieces', size = 'small', kind = 'home', land, lanes 
     things: things.map(t => ({ island: id, ...t })), bridges: [], helpers: [], view: { island: id, points: [] },
   };
   const model = parseTown(world);
-  return { model, island: model.islands[0] };
+  return { model, island: model.islands[0], problems: checkTown(world) };
+}
+
+// A card with checkTown's problems for a made-up island under its picture (none: the card as it is).
+function checked(card, problems = []) {
+  if (!problems.length) return card;
+  const box = document.createElement('div');
+  box.style.cssText = 'color:#b3261e;font-size:12px;max-width:560px;margin-top:4px';
+  box.textContent = `Breaks the town rules (checkTown): ${problems.slice(0, 4).join(' · ')}${problems.length > 4 ? ' · …' : ''}`;
+  card.append(box);
+  return card;
 }
 
 // ---------- Drawing ----------
@@ -195,9 +208,9 @@ export default {
         for (const size of ['small', 'medium', 'large']) {
           const grid = gridFor(`pieces-${size}`, size);
           const land = within(grid, middlePoint(grid), { small: 4, medium: 5, large: 6 }[size]);
-          const { island } = madeIsland({ id: `pieces-${size}`, size, land });
+          const { island, problems } = madeIsland({ id: `pieces-${size}`, size, land });
           const img = await tools.shot(ctx => { drawIsland(ctx, island, { lines: true }); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 1.15, aim: island.order.map(p => [island.grid.points[p][0], 0, island.grid.points[p][1]]) });
-          row.append(tools.card(`${size} grid`, `${grid.points.length} points · ${land.length} land · ${statsNote(img)}`, [img]));
+          row.append(checked(tools.card(`${size} grid`, `${grid.points.length} points · ${land.length} land · ${statsNote(img)}`, [img]), problems));
         }
       },
     },
@@ -209,9 +222,9 @@ export default {
         const top = tools.grid('gallery-medium');
         for (const [title, note, points] of cases) {
           const lanes = [...new Set(points)].filter(p => land.includes(p));
-          const { island } = madeIsland({ land, lanes });
+          const { island, problems } = madeIsland({ land, lanes });
           const img = await tools.shot(ctx => { drawIsland(ctx, island, { lines: true, marks: lanes }); }, { width: SMALL[0], height: SMALL[1], pitch: 1.2, aim: aimAt(island, [p0, ...lanes], 0.4) });
-          top.append(tools.card(title, `${note} · ${img.stats?.triangles ?? '?'} triangles`, [img]));
+          top.append(checked(tools.card(title, `${note} · ${img.stats?.triangles ?? '?'} triangles`, [img]), problems));
         }
       },
     },
@@ -222,8 +235,8 @@ export default {
         const row = tools.grid('gallery-medium');
         for (const [title, , points] of cases) {
           const lanes = [...new Set(points)].filter(p => land.includes(p));
-          const { island } = madeIsland({ land, lanes });
-          row.append(tools.card(title, '', [await tools.shot(ctx => { drawIsland(ctx, island); }, { width: SMALL[0], height: SMALL[1], aim: aimAt(island, [p0, ...lanes], 0.4) })]));
+          const { island, problems } = madeIsland({ land, lanes });
+          row.append(checked(tools.card(title, '', [await tools.shot(ctx => { drawIsland(ctx, island); }, { width: SMALL[0], height: SMALL[1], aim: aimAt(island, [p0, ...lanes], 0.4) })]), problems));
         }
       },
     },
@@ -232,23 +245,43 @@ export default {
       async render(host, tools) {
         const grid = gridFor('pieces', 'small');
         const p0 = middlePoint(grid);
-        const land = within(grid, p0, 4);
+        const land = within(grid, p0, 5); // 5 steps: room for the pad without walling off the coast beyond it
         const n = around(grid, p0);
-        // A lane through p0; a house block on one side with its door onto p0; a pad cell on the other side.
-        const [a, b] = [n[0], ahead(grid, n[0], p0)];
-        const lanes = line(grid, a, p0, 4).concat([ahead(grid, p0, a)]).filter(p => p !== undefined && land.includes(p));
-        const side = n.filter(q => !lanes.includes(q));
-        const block = side[0];
-        const padCell = grid.around[side[1] ?? side[0]].find(cell => !grid.cells[cell].some(p => lanes.includes(p) || p === block)) ?? null;
+        // A lane through p0 running west to east (as near as the grid allows), with a house block and a pad
+        // cell both on its north side: the door opens onto p0 and the pad's front is a lane point, so from
+        // Today's angle the door, the workshop's front and the lane before them all face the camera.
+        const way = q => { const [x, z] = grid.points[q], [x0, z0] = grid.points[p0], l = Math.hypot(x - x0, z - z0) || 1; return [(x - x0) / l, (z - z0) / l]; };
+        const west = n.reduce((best, q) => (way(q)[0] < way(best)[0] ? q : best));
+        const lanes = line(grid, west, p0, 4).concat([ahead(grid, p0, west)]).filter(p => p !== undefined && land.includes(p));
+        const block = n.filter(q => !lanes.includes(q)).reduce((best, q) => (way(q)[1] < way(best)[1] ? q : best));
         const houses = [{ id: 'house-1', look: 1, blocks: [{ point: block, floors: 1 }], door: { point: block, outside: p0 } }];
+        // The pad: the cell north of the lane nearest p0 that touches a lane but not the block, and walls
+        // no free land off from the lanes (as the town rules ask).
+        const byBlock = new Set([block, ...grid.neighbours[block]]);
+        const leavesAllWalkable = cell => {
+          const walkable = p => land.includes(p) && p !== block && !grid.cells[cell].includes(p);
+          const seen = new Set(lanes);
+          const queue = [...lanes];
+          for (let h = 0; h < queue.length; h++) for (const q of grid.neighbours[queue[h]]) if (walkable(q) && !seen.has(q)) { seen.add(q); queue.push(q); }
+          return land.every(p => !walkable(p) || seen.has(p));
+        };
+        const padCell = [...new Set(lanes.flatMap(p => grid.neighbours[p]).flatMap(q => grid.around[q]))]
+          .filter(cell => grid.centres[cell][1] < grid.points[p0][1] && grid.cells[cell].every(p => land.includes(p) && !lanes.includes(p) && !byBlock.has(p)) && leavesAllWalkable(cell))
+          .sort((c, d) => dist(grid.centres[c], grid.points[p0]) - dist(grid.centres[d], grid.points[p0]))[0] ?? null;
         const padPoints = padCell === null ? [] : grid.cells[padCell];
-        const front = padPoints.length ? lanes.find(p => grid.neighbours[p].some(q => padPoints.includes(q))) ?? null : null;
-        const things = padPoints.length && front !== null ? [{ id: 'pad-1', kind: 'workshop', points: padPoints, front, pad: true }] : [];
-        const { island } = madeIsland({ land, lanes, houses, things });
-        const aim = aimAt(island, [p0, block, ...padPoints], 0.45);
+        // Its front: of the lane points next to it, the one nearest its middle.
+        const front = padPoints.length ? lanes.filter(p => grid.neighbours[p].some(q => padPoints.includes(q)))
+          .sort((p, q) => dist(grid.points[p], grid.centres[padCell]) - dist(grid.points[q], grid.centres[padCell]))[0] ?? null : null;
+        // As real states do: the pad's middle is its cell's centre, and it turns to face its front point.
+        const middle = padCell === null ? null : [...grid.centres[padCell]];
+        const yaw = front === null || !middle ? 0 : Math.round(Math.atan2(grid.points[front][0] - middle[0], grid.points[front][1] - middle[1]) * 1e4) / 1e4;
+        const things = padPoints.length && front !== null ? [{ id: 'pad-1', kind: 'workshop', points: padPoints, at: middle, yaw, scale: 1, front, pad: true, coast: null }] : [];
+        const { island, problems } = madeIsland({ land, lanes, houses, things });
+        // ...up to the roofs, so neither the house nor the workshop is cut off at the top.
+        const aim = aimAt(island, [p0, block, ...padPoints], 0.45).concat([block, ...padPoints].map(p => [grid.points[p][0], 1.0, grid.points[p][1]]));
         const row = tools.grid('gallery-medium');
-        row.append(tools.card('Door and pad front', `the lane runs a little under the door's wall and the pad's edge (house: ${houses[0].blocks[0].point}, pad front: ${front ?? 'none'})`, [await tools.shot(ctx => { drawIsland(ctx, island, { blocks: true, things: true }); }, { width: MEDIUM[0], height: MEDIUM[1], aim })]));
-        row.append(tools.card('The same, ground and lanes only', 'what the lane pieces draw by themselves', [await tools.shot(ctx => { drawIsland(ctx, island, { lines: true, marks: lanes }); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 1.2, aim })]));
+        row.append(checked(tools.card('Door and pad front', `the lane runs a little under the door's wall and the pad's edge; the workshop faces its front (house: ${houses[0].blocks[0].point}, pad front: ${front ?? 'none'})`, [await tools.shot(ctx => { drawIsland(ctx, island, { blocks: true, things: true }); }, { width: MEDIUM[0], height: MEDIUM[1], aim })]), problems));
+        row.append(checked(tools.card('The same, ground and lanes only', 'what the lane pieces draw by themselves', [await tools.shot(ctx => { drawIsland(ctx, island, { lines: true, marks: lanes }); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 1.2, aim })]), problems));
         const real = realIslands(tools);
         const withFoot = real?.model.islands.find(i => i.feet.length);
         if (withFoot) {
