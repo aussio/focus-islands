@@ -54,9 +54,9 @@ The app, icon, menu bar and docs say Focus Islands. Some inside names still say 
 - the project folder and repo name;
 - `brainstorming.html` and other old development pages (the gallery's title is already updated).
 
-## The timer (outside the game; needs your call)
+## The timer (outside the game)
 
-- **A session that sleeps across midnight loses its sleep time.** If the Mac sleeps during a session before midnight and wakes after it, the time asleep isn't counted. Example: a break started at 11:50 PM and woken at 12:22 AM shows 2 minutes instead of 32, and never says "break complete". Focus in the same case resumes without counting the sleep as a break. The cause: a new day reloads the timer from its last save and forgets sleep in progress (`syncDay()` → `load()` → `Timer.recover` in `electron/core/index.js`). Fixing it means deciding how a session that spans midnight should count. Awake, the app loses at most about 30 seconds at midnight, which nobody would notice.
+- **A session that sleeps across midnight loses its sleep time** (for example, a break from 11:50 PM to 12:22 AM shows 2 minutes). **Decided: leave it.** The user never works across midnight. Awake, the app loses at most about 30 seconds at midnight. The cause, if it ever matters: a new day reloads the timer from its last save and forgets sleep in progress (`syncDay()` → `load()` → `Timer.recover` in `electron/core/index.js`).
 
 ## Development app
 
