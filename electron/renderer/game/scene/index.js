@@ -1,0 +1,212 @@
+// The sky-island scene. createIslandScene(host) draws a World (from the layout) in style D and returns
+// { setWorld(world), setMood(mood), capture(), dispose() }.
+//
+// - setWorld rebuilds geometry only when the world data changed. setMood (focus | break | away | done)
+//   changes only the sky, the light, what glows and what the helpers do.
+// - Draws at most about 30 frames a second, and stops completely while the page is hidden, the host is
+//   detached, has no size, or is scrolled off screen. When shown again, helpers start fresh.
+// - With reduced motion, it draws one still frame per change with helpers standing at their spots.
+// - capture() draws one fresh frame right away (even while paused) and resolves with the canvas
+//   (or null when nothing can be drawn).
+// - If WebGL cannot start, the host gets a soft sky-coloured background instead, and nothing throws.
+// The canvas fills the host (width and height 100%), so the host needs a size of its own.
+import * as THREE from 'three';
+import { MOODS, moodOf } from './style.js';
+import { createSceneCore } from './core.js';
+
+const FRAME_MS = 1000 / 30;
+const MAX_PIXEL_RATIO = 2;
+
+export function createIslandScene(host) {
+  const doc = host?.ownerDocument ?? globalThis.document;
+  const view = doc?.defaultView ?? globalThis.window ?? globalThis;
+  const now = () => (globalThis.performance?.now?.() ?? Date.now());
+  let core = null, renderer = null, canvas = null, fallback = null;
+  let disposed = false, lost = false, broken = false;
+  let running = false, frameRequest = 0, lastDraw = 0, clockStart = now();
+  let onScreen = true, width = 0, height = 0;
+  let mood = 'focus';
+  const reducedQuery = view.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null;
+  const reduced = () => Boolean(reducedQuery?.matches);
+  const hidden = () => Boolean(doc?.hidden);
+
+  const showFallback = () => {
+    if (fallback || !doc || !host) return;
+    try {
+      fallback = doc.createElement('div');
+      fallback.setAttribute?.('aria-hidden', 'true');
+      fallback.className = 'cozy-island-fallback';
+      if (fallback.style) fallback.style.cssText = `display:block;width:100%;height:100%;background:${MOODS[mood].fallback};`;
+      host.appendChild?.(fallback);
+    } catch { /* nothing more we can do; the page stays as it was */ }
+  };
+
+  try {
+    canvas = doc.createElement('canvas');
+    canvas.setAttribute('aria-hidden', 'true');
+    canvas.className = 'cozy-island-canvas';
+    canvas.style.cssText = 'display:block;width:100%;height:100%;';
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
+    renderer.setPixelRatio(Math.min(view.devicePixelRatio || 1, MAX_PIXEL_RATIO));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Only helpers move and they use soft blob shadows, so the island's shadows are drawn once per change.
+    renderer.shadowMap.autoUpdate = false;
+    core = createSceneCore();
+    host.appendChild(canvas);
+  } catch (error) {
+    try { renderer?.dispose(); } catch { /* ignore */ }
+    renderer = null;
+    core = null;
+    canvas = null;
+    showFallback();
+  }
+
+  const measure = () => {
+    const w = Math.round(host?.clientWidth ?? 0), h = Math.round(host?.clientHeight ?? 0);
+    if (w === width && h === height) return false;
+    width = w; height = h;
+    if (renderer && w > 0 && h > 0) {
+      renderer.setSize(w, h, false);
+      core.resize(w, h);
+    }
+    return true;
+  };
+
+  const draw = (still = reduced()) => {
+    if (!renderer || lost || broken || disposed || width <= 0 || height <= 0) return false;
+    try {
+      core.update((now() - clockStart) / 1000, still);
+      if (core.takeChanged()) renderer.shadowMap.needsUpdate = true;
+      renderer.render(core.scene, core.camera);
+      return true;
+    } catch (error) {
+      // A drawing error should never break the page: stop drawing and keep the last frame.
+      broken = true;
+      console.error('Island scene stopped drawing:', error);
+      stop();
+      return false;
+    }
+  };
+
+  const shouldRun = () => Boolean(renderer) && !disposed && !lost && !broken && !reduced() && !hidden()
+    && onScreen && host.isConnected !== false && width > 0 && height > 0 && core.hasWorld;
+
+  function stop() {
+    running = false;
+    if (frameRequest) view.cancelAnimationFrame?.(frameRequest);
+    frameRequest = 0;
+  }
+
+  function frame(time) {
+    frameRequest = 0;
+    if (!running) return;
+    if (!shouldRun()) { sync(); return; }
+    frameRequest = view.requestAnimationFrame(frame);
+    if (time - lastDraw < FRAME_MS - 4) return;
+    lastDraw = time;
+    draw(false);
+  }
+
+  // Starts or stops the loop to match what can be seen. Coming back always restarts the helpers.
+  function sync() {
+    if (!renderer || disposed) return;
+    if (shouldRun()) {
+      if (!running) {
+        running = true;
+        clockStart = now();
+        lastDraw = 0;
+        draw(false);
+        frameRequest = view.requestAnimationFrame?.(frame) ?? 0;
+      }
+    } else {
+      if (running) stop();
+      // Reduced motion: a still frame for each change while visible.
+      if (reduced() && !hidden() && core?.hasWorld) draw(true);
+    }
+  }
+
+  const onVisibility = () => sync();
+  const onLost = event => { event.preventDefault(); lost = true; stop(); };
+  const onRestored = () => { lost = false; if (core) core.takeChanged(); renderer.shadowMap.needsUpdate = true; sync(); if (!running) draw(); };
+  const onReducedChange = () => { stop(); sync(); };
+  let resizeObserver = null, intersectionObserver = null;
+  if (renderer) {
+    doc.addEventListener?.('visibilitychange', onVisibility);
+    canvas.addEventListener('webglcontextlost', onLost);
+    canvas.addEventListener('webglcontextrestored', onRestored);
+    reducedQuery?.addEventListener?.('change', onReducedChange);
+    if (typeof view.ResizeObserver === 'function') {
+      resizeObserver = new view.ResizeObserver(() => {
+        if (disposed) return;
+        if (measure() && running) draw(false);
+        sync();
+      });
+      resizeObserver.observe(host);
+    }
+    if (typeof view.IntersectionObserver === 'function') {
+      intersectionObserver = new view.IntersectionObserver(entries => {
+        onScreen = entries[entries.length - 1].isIntersecting;
+        sync();
+      });
+      intersectionObserver.observe(host);
+    }
+    core.setMood(mood);
+    measure();
+  }
+
+  return {
+    setWorld(world) {
+      if (disposed) return;
+      if (!core) return;
+      try {
+        if (core.setWorld(world)) { clockStart = now(); lastDraw = 0; }
+      } catch (error) {
+        console.error('Island scene could not build this world:', error);
+        return;
+      }
+      measure();
+      if (running) draw(false);
+      sync();
+    },
+    setMood(next) {
+      if (disposed) return;
+      mood = moodOf(next);
+      if (fallback?.style) fallback.style.background = MOODS[mood].fallback;
+      if (!core) return;
+      try {
+        if (core.setMood(mood)) { clockStart = now(); lastDraw = 0; }
+      } catch (error) {
+        console.error('Island scene could not change mood:', error);
+        return;
+      }
+      if (running) draw(false);
+      sync();
+    },
+    capture() {
+      if (!renderer || disposed || lost) return Promise.resolve(null);
+      measure();
+      return Promise.resolve(draw() ? canvas : null);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      stop();
+      resizeObserver?.disconnect();
+      intersectionObserver?.disconnect();
+      doc?.removeEventListener?.('visibilitychange', onVisibility);
+      reducedQuery?.removeEventListener?.('change', onReducedChange);
+      if (canvas) {
+        canvas.removeEventListener('webglcontextlost', onLost);
+        canvas.removeEventListener('webglcontextrestored', onRestored);
+      }
+      try { core?.dispose(); } catch (error) { console.error(error); }
+      try { renderer?.dispose(); renderer?.forceContextLoss(); } catch { /* ignore */ }
+      canvas?.remove?.();
+      fallback?.remove?.();
+      core = renderer = canvas = fallback = null;
+    },
+  };
+}

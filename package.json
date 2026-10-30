@@ -11,7 +11,7 @@
     "start": "electron .",
     "build": "npm run check:source && node scripts/package-app.js",
     "check:source": "node scripts/build-renderer.js && node scripts/check-electron.js",
-    "test": "node --test electron/core/*.test.js",
+    "test": "node --test \"electron/**/*.test.js\"",
     "check": "npm run check:source && npm test"
   },
   "devDependencies": {
@@ -20,6 +20,7 @@
     "esbuild": "0.28.2"
   },
   "dependencies": {
+    "three": "0.186.1",
     "zustand": "5.0.15"
   }
 }
