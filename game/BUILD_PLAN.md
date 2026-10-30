@@ -412,10 +412,10 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
 
 ### Ground, coast and underside
 
-- **Coast:** it follows the outer edge of the land points' areas, then gets rounded (the prototype's `coastLoops` and `roundLoop`). Each coast point depends only on a few points nearby. The loop always starts at the same place, so the same land gives the same list.
+- **Coast:** it follows the outer edge of the land points' areas, then gets rounded: one pull toward the neighbouring points, then three rounds of corner cutting. (The prototype's `roundLoop` moved coast points far from a change, so it isn't used.) Each coast point depends only on a few points nearby. The loop always starts at the same place, so the same land gives the same list.
 - **Top:** the slab is drawn from the loop with `slabGeometry` and `colourSlab`, in the island kind's grass colours (`ISLAND_GRASS`).
 - **Underside, rebuilt so it only changes near new land:**
-  - Each land point gets a depth from its steps to the coast, at most 6: about 0.3 + 0.5 per step, plus its own small roll.
+  - Each land point gets a depth from its steps to the coast, at most 5 steps: depths 0, 1.5, 2.9, 4.0, 4.9 and 5.5 for 0 to 5 steps, plus its own small roll. (The first guess, 0.3 + 0.5 per step, barely showed from Today's camera.)
   - The underside is faceted pieces below each corner piece at those depths. It meets the slab's bottom along the rounded coast.
   - A few deep points (by roll) hang a long rock drip of up to 1.2. Roots hang from coast points (by roll).
   - A land change moves depths only within 6 steps, unlike the prototype, whose single underside tip shifted with every change.
@@ -429,7 +429,7 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
 ### Lanes
 
 - These are the prototype's lane slab pieces: 0.42 of a piece wide, raised 0.022, cream, with outer corners cut and inner corners filled.
-- Add `bent/`'s soft sloped rim (0.07), with no rim on the seams between pieces.
+- Add `bent/`'s soft sloped rim (0.12 piece units; 0.07 barely showed), with no rim on the seams between pieces.
 - A lane reaches a little under a door or pad front, and onto a bridge deck.
 - Flagstones (from `bent/paths.js`) only if the gallery shows they read at Today's size.
 
@@ -450,7 +450,7 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
 - **Pad:** the prototype's stone pad, 0.74 of a piece wide and raised 0.05, with cut corners.
 - **The model on top:**
   - It sits at the pad's middle and turns to face its front, at any angle rather than quarter turns.
-  - Size: `MODEL_SCALE` 0.8 × `thing.scale`, the pad's own fit from the layout. At 0.8 the sawmill is about one storey plus a roof, the windmill about two, the tower three.
+  - Size: `MODEL_SCALE` 0.9 (was 0.8; models looked small on their pads in the line-up) × `thing.scale`, the pad's own fit from the layout. At 0.8 the sawmill is about one storey plus a roof, the windmill about two, the tower three.
   - A kind can override the scale in `kinds.js` if the line-up shows it looks wrong.
   - Windmill sails keep the shared wind direction.
 - **Stay as models on pads:** garden, nursery, sawmill, workshop, windmill, orchard, tower, pond, great tree, grotto, quarry, beehives, forge, loom, and all five wonders.

@@ -54,7 +54,7 @@ export const KINDS = {
 export const FOOTS = { point: 1, pair: 2, cell: 4, cells: 6, ring: 9 };
 
 // Pad models are drawn at this scale times the pad's own fit (thing.scale).
-export const MODEL_SCALE = 0.8;
+export const MODEL_SCALE = 0.9;
 
 // Blueprints that build block houses instead of a thing: a new house, one more block, one more storey.
 export const BLOCK_BLUEPRINTS = ['house', 'room', 'floor'];
