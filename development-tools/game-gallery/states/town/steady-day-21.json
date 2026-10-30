@@ -2,11 +2,11 @@
   "rulesVersion": 2,
   "change": 578,
   "onHand": {
-    "wood": 414.49,
-    "stone": 214.94,
+    "wood": 289.49,
+    "stone": 164.94,
     "planks": 31.25,
-    "soil": 231.01,
-    "saplings": 277.97,
+    "soil": 106.01,
+    "saplings": 202.97,
     "starlight": 7
   },
   "waiting": {
@@ -128,11 +128,11 @@
           "checkIn": 41
         },
         {
-          "id": "b25",
+          "id": "b23",
           "blueprint": "workshop",
           "name": "Workshop",
           "landWhenBuilt": 108,
-          "checkIn": 52
+          "checkIn": 51
         },
         {
           "id": "b26",
@@ -149,11 +149,11 @@
           "checkIn": 64
         },
         {
-          "id": "b30",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 127,
-          "checkIn": 70
+          "id": "b29",
+          "blueprint": "lighthouse",
+          "name": "Lighthouse",
+          "landWhenBuilt": 125,
+          "checkIn": 69
         },
         {
           "id": "b31",
@@ -161,6 +161,13 @@
           "name": "Windmill",
           "landWhenBuilt": 128,
           "checkIn": 71
+        },
+        {
+          "id": "b32",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 129,
+          "checkIn": 72
         }
       ]
     },
@@ -225,18 +232,18 @@
           "checkIn": 44
         },
         {
-          "id": "b23",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 64,
-          "checkIn": 46
-        },
-        {
           "id": "b24",
           "blueprint": "floor",
           "name": "Upper floor",
-          "landWhenBuilt": 65,
-          "checkIn": 51
+          "landWhenBuilt": 67,
+          "checkIn": 53
+        },
+        {
+          "id": "b25",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 67,
+          "checkIn": 54
         },
         {
           "id": "b27",
@@ -246,11 +253,11 @@
           "checkIn": 63
         },
         {
-          "id": "b29",
-          "blueprint": "lighthouse",
-          "name": "Lighthouse",
+          "id": "b30",
+          "blueprint": "house",
+          "name": "Little house",
           "landWhenBuilt": 74,
-          "checkIn": 69
+          "checkIn": 70
         }
       ]
     }
@@ -304,7 +311,7 @@
     "lighthouse"
   ],
   "checkIn": null,
-  "nextUp": "Next choice: Little house or Lantern path, about 5 more focus sessions away. Airship dock: 7 of 170 Starlight.",
+  "nextUp": "Next choice: Little house or Lantern path, about 1 more break and 5 more focus sessions away. Airship dock: 7 of 170 Starlight.",
   "activeDays": 15,
   "checkIns": 74,
   "lastCheckIn": {
