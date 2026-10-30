@@ -21,7 +21,9 @@ At day 180 the scene draws about 590,000 triangles, about twice the old budget o
 
 ## The game
 
-- **Month-three pacing:** about 5.2 choices a week on average, inside the 2.5 to 6 target but near the top. Check after people play for real.
+- **Month-three pacing:** about 5.6 choices a week for the steady planner, inside the 2.5 to 6 target but near the top. Check after people play for real.
+- **Borrowed land on unusual histories.** On the five made-up people, the layout never needs land the rules didn't give. On eight other random histories it still borrowed 17 points in total (early home pads, one observatory, one house), spread out with no common cause. Borrowing only makes an island a little bigger than the rules say, so nobody would notice. One risk not yet seen on the real rules: a 3×3 observatory sent to a small young island.
+- **Hedges.** When a full island squeezes a special building in, any free point it cuts off gets a bush (a "hedge"), so nobody has an unreachable spot. It happens twice in 180 days for one made-up person. It looks like a plain bush; it could get its own hedge model.
 - **An island with no pile and no house** sends its workers across a bridge to another island's pile. Cute, but maybe give it its own small pile.
 - The first bridge to a new island picks inward twice as often as sideways, and outward only once there are nine or more islands.
 
