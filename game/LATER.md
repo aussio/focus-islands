@@ -8,7 +8,18 @@ Things we chose to leave for later, so the town could reach a whole stopping poi
 - **Bridge feet.** Each bridge foot used to leave a thin strip of sky that looked like a crack. The layout now turns it into a pier, and coast buildings move aside. Look at it again in the gallery's map and pads views.
 - **How close the camera sits.** On Today, a month-old town fills the picture with part of home, and the other islands are out of view. That follows the "follow the helpers" camera rule (decision 6), but it may be worth pulling back a little or showing the other islands now and then.
 - **Numbers to tune by eye:** land per break, model size on pads (`MODEL_SCALE` 0.9 in `kinds.js`), underside depth, how many trees and flowers, lane stones.
-- **A dark boxy shadow** sat beside the tree in the away mood on the old square island. Check that it's gone from the town.
+- **Shadows at dusk.** The tree's shadow used to print as a hard box on the grass apart from the tree in the break and away moods. The dusk sun now stands higher with softer edges, which fixed it but made dusk shadows shorter and less dramatic. Shadows are also faint in focus.
+- **Small things a look review saw** (pictures were in `/tmp/look/`, which the Mac clears; the gallery sections are named so they can be found again):
+  - the miner stands partly inside the rock (`#helpers-work`);
+  - helpers' heads peek over shed roofs at day 30;
+  - the airship pier's struts read as legs standing on nothing, because the airship hides the pier (`#pieces-bay`, `#pads-coast`);
+  - from day 30 the old tree's crown nearly touches the yellow roof beside it (hidden from Today's camera);
+  - at night the lighthouse beam sweeps through the market stall.
+- **Lanes that meet a pad or door at a slant.** In real layouts, 13 of 315 pads and 2 of 71 doors are reached by a lane in a V shape, because of where the front point sits. Fixing it means changing how the layout picks a front, which would move many buildings.
+- **Where a lower roof meets a taller wall.** A little sunlight can slip through the notch where a tall block steps down to a lower one, leaving a thin lit sliver in the house's shadow. Today's camera never sees it (the sun always comes from the camera's side), so it was left. The real fix is running the lower roof up to the wall, which changes how steps look. Walls just behind a lower roof now get windows only when they face the camera, which removed window frames poking out along the roof.
+- **A lane tip under a gable corner.** The review saw a small shard under the left corner of a gabled wing, which turned out to be the tip of a lane end. The smoother lane ends added afterward may have fixed it; check in `#blocks-real`.
+- **Town planning by eye:** at day 180 the main row of houses reads as one long wall of roofs; the day-30 town has four windmills and a lighthouse in the middle of town. Both come from where the layout puts things.
+- **The check-in card covers most of the island** when it's open (tour pictures 02, 06, 08, 09). Maybe a smaller card, or move the camera aside while it's open.
 
 ## Speed (decision 10: pretty first, fast later)
 
