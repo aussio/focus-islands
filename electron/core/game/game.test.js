@@ -904,3 +904,98 @@ test("today: what today's check-ins collected, gifts included and spending not t
   assert.ok(nothing(h.state()));
   assert.equal(h.state().onHand.wood, after.onHand.wood);
 });
+
+// ---- History: what happened on each day (days.js).
+
+test('History days: earned counts grants by their day, waiting cards included, plus gifts; sessions and real breaks on plan', () => {
+  const h = setup().start();
+  const sumGrants = dayKey => {
+    const total = Object.fromEntries(R.RESOURCES.map(r => [r, 0]));
+    for (const event of h.events) {
+      if (event.kind !== 'gameGranted' || event.payload.dayKey !== dayKey) continue;
+      for (const [r, n] of Object.entries(event.payload.amounts)) total[r] += n;
+    }
+    for (const event of h.events) {
+      if (event.kind !== 'gameCheckedIn' || event.payload.dayKey !== dayKey) continue;
+      for (const [r, n] of Object.entries(event.payload.surprise?.gifts || {})) total[r] += n;
+    }
+    return total;
+  };
+  const close = (actual, expected) => R.RESOURCES.every(r => Math.abs(actual[r] - expected[r]) < 0.01);
+  const fresh = h.state().todaySummary;
+  assert.deepEqual(fresh, { dayKey: '2026-01-05', focusSessions: 0, onPlanSessions: 0, realBreaks: 0, plannedSessions: 6,
+    planMatch: null, planFit: null, checkIns: 0, happenings: [], earned: { wood: 0, stone: 0, planks: 0, soil: 0, saplings: 0, starlight: 0 } });
+
+  h.focus(60); h.rest(10); h.focus(30); h.rest(2); h.focus(60, { reason: 'snooze' }); h.grants();
+  let day = h.state().todaySummary;
+  assert.equal(day.focusSessions, 3);
+  assert.equal(day.onPlanSessions, 1, 'a session far from its planned length and a snooze are not on plan');
+  assert.equal(day.realBreaks, 1, 'a 2-minute break is too short to be real');
+  assert.ok(h.state().checkIn, 'a card is waiting');
+  assert.ok(day.earned.wood > 0 && day.earned.soil > 0 && day.earned.starlight === 1, 'what the waiting card holds is already earned');
+  assert.ok(close(day.earned, sumGrants('2026-01-05')));
+  assert.equal(day.checkIns, 0);
+
+  const pick = h.state().checkIn.choice.options[0].job;
+  h.checkIn(pick);
+  day = h.state().todaySummary;
+  assert.equal(day.checkIns, 1);
+  assert.deepEqual(day.happenings.filter(item => item.kind === 'job'), [{ kind: 'job', helper: 'Pip', job: R.JOBS[pick].name }]);
+  assert.ok(close(day.earned, sumGrants('2026-01-05')), 'collecting a card changes nothing that was earned');
+
+  h.endDay(); h.grants();
+  const dayGrant = grantFor(h, 'game:grant:day:2026-01-05');
+  day = h.state().todaySummary;
+  assert.equal(day.planMatch, dayGrant.payload.planMatch);
+  assert.equal(day.planFit, day.planMatch >= R.DEFAULT_RULES.onPlanDayThreshold ? 'on' : day.planMatch >= R.DEFAULT_RULES.nearPlanDayThreshold ? 'near' : 'off');
+  assert.ok(close(day.earned, sumGrants('2026-01-05')), 'the day grant is earned on its day');
+
+  h.nextDay();
+  assert.equal(h.state().todaySummary.dayKey, '2026-01-06');
+  assert.equal(h.state().todaySummary.focusSessions, 0);
+  assert.ok(R.RESOURCES.every(r => h.state().todaySummary.earned[r] === 0), 'a new day starts at zero');
+  const [past] = game.daySummaries(h.events, h.ctx({ planFor: undefined }), ['2026-01-05']);
+  assert.deepEqual({ ...past, plannedSessions: 6 }, { ...day, checkIns: past.checkIns, happenings: past.happenings },
+    'the same day reads the same later; without plans it just has no planned sessions');
+  assert.equal(past.plannedSessions, null);
+  assert.equal(game.daySummaries(setup().events, h.ctx(), ['2026-01-05']), null, 'nothing before the game starts');
+});
+
+test('History days: buildings, helpers, new islands, surprises and new land, each on the day of its check-in', () => {
+  const result = sim.run('steady', 21);
+  const keys = Array.from({ length: 21 }, (_, i) => MD.dayKeyFor(i + 1));
+  const ctx = { todayKey: MD.dayKeyFor(22), dayKeyOf: MD.dayKeyOf };
+  const days = game.daySummaries(result.events, ctx, keys);
+  assert.deepEqual(game.daySummaries(JSON.parse(JSON.stringify(result.events)), ctx, keys), days, 'the same events give the same days');
+  const state = game.gameState(result.events, ctx);
+  const all = days.flatMap(day => day.happenings);
+  const of = kind => all.filter(item => item.kind === kind);
+  assert.equal(days.reduce((n, day) => n + day.checkIns, 0), result.log.length);
+  assert.deepEqual(of('built').map(item => item.name), result.log.filter(l => l.built).map(l => l.built.name));
+  assert.deepEqual(of('island').map(item => item.name), state.islands.slice(1).map(island => island.name));
+  assert.ok(of('island').every(item => typeof item.label === 'string'));
+  assert.deepEqual(of('arrived').map(item => item.helper), state.helpers.slice(1).map(helper => helper.name));
+  assert.deepEqual(of('job').map(item => item.helper).sort(), state.helpers.filter(helper => helper.job).map(helper => helper.name).sort());
+  assert.deepEqual(of('surprise').map(item => item.text), result.log.filter(l => l.surprise).map(l => l.surprise.text));
+  const names = new Set(state.islands.map(island => island.name));
+  for (const item of of('built')) {
+    if (item.between) assert.ok(item.between.every(name => names.has(name)) && item.island === null, 'a bridge names both islands');
+    else assert.ok(names.has(item.island));
+  }
+  for (const day of days) {
+    const grew = day.happenings.filter(item => item.kind === 'grew');
+    assert.equal(new Set(grew.map(item => item.island)).size, grew.length, 'one line per island per day');
+    assert.ok(grew.every(item => names.has(item.island) && item.amount > 0));
+  }
+  const land = result.log.reduce((n, l) => n + (l.newLand || []).reduce((m, grown) => m + grown.amount, 0), 0);
+  assert.ok(Math.abs(of('grew').reduce((n, item) => n + item.amount, 0) - land) < 0.05);
+  // Everything earned over the days, less what was spent, is what's on hand now (plus the starting pouch).
+  for (const r of R.RESOURCES) {
+    const earned = days.reduce((n, day) => n + day.earned[r], 0);
+    const spent = result.log.reduce((n, l) => n + (l.built?.price?.[r] || 0), 0);
+    const start = { soil: 40, saplings: 25 }[r] || 0;
+    const waiting = state.waiting[r] || 0;
+    assert.ok(Math.abs(start + earned - spent - waiting - state.onHand[r]) < 0.1, r);
+  }
+  assert.ok(days.filter(day => day.planMatch !== null).every(day => ['on', 'near', 'off'].includes(day.planFit)));
+});

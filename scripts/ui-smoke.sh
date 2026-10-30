@@ -155,7 +155,10 @@ for page, heading in (("plan", "Shape your day"), ("history", "Your rhythm"), ("
     assert heading in call("ui-read", ".page-head h1")["ui"]["value"]
     image = call("screenshot")
     assert image["renderedPage"] == heading, (page, image["renderedPage"])
-    if page == "history": assert "Acorns" not in call("ui-read", ".page")["ui"]["value"]
+    if page == "history":
+        history_text = call("ui-read", ".page")["ui"]["value"]
+        # Today's helper job, from the check-in above, shows under "On the island today".
+        assert "Acorns" not in history_text and "Today at a glance" in history_text and " became " in history_text, history_text[:600]
     if page == "settings": assert "Reward preview" not in call("ui-read", ".page")["ui"]["value"] and not found("#preview-focus")
     print(f"{page} screenshot:", image["screenshot"])
 focus_starts_before_restart = sum(event["kind"] == "focusStarted" for event in call("events")["events"])

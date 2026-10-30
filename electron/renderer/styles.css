@@ -140,7 +140,12 @@ body{background:#f6f8f4}
 /* The resource bar: icons and white totals straight over the sky, with a soft shadow and no panel. While a card is
    open, a small yellow "+34" beside a total shows the part arriving with it. */
 .hud-list{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:0;list-style:none}
-.hud-item{position:relative;display:flex;align-items:center;gap:4px;min-width:0}
+.hud-item{position:relative;min-width:0}
+/* Each resource is a button that opens its hover card. The padding widens what you can point at; the negative
+   margin keeps the bar's spacing as it was. */
+.hud-button{display:flex;align-items:center;gap:4px;margin:-3px -5px;padding:3px 5px;border:0;border-radius:9px;background:transparent;color:inherit;font:inherit;pointer-events:auto;transition:background-color .12s ease}
+.hud-button:hover,.hud-button.is-open{background:#ffffff33}
+.hud-button:focus-visible{outline:2px solid #fff;outline-offset:1px;box-shadow:0 0 0 4px #16301f40}
 .hud-item .hud-icon{width:19px;height:19px;filter:drop-shadow(0 1px 2px #1b3f3166)}
 .hud-big{display:block;font:400 15px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#fff;text-shadow:0 1px 2px #16301f99,0 0 7px #16301f59}
 /* The "+34" uses a narrower face, so it reads as extra detail beside the big number. */
@@ -155,6 +160,23 @@ body{background:#f6f8f4}
 .hud-pill.is-settling{animation:hud-settle .7s ease-in .1s both}
 .hud-big.is-changed{animation:hud-bump .5s ease-out}
 @media(prefers-reduced-motion:reduce){.today-hud *{animation:none!important}.hud-pill.is-settling{display:none}}
+/* A resource's hover card: a small cream card under its button, with a little point at the icon. It is fixed to the
+   window (game-hud.js places it) so the island's edge can't cut it off, never takes the pointer, and fades in and
+   out quickly, or not at all with reduced motion. */
+.hud-tip{position:fixed;z-index:3;left:0;top:0;width:226px;max-width:calc(100vw - 16px);padding:9px 11px 10px;border-radius:14px;background:#fffdf7;box-shadow:0 2px 0 #e1eadb,0 10px 26px #1b3f312e;color:#40584a;font-size:11px;line-height:1.38;pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility 0s linear .12s}
+.hud-tip.is-open{opacity:1;visibility:visible;transition:opacity .12s ease}
+.hud-tip:before{content:"";position:absolute;top:-5px;left:calc(var(--point,24px) - 6px);width:12px;height:12px;background:#fffdf7;border-radius:3px 0 0 0;transform:rotate(45deg)}
+.hud-tip-head{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.hud-tip-head .hud-icon{width:22px;height:22px}
+.hud-tip-head b{font:400 14px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;color:#18372b}
+.hud-tip p{margin:0}
+.hud-tip ul{display:flex;flex-direction:column;gap:4px;margin:7px 0 0;padding:7px 0 0;border-top:1px solid #ebe8da;list-style:none}
+.hud-tip li{display:flex;align-items:center;gap:5px}
+.hud-tip-today{font:400 12px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;color:#2c8450}
+.hud-tip .hud-pill{font-size:11px}
+.hud-tip-helpers span{flex:1;min-width:0}
+.hud-tip-boost{flex:none;padding:2px 5px 1px;border-radius:6px;background:#e6f3df;font:400 11px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;color:#2c7a4b}
+@media(prefers-reduced-motion:reduce){.hud-button,.hud-tip,.hud-tip.is-open{transition:none}}
 
 /* The check-in card: a slim strip. The heading and the notes, then the question and Just collect, then the
    choices in one row (or, with nothing to choose, what comes next and Collect). */
@@ -212,3 +234,64 @@ body{background:#f6f8f4}
 @media(max-width:1030px){.demo-body{grid-template-columns:1fr}.demo-log-box{padding:9px 0 0;border-left:0;border-top:1px solid #edf0e9}}
 
 .earlier-start{font-size:12px;flex-basis:100%}.earlier-start summary{cursor:pointer;color:#547a5c}.earlier-start[open]{display:flex;flex-direction:column;gap:10px}.earlier-start .field{margin:10px 0}
+
+/* History ("Your rhythm"): drawn by history() in app-source.js. Today at a glance and what happened on the island
+   side by side, then the planned and actual bars, the recent days, and the timer log, folded away. The resource
+   icons are the resource bar's (game-hud.js). */
+.history-page .page-head{margin-bottom:16px}
+.history-page .card{padding:16px 18px;margin-bottom:14px}
+.history-page .card h2{margin-bottom:10px}
+.history-page .card-head{margin-bottom:2px}.history-page .card-head h2{margin:0}
+.history-top{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:14px;margin-bottom:14px}
+.history-top>.card{margin:0}
+.history-top:has(>:only-child){grid-template-columns:1fr}
+.history-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.history-stat{display:flex;flex-direction:column;gap:3px;min-width:0;padding:9px 12px 10px;background:#f6f9f3;border:1px solid #e8efe4;border-radius:13px}
+.history-stat span,.history-earned>span:first-child{font-size:10px;font-weight:850;letter-spacing:.07em;text-transform:uppercase;color:#65766b}
+.history-stat b{font-size:19px;line-height:1.15;font-weight:800;letter-spacing:-.4px;color:#18372b;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-stat small{font-size:11px;color:#65766b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-earned{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin-top:11px;padding-top:10px;border-top:1px solid #edf0e9}
+.history-chips{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.history-chip{display:inline-flex;align-items:center;gap:3px;font:400 13px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;font-variant-numeric:tabular-nums;color:#2f4b3b;white-space:nowrap}
+.history-chip .hud-icon{width:17px;height:17px}
+.history-none{font-size:11.5px;color:#8a978e}
+.history-happenings{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.history-happenings li{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:12px;line-height:1.35;color:#18372b}
+.history-happenings em{font-style:normal;color:#65766b}
+.history-tag{flex:none;width:62px;padding:2px 0;border-radius:6px;text-align:center;font-size:9.5px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;background:#eef3ea;color:#4c6b57}
+.history-tag[data-tag="built"]{background:#fbeedd;color:#8b5a2b}.history-tag[data-tag="helper"]{background:#e8f5e9;color:#176b4a}
+.history-tag[data-tag="island"]{background:#e7eefa;color:#3f5f8f}.history-tag[data-tag="surprise"]{background:#fff3cc;color:#7d6100}
+.history-tag[data-tag="land"]{background:#edf5e3;color:#4f7a3a}
+.history-waiting{margin:10px 0 0;font-size:11.5px;color:#65766b}.history-waiting .button.link{padding:0;font-size:11.5px}
+.history-legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:10.5px;color:#65766b}
+.history-legend span{display:inline-flex;align-items:center;gap:5px}
+.history-key{display:inline-block;width:9px;height:9px;border-radius:3px}
+.history-bar-row{display:grid;grid-template-columns:56px minmax(0,1fr);align-items:center;gap:10px;margin-top:7px}
+.history-bar-label{font-size:11px;font-weight:750;color:#65766b}
+.history-track{position:relative;height:18px;background:#eef1ea;border-radius:7px}
+.history-track.is-usual .history-seg{opacity:.45}
+.history-seg{position:absolute;top:2px;bottom:2px;min-width:2px;border:1px solid #fff;border-radius:4px}
+.history-seg.focus,.history-key.focus{background:#add899}.history-seg.break,.history-key.break{background:#f6c59a}
+.history-seg.meeting,.history-key.meeting{background:#698f80}.history-seg.away,.history-key.away{background:#d9d1b9}
+.history-seg.is-light{background:repeating-linear-gradient(135deg,#f6c59a 0 3px,#fdebd9 3px 6px)}
+.history-now{position:absolute;top:-4px;bottom:-4px;z-index:2;width:2px;margin-left:-1px;background:#3a5f43;border-radius:2px}
+.history-track-empty{position:absolute;inset:0;display:flex;align-items:center;padding-left:9px;font-size:10.5px;color:#7b897f}
+.history-ticks{position:relative;height:13px}
+.history-ticks span{position:absolute;top:0;transform:translateX(-50%);font-size:10px;color:#7b897f;font-variant-numeric:tabular-nums;white-space:nowrap}
+.history-ticks span:first-child{transform:none}.history-ticks span:last-child{transform:translateX(-100%)}
+.history-days{display:grid;grid-template-columns:repeat(5,max-content) minmax(0,1fr);column-gap:22px;--chip-slot:56px}
+.history-day{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:center;min-height:29px;padding:4px 0;border-bottom:1px solid #f0f2ec;font-size:12px;color:#18372b;font-variant-numeric:tabular-nums}
+.history-day:last-child{border-bottom:0}
+.history-day.is-head{min-height:0;padding:0 0 5px;font-size:10px;font-weight:850;letter-spacing:.06em;text-transform:uppercase;color:#7b897f}
+.history-day.is-quiet{color:#8a978e}.history-quiet-note{grid-column:2/-1;font-size:11.5px}
+.history-day .history-chip{font-size:12px}.history-day .history-chip .hud-icon{width:15px;height:15px}
+.history-chips.is-columns{display:inline-grid;column-gap:6px}
+.history-fit{justify-self:start;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:800;white-space:nowrap}
+.history-fit[data-fit="on"]{background:#e8f5e9;color:#176b4a}.history-fit[data-fit="near"]{background:#fff1da;color:#8b5a2b}.history-fit[data-fit="off"]{background:#eef0ec;color:#65766b}
+.history-built{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#4c6b57}
+.history-log{padding:0 4px}
+.history-log summary{padding:3px 0;cursor:pointer;font-size:12px;font-weight:750;color:#176b4a}
+.history-log ol{margin:8px 0 0;padding:10px 16px;list-style:none;background:#fff;border:1px solid #e4e9e1;border-radius:14px;columns:210px 3;column-gap:28px;font-size:12px}
+.history-log li{display:flex;gap:10px;padding:3px 0;break-inside:avoid}
+.history-log time{flex:none;width:62px;color:#65766b;font-variant-numeric:tabular-nums}
+@media(max-width:1030px){.history-top{grid-template-columns:1fr}.history-days{column-gap:14px;--chip-slot:50px}.history-day>:nth-child(6){display:none}}

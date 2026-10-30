@@ -10,6 +10,7 @@ const R = require('./rules');
 const { scan } = require('./history');
 const play = require('./play');
 const { computeDueGrants } = require('./grants');
+const { summarizeDays } = require('./days');
 
 function localDayKey(iso) {
   const date = new Date(iso);
@@ -49,7 +50,20 @@ function gameState(events, ctx = {}) {
   const plan = ctx.planFor && ctx.todayKey ? ctx.planFor(ctx.todayKey) : null;
   env.typical = { focusMinutes: (plan && plan.focusMinutes) || 60, breakMinutes: (plan && plan.breakMinutes) || 10 };
   env.todayKey = ctx.todayKey;
-  return play.viewState(state, facts, prepared, env);
+  const view = play.viewState(state, facts, prepared, env);
+  // Today on the History page (see days.js). A page-only default plan has no planned sessions, so it counts as none.
+  view.todaySummary = ctx.todayKey ? summarizeDays(state, facts, [ctx.todayKey], { ...env, planFor: ctx.planFor })[0] : null;
+  return view;
+}
+
+// What happened on each of `dayKeys` ('YYYY-MM-DD'), for History's recent days: the summaries described in
+// days.js, in the same order. Null before the game has started. The core asks only while History is open.
+function daySummaries(events, ctx = {}, dayKeys = []) {
+  const facts = scan(events);
+  if (!facts) return null;
+  const env = environment(ctx);
+  const state = play.fold(facts, env.rules, env.blueprints);
+  return summarizeDays(state, facts, dayKeys, { ...env, planFor: ctx.planFor });
 }
 
 // The gameCheckedIn record for one tap on the check-in card. pick: a blueprint id, a job id, or
@@ -70,7 +84,7 @@ function checkInRecord(events, ctx = {}, { token, pick = null } = {}) {
 const GAME_KINDS = Object.freeze(['gameStarted', 'gameGranted', 'gameCheckedIn']);
 
 module.exports = {
-  startRecord, dueGrants, gameState, checkInRecord, GAME_KINDS,
+  startRecord, dueGrants, gameState, daySummaries, checkInRecord, GAME_KINDS,
   DEFAULT_RULES: R.DEFAULT_RULES, DEFAULT_BLUEPRINTS: R.DEFAULT_BLUEPRINTS, JOBS: R.JOBS, KIND_NAMES: R.KIND_NAMES,
   ISLAND_KINDS: R.ISLAND_KINDS, RESOURCES: R.RESOURCES,
   isRealBreak: R.isRealBreak, restValue: R.restValue, focusOnPlan: R.focusOnPlan, dayPlanMatch: R.dayPlanMatch,

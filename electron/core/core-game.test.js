@@ -385,3 +385,30 @@ test('opening the same history in another time zone writes no second day grant',
   assert.deepEqual(run('Pacific/Auckland', 'work'), ['game:grant:day:2026-10-28']);
   assert.deepEqual(run('America/Los_Angeles', 'reopen'), ['game:grant:day:2026-10-28']);
 });
+
+test('History: today\'s island summary is in status.game, and recent days are worked out only while History is open', () => {
+  const { core } = temporaryCore();
+  core.action('scenario', 'game-week');
+  const onToday = core.status();
+  assert.equal(onToday.recentDays, null, 'no recent days off the History page');
+  assert.equal(onToday.game.todaySummary.dayKey, onToday.todayKey);
+  const status = core.action('navigate', 'history');
+  const days = status.recentDays;
+  assert.equal(days.length, 7);
+  const wall = new Date(status.currentWallTimeISO);
+  assert.deepEqual(days.map(day => day.dayKey), Array.from({ length: 7 }, (_, i) => localDay(new Date(wall.getFullYear(), wall.getMonth(), wall.getDate() - 1 - i))));
+  const [yesterday] = days;
+  assert.equal(yesterday.focusMinutes, status.yesterdayFocusMinutes, 'the same minutes the timer shows for yesterday');
+  assert.equal(yesterday.breakMinutes, status.yesterdayBreakMinutes);
+  for (const day of days) {
+    assert.ok(day.focusMinutes > 0 && day.breakMinutes > 0, day.dayKey);
+    assert.ok(day.game.earned.wood > 0 && day.game.checkIns > 0 && day.game.planFit, day.dayKey);
+  }
+  assert.equal(days.reduce((n, day) => n + day.game.checkIns, 0), status.game.checkIns, 'every check-in of the week, each on its day');
+  assert.equal(core.status().recentDays, days, 'kept until something is saved');
+  const later = core.action('start-focus');
+  assert.notEqual(later.recentDays, days, 'worked out again after a saved change');
+  assert.deepEqual(later.recentDays, days);
+  assert.equal(core.action('navigate', 'today').recentDays, null);
+  core.close();
+});

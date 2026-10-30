@@ -1,10 +1,14 @@
 // Sky island resources on Today: the resource bar over the island, the check-in card (or, after a tap, one
 // short note), and the small drawn icons both use. app-source.js places the slots and calls in here.
 // The bar is icons and numbers straight over the sky, with no panel. The card is a slim strip along the bottom.
+// Hovering, focusing or clicking a resource opens a small card about it (see createHud).
 //
 // Numbers are whole and rounded down, so the bar never shows 40 when you have 39.6 and a 40 price would fail.
 // With no card open, the big number is what you have. With a card open, it already counts what the card brings,
 // because the card's prices are checked against that too, and a small highlighted "+34" shows the part arriving.
+
+// The game's own rules (read only), so the hover card's rates, jobs and helper bonus match what the game does.
+import gameRules from '../core/game/rules.js';
 
 const html = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
 const whole = value => Math.max(0, Math.floor((Number(value) || 0) + 1e-6));
@@ -47,19 +51,61 @@ const resourceIcon = key => `<svg class="hud-icon" viewBox="0 0 20 20" aria-hidd
 // A price on the card: "[wood] 40". Read aloud as words in the choice's label.
 const priceChip = (key, amount) => `<span class="hud-cost" data-resource="${html(key)}">${resourceIcon(key)}<b>${html(amount)}</b></span>`;
 
+// ---- What each resource is, for its hover card: how you earn it and what it's for, worked out from the rules.
+const { JOBS, DEFAULT_RULES: rule, DEFAULT_BLUEPRINTS } = gameRules;
+const perHour = rate => Math.round(rate * 60);
+const perBreak = rate => `A real break grows about ${Math.round(rate * rule.restFullMinutes)} in ${rule.restFullMinutes} minutes.`;
+const firstWonder = DEFAULT_BLUEPRINTS.filter(bp => bp.kind === 'wonder').sort((a, b) => a.order - b.order)[0]?.name;
+const about = {
+  wood: ['Wood', `Focus makes about ${perHour(rule.woodPerFocusMinute)} an hour.`, 'Used for most buildings.'],
+  stone: ['Stone', `Focus makes about ${perHour(rule.stonePerFocusMinute)} an hour.`, 'Used for most buildings and some wonders.'],
+  planks: ['Planks', `Focus makes about ${perHour(rule.planksPerFocusMinute)} an hour once you have a Sawmill.`, 'Used for the bigger buildings.'],
+  soil: ['Soil', perBreak(rule.soilPerRestMinute), 'Used for every building.'],
+  saplings: ['Saplings', perBreak(rule.saplingsPerRestMinute), 'Used for every building.'],
+  starlight: ['Starlight', "Earned by sticking to your day's plan.", `Pays for Starlight wonders${firstWonder ? `, like the ${firstWonder}` : ''}.`],
+};
+// Helpers on a resource's job: "Pip and Wren are woodcutters", and each adds rule.helperBoost to what it makes.
+function helperWords(key, names) {
+  const job = JOBS[key]?.name.toLowerCase();
+  if (!job) return null;
+  if (!names.length) return { who: `No ${job}s yet`, boost: 0 };
+  const shown = names.length > 4 ? [...names.slice(0, 3), `${names.length - 3} more`] : names;
+  const who = names.length === 1 ? `${names[0]} is ${/^[aeiou]/.test(job) ? 'an' : 'a'} ${job}` : `${listWords(shown)} are ${job}s`;
+  return { who, boost: Math.round(names.length * rule.helperBoost * 100) };
+}
+
 // ---- The resource bar.
-// Each resource's total, and the part of it arriving with an open card (0 when no card is open).
+// Each resource's total, the part of it arriving with an open card (0 when no card is open), and for its hover
+// card what came in today and the helpers working on it.
 function barRows(game) {
   const card = game.checkIn;
   return resources.map(({ key, always }) => {
     const row = {
       key, total: whole((Number(game.onHand?.[key]) || 0) + (card ? Number(game.waiting?.[key]) || 0 : 0)),
-      arriving: card ? whole(game.waiting?.[key]) : 0,
+      arriving: card ? whole(game.waiting?.[key]) : 0, today: whole(game.today?.[key]),
+      helpers: (game.helpers || []).filter(helper => helper.job === key).map(helper => helper.name),
     };
-    return always || row.total || row.arriving || whole(game.today?.[key]) ? row : null;
+    return always || row.total || row.arriving || row.today ? row : null;
   }).filter(Boolean);
 }
 const rowWords = ({ key, total, arriving }) => `${amountWords(key, total)}${arriving ? `, ${arriving} of it arriving with this card` : ''}`;
+// The hover card's facts in words, for screen readers (the card itself is only drawn).
+function aboutWords(row) {
+  const [, made, used] = about[row.key] || ['', '', ''];
+  const helpers = helperWords(row.key, row.helpers);
+  return [made, used, row.today ? `${row.today} came in today.` : '',
+    helpers ? `${helpers.who}${helpers.boost ? `, adding ${helpers.boost}%` : ''}.` : ''].filter(Boolean).join(' ');
+}
+function tipMarkup(row) {
+  const [name, made, used] = about[row.key] || [row.key, '', ''];
+  const helpers = helperWords(row.key, row.helpers);
+  const facts = [
+    row.today ? `<li><b class="hud-tip-today">+${row.today}</b> today</li>` : '',
+    row.arriving ? `<li><b class="hud-pill">+${row.arriving}</b> arriving with this card</li>` : '',
+    helpers ? `<li class="hud-tip-helpers"><span>${html(helpers.who)}</span>${helpers.boost ? `<b class="hud-tip-boost">+${helpers.boost}%</b>` : ''}</li>` : '',
+  ].join('');
+  return `<div class="hud-tip-head">${resourceIcon(row.key)}<b>${html(name)}</b></div><p>${html(made)} ${html(used)}</p>${facts ? `<ul>${facts}</ul>` : ''}`;
+}
 // before: what the bar showed last time, when this is a change within the same game (null otherwise).
 // closed: a card was open last time and is gone now.
 function barMarkup(rows, before, closed) {
@@ -70,11 +116,15 @@ function barMarkup(rows, before, closed) {
     const pill = row.arriving ? `<span class="hud-pill${before && old && !old.arriving ? ' is-new' : ''}" aria-hidden="true">+${row.arriving}</span>`
       // Just after a card is collected, its "+34" fades into the number once.
       : closed && old?.arriving ? `<span class="hud-pill is-settling" aria-hidden="true">+${old.arriving}</span>` : '';
-    return `<li class="hud-item" data-resource="${row.key}">${resourceIcon(row.key)}<b class="hud-big${changed ? ' is-changed' : ''}"${changed ? ` data-from="${old.total}"` : ''} aria-hidden="true">${row.total}</b>${pill}<span class="hud-words">${html(rowWords(row))}</span></li>`;
+    return `<li class="hud-item" data-resource="${row.key}"><button class="hud-button" type="button" data-resource="${row.key}" aria-describedby="hud-about-${row.key}">${resourceIcon(row.key)}<b class="hud-big${changed ? ' is-changed' : ''}"${changed ? ` data-from="${old.total}"` : ''} aria-hidden="true">${row.total}</b>${pill}<span class="hud-words">${html(rowWords(row))}</span></button><span class="hud-words" id="hud-about-${row.key}">${html(aboutWords(row))}</span></li>`;
   }).join('')}</ul>`;
 }
 
 // One bar for the window's life. It redraws only when what it shows changes, not with every status.
+// Each resource is a button. Hovering it with a mouse, reaching it with the keyboard, or clicking or tapping it opens
+// a small card under it: its name, how you earn it and what it's for, what came in today, what's arriving, and its
+// helpers. The card is only drawn: screen readers get the same facts as each button's description. It closes when
+// the pointer or focus moves away, on a click elsewhere, on Escape, and when the page scrolls or changes size.
 export function createHud() {
   const slot = document.createElement('section');
   slot.className = 'today-hud';
@@ -82,20 +132,91 @@ export function createHud() {
   slot.setAttribute('aria-label', 'What you have on the island');
   // Today's page is a polite live region; the bar's numbers are read when asked for, never announced.
   slot.setAttribute('aria-live', 'off');
+  const list = document.createElement('div');
+  const tip = document.createElement('div');
+  tip.className = 'hud-tip';
+  tip.setAttribute('aria-hidden', 'true');
+  slot.append(list, tip);
   let shownKey = null, shown = null, tidy = 0;
+  // The open hover card: which resource, and whether a click is holding it open.
+  let tipKey = null, held = false, leaving = 0;
+  const buttonFor = key => list.querySelector(`.hud-button[data-resource="${key}"]`);
+  function openTip(key, hold) {
+    clearTimeout(leaving);
+    const row = shown?.rows.find(item => item.key === key), button = buttonFor(key);
+    if (!row || !button) { closeTip(); return; }
+    list.querySelector('.hud-button.is-open')?.classList.remove('is-open');
+    button.classList.add('is-open');
+    tip.innerHTML = tipMarkup(row);
+    tipKey = key;
+    held = hold;
+    placeTip();
+    if (tipKey) tip.classList.add('is-open');
+  }
+  function closeTip() {
+    clearTimeout(leaving);
+    tipKey = null;
+    held = false;
+    tip.classList.remove('is-open');
+    list.querySelector('.hud-button.is-open')?.classList.remove('is-open');
+  }
+  // Under its button with the little point at the icon, kept inside the layer over the island (it is fixed to the
+  // window, so the island's rounded edge never cuts it off).
+  function placeTip() {
+    const button = tipKey && buttonFor(tipKey);
+    const spot = button?.getBoundingClientRect();
+    if (!spot?.width || slot.hidden || !slot.isConnected) { closeTip(); return; }
+    const area = (slot.parentElement || slot).getBoundingClientRect(), width = tip.offsetWidth;
+    const point = spot.left + 14;
+    const left = Math.max(area.left + 6, Math.min(point - 24, area.right - 6 - width));
+    tip.style.left = `${Math.round(left)}px`;
+    tip.style.top = `${Math.round(spot.bottom + 8)}px`;
+    tip.style.setProperty('--point', `${Math.round(point - left)}px`);
+  }
+  list.addEventListener('pointerover', event => {
+    const button = event.target.closest('.hud-button');
+    if (!button || event.pointerType === 'touch' || (held && tipKey === button.dataset.resource)) return;
+    openTip(button.dataset.resource, false);
+  });
+  list.addEventListener('pointerout', event => {
+    if (event.pointerType === 'touch' || held || event.relatedTarget?.closest?.('.hud-button')) return;
+    clearTimeout(leaving);
+    leaving = setTimeout(() => { if (!held) closeTip(); }, 120);
+  });
+  list.addEventListener('focusin', event => {
+    const button = event.target.closest('.hud-button');
+    if (button?.matches(':focus-visible')) openTip(button.dataset.resource, false);
+  });
+  list.addEventListener('focusout', event => { if (!held && !list.contains(event.relatedTarget)) closeTip(); });
+  list.addEventListener('click', event => {
+    const button = event.target.closest('.hud-button');
+    if (!button) return;
+    if (held && tipKey === button.dataset.resource) closeTip();
+    else openTip(button.dataset.resource, true);
+  });
+  document.addEventListener('pointerdown', event => { if (tipKey && !list.contains(event.target)) closeTip(); }, true);
+  document.addEventListener('keydown', event => { if (tipKey && event.key === 'Escape') closeTip(); });
+  document.addEventListener('scroll', () => { if (tipKey) closeTip(); }, true);
+  window.addEventListener('resize', () => { if (tipKey) closeTip(); });
   function update(status) {
     const game = status.game, database = `${status.profile}:${status.publicationEpoch ?? 0}`;
     const card = game?.checkIn?.token || null;
     const rows = game ? barRows(game) : [];
     const key = JSON.stringify([database, card, rows]);
-    if (key === shownKey) return;
+    if (key === shownKey) {
+      // Keep an open hover card under its button if the page moved, and close it once the page is left.
+      if (tipKey) placeTip();
+      return;
+    }
     shownKey = key;
     // Changes move only within one game: a fresh window or another database just draws.
     const before = shown && shown.database === database ? shown : null;
     const closed = Boolean(before?.card && !card);
     shown = { database, card, rows };
     slot.hidden = !rows.length;
-    slot.innerHTML = rows.length ? barMarkup(rows, before, closed) : '';
+    list.innerHTML = rows.length ? barMarkup(rows, before, closed) : '';
+    // A hover card stays open through a redraw, with the new numbers.
+    if (tipKey) openTip(tipKey, held);
     if (!before) return;
     countUp();
     // Take the one-time movement off once it has played, so moving the slot to a new page can't play it again.
@@ -179,3 +300,6 @@ export function checkInNote(game) {
   const text = parts.join(' ');
   return `<p class="island-note" title="${html(text)}">${html(text)}</p>`;
 }
+
+// The History page (app-source.js) shows amounts with the same icons, in the same order.
+export { amounts, resourceIcon };

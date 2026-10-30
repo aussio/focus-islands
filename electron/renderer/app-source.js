@@ -1,5 +1,5 @@
 import { dayPath } from './day-path.js';
-import { amountList, checkInCard, checkInNote, createHud } from './game-hud.js';
+import { amountList, amounts, checkInCard, checkInNote, createHud, resourceIcon } from './game-hud.js';
 import { appStore } from './state.js';
 
 const pages = [
@@ -107,6 +107,9 @@ function acceptStatus(next, previous) {
   else if (showingToday()) {
     if (today() !== todayShell) render();
     else updateTodayLive(status);
+  } else if (state().page === 'history') {
+    // History's times are rounded to the minute, so it redraws only when what it shows changes.
+    if (history() !== historyShell) render();
   } else if (stable(before) !== stable(status)) render();
   else updateTodayLive(status);
   updatePresenceDisplay();
@@ -425,9 +428,6 @@ function todayActions(g) {
   if (g.situation === 'rest' || g.action?.type === 'rest' || g.action === 'rest' || g.action === 'break') return `${actionButton('Start break', 'start-break', undefined, true, 'start-break')} ${longBreak} ${snooze}`;
   return actionButton('Start focus', g.action ? 'today-suggestion' : 'start-focus', undefined, true, 'start-focus');
 }
-function timelineRows(items, actual = false) {
-  return items.map(item => `<div class="timeline-row"><time>${clock(item.start)}</time><span class="title">${html(actual ? item.kind === 'away' ? 'Away' : item.kind === 'break' ? item.inferred ? 'Inferred break' : item.inProgress ? 'Break · in progress' : item.confirmed ? 'Confirmed break' : 'Break' : item.inProgress ? 'Focus · in progress' : 'Focus' : item.title || item.kind)}</span><span class="length">${mins(item.start, item.end)}m</span></div>`).join('');
-}
 function todayUpNext(status) {
   if (!status.plan || status.dayEndedAt) return '';
   const now = date(status.currentWallTimeISO || status.currentWallTime || Date.now()).getTime();
@@ -510,9 +510,120 @@ function plan() {
   const timeline = card(`${section(timelineTitle)}${timelineNote}${view.timeline.length ? calendar(view.timeline, view.record.current?.start || view.plan.start, view.record.current?.end || view.plan.end) : empty(view.record.current ? 'No time remains in this plan.' : 'Enter your start and finish to see suggested focus and break times.')}`);
   return `${header('Shape your day', `Plan for ${shortDate(view.date)}.`)}${dayButtons}${reflectionCard}${bounds}${meetingCard}${timeline}`;
 }
+// ---- History ("Your rhythm"): today at a glance, what happened on the island, planned and actual bars, recent
+// days, and today's timer log. Every number comes from the main process (status, status.game.todaySummary and
+// status.recentDays). Times are rounded to the minute, so the markup, and so the page, changes at most once a minute.
+let historyShell = null, historyLogOpen = false;
+const minutesText = value => { const m = Math.max(0, Math.round(Number(value) || 0)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
+const withArticle = name => `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
+const planFitWords = { on: 'On plan', near: 'Near plan', off: 'Own pace' };
+// "[icon] 40" chips, in the resource bar's order, with words for screen readers. With `columns` (resource keys),
+// each key gets a fixed slot, left empty when there is none, so rows of chips line up.
+function resourceChips(values, emptyText = '', columns = null) {
+  const shown = amounts(values);
+  if (!shown.length) return emptyText ? `<span class="history-none">${html(emptyText)}</span>` : '';
+  const words = amountList(values), own = new Map(shown.map(([key, amount], index) => [key, [amount, words[index]]]));
+  const chip = key => { const [amount, word] = own.get(key); return `<span class="history-chip" data-resource="${html(key)}" title="${html(word)}">${resourceIcon(key)}<b>${amount}</b></span>`; };
+  const slots = columns ? columns.map(key => own.has(key) ? chip(key) : '<span></span>') : shown.map(([key]) => chip(key));
+  return `<span class="history-chips${columns ? ' is-columns' : ''}" role="img" aria-label="${html(words.join(', '))}"${columns ? ` style="grid-template-columns:repeat(${columns.length},var(--chip-slot))"` : ''}>${slots.join('')}</span>`;
+}
+function historyGlance(s) {
+  const summary = s.game?.todaySummary || null;
+  const plannedFocus = (s.plannedTimeline || []).filter(block => itemKind(block) === 'focus');
+  const plannedMinutes = plannedFocus.reduce((total, block) => total + mins(block.start, block.end), 0);
+  const tile = (label, value, note, extra = '') => `<div class="history-stat"${extra}><span>${html(label)}</span><b>${html(value)}</b><small>${html(note)}</small></div>`;
+  const realBreaks = summary?.realBreaks ?? null;
+  const plannedSessions = summary?.plannedSessions ?? (plannedFocus.length || null);
+  let plan;
+  if (summary?.planFit) plan = tile('Plan', planFitWords[summary.planFit], `${Math.round(summary.planMatch * 100)}% match for the day`);
+  else if (plannedSessions && summary?.focusSessions) plan = tile('Plan', `${summary.onPlanSessions} of ${plannedSessions}`, 'sessions on plan so far', ' title="A session is on plan when it lasts close to its planned length."');
+  else if (plannedSessions) plan = tile('Plan', `${plannedSessions} sessions`, 'planned for today');
+  else plan = tile('Plan', 'No plan yet', 'made at your first focus');
+  const earned = s.game ? `<div class="history-earned"><span>Island earned today</span>${resourceChips(summary?.earned, 'Nothing yet. Focus makes materials, and breaks grow things.')}</div>` : '';
+  return card(`${section('Today at a glance')}<div class="history-stats">${tile('Focus', minutesText(s.focusMinutesToday), plannedMinutes ? `of ${minutesText(plannedMinutes)} planned` : 'so far today')}${tile('Breaks', minutesText(s.breakMinutesToday), realBreaks === null ? 'of real breaks' : `${realBreaks} real break${realBreaks === 1 ? '' : 's'}`)}${plan}</div>${earned}`);
+}
+// One line for each thing today's check-ins did, with a small tag for its kind.
+function historyIsland(s) {
+  const game = s.game;
+  if (!game) return '';
+  const many = (game.islands || []).length > 1;
+  const line = (tag, text, detail = '') => `<li><span class="history-tag" data-tag="${html(tag.toLowerCase())}">${html(tag)}</span><span>${html(text)}${detail ? ` <em>${html(detail)}</em>` : ''}</span></li>`;
+  const lines = (game.todaySummary?.happenings || []).map(item => {
+    if (item.kind === 'built') return line('Built', item.name, item.between ? `between ${item.between.join(' and ')}` : many && item.island ? `on ${item.island}` : '');
+    if (item.kind === 'job') return line('Helper', `${item.helper} became ${withArticle(item.job)}`);
+    if (item.kind === 'arrived') return line('Helper', `${item.helper} moved in`);
+    if (item.kind === 'island') return line('Island', `${item.name} drifted in`, item.label ? `a ${item.label} island` : '');
+    if (item.kind === 'surprise') return line('Surprise', item.text);
+    if (item.kind === 'grew') return line('Land', `${item.island} grew${item.amount < 10 ? ' a little' : ''}`);
+    return '';
+  }).filter(Boolean);
+  const most = 8;
+  const list = lines.length ? `<ul class="history-happenings">${lines.slice(0, most).join('')}</ul>${lines.length > most ? `<p class="small-note">And ${lines.length - most} more.</p>` : ''}`
+    : empty('Nothing new yet. New things arrive when you check in after a break.');
+  const waiting = game.checkIn ? '<p class="history-waiting">A check-in is waiting on Today. <button class="button link" data-page="today">Open Today →</button></p>' : '';
+  return card(`${section('On the island today')}${list}${waiting}`);
+}
+// The day's plan and what actually happened, as two thin bars on the same hours.
+function historyBars(s) {
+  const minute = value => Math.round(date(value).getTime() / 60000) * 60000;
+  const now = Math.floor(date(s.currentWallTimeISO || s.currentWallTime || Date.now()).getTime() / 60000) * 60000;
+  const savedPlan = s.plannedTimeline || [];
+  const usual = !savedPlan.length && !s.plan ? s.defaultDayPath?.timeline || [] : [];
+  const planned = savedPlan.length ? savedPlan : usual, actual = s.actualTimeline || [];
+  let start = minute(s.dayStart || now), end = minute(s.dayEnd || now);
+  for (const block of [...planned, ...actual]) { start = Math.min(start, minute(block.start)); end = Math.max(end, minute(block.end)); }
+  const hour = 3600000, first = new Date(start); first.setMinutes(0, 0, 0);
+  start = first.getTime(); end = Math.max(start + hour, Math.ceil((end - start) / hour) * hour + start);
+  const percent = time => ((Math.min(end, Math.max(start, time)) - start) / (end - start) * 100).toFixed(2);
+  const names = { focus: 'Focus', break: 'Break', meeting: 'Meeting', away: 'Away' };
+  const segments = (blocks, isActual) => blocks.map(block => {
+    const from = minute(block.start), until = minute(block.end), kind = itemKind(block);
+    if (until <= from) return '';
+    const light = isActual && kind === 'break' && !block.confirmed && !block.inferred && !block.inProgress;
+    const name = block.title || (isActual && kind === 'break' && block.inferred ? 'Time away, counted as a break' : names[kind] || 'Time');
+    return `<span class="history-seg ${html(kind)}${light ? ' is-light' : ''}" style="left:${percent(from)}%;width:${(percent(until) - percent(from)).toFixed(2)}%" title="${html(`${name} · ${clock(from)}–${clock(until)} · ${minutesText((until - from) / 60000)}${light ? ' · not counted as a real break' : ''}`)}"></span>`;
+  }).join('');
+  const marker = !s.dayEndedAt && now > start && now < end ? `<span class="history-now" style="left:${percent(now)}%" title="Now · ${html(clock(now))}"></span>` : '';
+  const row = (label, blocks, isActual, emptyText, extra = '') => `<div class="history-bar-row"><span class="history-bar-label">${html(label)}</span><div class="history-track${extra}">${blocks.length ? segments(blocks, isActual) : `<span class="history-track-empty">${html(emptyText)}</span>`}${marker}</div></div>`;
+  const hours = (end - start) / hour, step = hours > 10 ? 2 : 1, ticks = [];
+  for (let at = start; at <= end; at += step * hour) {
+    const time = new Date(at);
+    ticks.push(`<span style="left:${percent(at)}%">${html(time.toLocaleTimeString([], { hour: 'numeric' }))}</span>`);
+  }
+  const legend = ['focus', 'break', 'meeting', 'away'].map(kind => `<span><i class="history-key ${kind}"></i>${names[kind]}</span>`).join('');
+  return card(`<div class="card-head">${section('Planned and actual')}<div class="history-legend">${legend}</div></div>${row('Planned', planned, false, 'No plan saved today', usual.length ? ' is-usual' : '')}${row('Actual', actual, true, 'Nothing recorded yet')}<div class="history-bar-row"><span class="history-bar-label"></span><div class="history-ticks">${ticks.join('')}</div></div>${usual.length ? '<p class="small-note">No plan is saved yet, so Planned shows your usual day.</p>' : ''}`);
+}
+// The seven days before today, one row each. Worked out by the main process only while History is open, so it
+// is missing for a moment after you open the page.
+function historyRecent(s) {
+  const days = s.recentDays;
+  const label = key => { const [year, month, day] = key.split('-').map(Number); return new Date(year, month - 1, day).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); };
+  let body;
+  if (!days) body = '<p class="empty">Looking back over the week…</p>';
+  else if (!days.some(day => day.focusMinutes || day.breakMinutes || day.game?.checkIns)) body = empty('Your past week will show here.');
+  else {
+    const head = '<div class="history-day is-head" aria-hidden="true"><span>Day</span><span>Focus</span><span>Breaks</span><span>Plan</span><span>Island earned</span><span>Built</span></div>';
+    // The resources earned on any of these days, so each one keeps its own column.
+    const total = {};
+    for (const day of days) for (const [key, amount] of Object.entries(day.game?.earned || {})) total[key] = (total[key] || 0) + amount;
+    const columns = amounts(total).map(([key]) => key);
+    body = head + days.map(day => {
+      const game = day.game, quiet = !day.focusMinutes && !day.breakMinutes && !game?.checkIns;
+      if (quiet) return `<div class="history-day is-quiet"><span>${html(label(day.dayKey))}</span><span class="history-quiet-note">No sessions</span></div>`;
+      const fit = game?.planFit;
+      const plan = fit ? `<span class="history-fit" data-fit="${fit}" title="${html(`${Math.round(game.planMatch * 100)}% match with the plan`)}">${planFitWords[fit]}</span>` : '<span class="history-none" title="No plan that day">—</span>';
+      const counts = new Map();
+      for (const item of game?.happenings || []) if (item.kind === 'built') counts.set(item.name, (counts.get(item.name) || 0) + 1);
+      const built = [...counts].map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join(', ');
+      return `<div class="history-day"><span>${html(label(day.dayKey))}</span><span>${html(minutesText(day.focusMinutes))}</span><span>${html(minutesText(day.breakMinutes))}</span>${plan}<span>${resourceChips(game?.earned, '—', columns)}</span><span class="history-built" title="${html(built)}">${built ? html(built) : '<span class="history-none">—</span>'}</span></div>`;
+    }).join('');
+  }
+  return card(`${section('Recent days')}<div class="history-days">${body}</div>`);
+}
 function history() {
-  const s = state().status, plan = s.plannedTimeline || [], actual = s.actualTimeline || [], entries = s.history || [];
-  return `${header('Your rhythm', 'Today’s focus sessions and breaks.')}${card(`${section('Planned and actual timeline')}<div class="split"><div><h3>PLANNED</h3>${plan.length ? timelineRows(plan) : empty('No plan saved today.')}</div><div><h3>ACTUAL</h3>${actual.length ? timelineRows(actual, true) : empty('No sessions recorded today.')}</div></div>`)}${card(`${section('Today’s events')}${entries.length ? entries.map(entry => `<div class="line-row"><span class="green">●</span><span>${html(entry.title)}</span><span class="spacer"></span><time>${clock(entry.date)}</time></div>`).join('') : empty('Your first focus session will appear here.')}`)}${card(`${section('Today’s totals')}<div class="metric"><span>Focus time recorded</span><b>${s.focusMinutesToday || 0} min</b></div><div class="metric"><span>Break time detected</span><b>${s.breakMinutesToday || 0} min</b></div>`)}`;
+  const s = state().status, entries = s.history || [];
+  const log = `<details class="history-log" ${historyLogOpen ? 'open' : ''}><summary>Today’s timer log · ${entries.length ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` : 'nothing yet'}</summary>${entries.length ? `<ol>${entries.map(entry => `<li><time>${clock(entry.date)}</time><span>${html(entry.title)}</span></li>`).join('')}</ol>` : empty('Your first focus session will appear here.')}</details>`;
+  return `<div class="history-page">${header('Your rhythm', `${shortDate(s.currentWallTimeISO || Date.now())}. Your focus, breaks, and what the island made.`)}<div class="history-top">${historyGlance(s)}${historyIsland(s)}</div>${historyBars(s)}${historyRecent(s)}${log}</div>`;
 }
 function debugSettings() {
   return card(`${section('Debug')}<label class="check-field"><input type="checkbox" id="show-activity-meter" ${showActivityMeter() ? 'checked' : ''}> Show activity countdown</label><p class="small-note">Show the activity countdown on Today. This only changes the display.</p>`);
@@ -542,6 +653,7 @@ function render() {
   const markup = view();
   content.innerHTML = `<div class="page">${markup}</div>`;
   todayShell = view === today ? markup : null;
+  historyShell = view === history ? markup : null;
   todayUpNextMarkup = null; todayPathKey = null;
   if (view === today) {
     updateTodayLive(state().status);
@@ -557,6 +669,8 @@ function render() {
   fullRenderCount++;
   showRenderCounts();
 }
+// History's timer log stays open or closed across redraws. Toggle events don't bubble, so listen as they pass down.
+document.addEventListener('toggle', event => { if (event.target.matches?.('.history-log')) historyLogOpen = event.target.open; }, true);
 document.addEventListener('focusout', event => {
   if (planFields.has(event.target.id)) flushPlanDraft();
   if (event.target.id && !draftFields.has(event.target.id)) state().clearDirty(event.target.id);

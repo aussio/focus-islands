@@ -788,6 +788,34 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       tomorrowBlocks, actual, history, gameView };
     return committedCache;
   }
+  // History's recent days: the RECENT_DAYS days before today, newest first, each { dayKey, focusMinutes,
+  // breakMinutes, game } (game: the island summary from game/days.js, or null). Worked out only while History
+  // is open. A finished day's minutes don't change, so they are kept until the day changes; the island part
+  // is cheap and is redone after each saved change.
+  const RECENT_DAYS = 7;
+  let recentMinutesKey = '', recentMinutes = [], recentDaysKey = '', recentDaysCache = null;
+  function recentDays(instant) {
+    const view = committedView(instant);
+    if (recentDaysKey === committedCacheKey) return recentDaysCache;
+    const wall = instant.wall;
+    const days = Array.from({ length: RECENT_DAYS }, (_, index) => new Date(wall.getFullYear(), wall.getMonth(), wall.getDate() - 1 - index));
+    const keys = days.map(dayKey);
+    if (recentMinutesKey !== view.todayKey) {
+      recentMinutes = days.map(day => {
+        const { focusSeconds, breakSeconds } = project(view.events, day, false);
+        return { focusMinutes: Math.floor(focusSeconds / 60), breakMinutes: Math.floor(breakSeconds / 60) };
+      });
+      recentMinutesKey = view.todayKey;
+    }
+    // Past days show the plan match saved in their day grants, so they skip plan lookups (each can take 20 ms).
+    const { planFor: _plans, ...context } = gameContext(instant);
+    let summaries = null;
+    try { summaries = game.daySummaries(view.events, context, keys); }
+    catch (error) { console.error('Could not work out the island days:', error); }
+    recentDaysCache = keys.map((key, index) => ({ dayKey: key, ...recentMinutes[index], game: summaries?.[index] || null }));
+    recentDaysKey = committedCacheKey;
+    return recentDaysCache;
+  }
   function status() {
     syncDay();
     const instant = now();
@@ -873,6 +901,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       actualTimeline: liveFocus ? [...actualWithLiveAway, liveFocus] : actualWithLiveAway,
       yesterdayTimeline: yesterday.actual, yesterdayFocusMinutes: Math.floor(yesterday.focusSeconds / 60),
       yesterdayBreakMinutes: Math.floor(yesterday.breakSeconds / 60), guidance: guide, history,
+      recentDays: page === 'history' ? recentDays(instant) : null,
       events, notificationsEnabled, activityDelaySeconds, game: gameView,
       todayGuidance: guide, canSwitchProfiles: !development, developmentMode: development,
       demo: demo ? { day: demoDay(events, instant.wall), log: demoLog.slice(-6) } : null };

@@ -14,6 +14,13 @@ function memo(fn) {
   };
 }
 
+// A finished focus session (from scan()) that stayed close to its planned length and wasn't a snooze:
+// the kind that can earn Starlight. History counts these as the day's sessions on plan.
+function focusCouldEarn(f, rules) {
+  return f.reason !== 'snooze'
+    && R.focusOnPlan({ kind: 'focus', elapsedSeconds: f.elapsedSeconds, targetSeconds: f.plannedSeconds }, rules);
+}
+
 function grantRecord(rules, now, source, sourceID, dayKey, amounts, restMinutes, extra) {
   return { kind: 'gameGranted', uniqueKey: `game:grant:${source}:${sourceID}`, occurredAt: now,
     payload: { rulesVersion: rules.rulesVersion, source, sourceID, dayKey, amounts, restMinutes, ...extra } };
@@ -29,8 +36,7 @@ function computeDueGrants(facts, state, ctx, env) {
   const savedDay = (source, id, at) => (facts.grantDays && facts.grantDays.get(`${source}:${id}`)) || dayOf(at);
   // Only a session that could earn Starlight by itself (on plan, not a snooze) takes one of the day's
   // planned places. A focus that started by itself and was stopped at once takes none.
-  const couldEarn = f => f.reason !== 'snooze'
-    && R.focusOnPlan({ kind: 'focus', elapsedSeconds: f.elapsedSeconds, targetSeconds: f.plannedSeconds }, rules);
+  const couldEarn = f => focusCouldEarn(f, rules);
   const { focus, breaks } = facts;
   const focusByID = new Map(), focusByDay = new Map(), placesByDay = new Map();
   for (const f of focus) {
@@ -123,4 +129,4 @@ function computeDueGrants(facts, state, ctx, env) {
   return out;
 }
 
-module.exports = { computeDueGrants };
+module.exports = { computeDueGrants, focusCouldEarn };
