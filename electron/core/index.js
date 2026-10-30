@@ -239,16 +239,29 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   }
   // reason notes why a focus session began: 'manual', 'suggestion', or 'snooze'.
   // Focus that starts by itself after a break is written by finishBreak and finishAway as 'afterBreak'.
-  function start(phase, target, planDraft, reason = 'manual') {
+  function canBackdateStart(wall = now().wall) {
+    return timer.state.phase === 'idle' && !dayEndedAt && !allEvents().some(event =>
+      ['focusStarted', 'breakStarted'].includes(event.kind) && dayKey(new Date(event.occurredAt)) === dayKey(wall));
+  }
+  function start(phase, target, planDraft, reason = 'manual', reportedStart) {
     if (dayEndedAt) return;
     if (timer.state.phase !== 'idle' && !(phase === 'break' && timer.state.phase === 'focus')) return;
     const instant = now(), proposed = timer.clone();
+    let startedAt = instant.wall;
+    if (reportedStart !== undefined) {
+      startedAt = new Date(reportedStart);
+      if (phase !== 'focus' || !canBackdateStart(instant.wall) || !Number.isFinite(startedAt.getTime())
+        || dayKey(startedAt) !== dayKey(instant.wall) || startedAt > instant.wall) {
+        throw new Error('Choose a start time earlier today, before your first session.');
+      }
+    }
     let finishedFocus = null;
     if (proposed.state.phase === 'focus') {
       const { sessionID, targetSeconds } = proposed.state;
       finishedFocus = { sessionID, targetSeconds, elapsedSeconds: proposed.end(instant) };
     }
-    const id = proposed.start(phase, target, instant);
+    const id = proposed.start(phase, target, { wall: startedAt, monotonicSeconds: instant.monotonicSeconds - (instant.wall - startedAt) / 1000 });
+    const signals = proposed.advance(instant);
     const prepared = currentPlan ? null : preparePlan(planDraft || {}, planDraft ? 'explicit' : 'generated-default', instant);
     if (!currentPlan && !prepared) return;
     let planEvent;
@@ -256,11 +269,14 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       if (prepared) planEvent = append(prepared.existing.latestEventID ? 'dayPlanRevised' : 'dayPlan', prepared.plan, { occurredAt: instant.wall });
       if (awayStartedAt) append('awayEnded', { reason: 'break started' }, { occurredAt: instant.wall, source: 'inferred' });
       if (finishedFocus) append('focusEnded', finishedFocus, { occurredAt: instant.wall });
-      if (phase === 'focus') append('focusStarted', { sessionID: id, targetSeconds: proposed.state.targetSeconds, reason }, { occurredAt: instant.wall });
+      if (phase === 'focus') append('focusStarted', { sessionID: id, targetSeconds: proposed.state.targetSeconds, reason, ...(reportedStart !== undefined ? { reportedStart: true } : {}) }, { occurredAt: startedAt });
       else append('breakStarted', { sessionID: id, targetSeconds: proposed.state.targetSeconds,
         ...(finishedFocus ? { followsSessionID: finishedFocus.sessionID } : {}) }, { occurredAt: instant.wall });
+      if (reportedStart !== undefined) append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall });
+      if (signals.includes('breakDue')) append('breakDue', sessionPayload(proposed), { occurredAt: instant.wall, source: 'system' });
     });
     if (prepared) installPlan(prepared, planEvent.id);
+    if (signals.includes('breakDue')) reminderSequence++;
     timer = proposed; suspended.clear();
     awayStartedAt = null; breakAwayStartedAt = null; breakElapsedAtAway = 0; returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
     lastTick = instant; lastCheckpoint = instant.wall.getTime(); writeLease();
@@ -835,7 +851,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const display = guide.situation === 'wrappingUp' ? countDown((ms(dayEndSnoozedUntil) - instant.wall) / 1000) : liveAway?.inferred ? countDown(liveAwaySeconds) : guide.situation === 'working'
       ? countDown((ms(guide.action.until) - instant.wall) / 1000)
       : timer.state.phase === 'idle' ? `${String(focusLength).padStart(2, '0')}:00` : countDown(timer.remainingSeconds);
-    return { page, profile, dayEndedAt, dayEndSnoozedUntil, dayEnding: Boolean(endGuide),
+    return { page, profile, canBackdateStart: canBackdateStart(instant.wall), dayEndedAt, dayEndSnoozedUntil, dayEnding: Boolean(endGuide),
       todayReflection: events.findLast(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, instant.wall))?.payload.note || '',
       phase: timer.state.phase, timer: { ...timer.state, remainingSeconds: timer.remainingSeconds }, countdown: display,
       currentWallTime: instant.wall.getTime() / 1000, currentWallTimeISO: instant.wall.toISOString(),
@@ -880,7 +896,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     switch (name) {
       case 'tick': tick(Number(value) || 0); return false;
       case 'navigate': page = viewPages.has(String(value)) ? String(value) : 'today'; break;
-      case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft); break;
+      case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft, 'manual', value?.startedAt); break;
       case 'end-day': endDay(); break;
       case 'snooze-end-day': {
         if (dayEndedAt || !currentPlan || now().wall < new Date(currentPlan.end)) break;

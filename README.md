@@ -118,3 +118,5 @@ The extension is in `Extension/`. Run `scripts/install-chrome-host.sh chrome` to
 Each profile has its own SQLite database. The Electron core replays the existing event schema and date payloads. Plans, timer transitions, and reflections remain append-only. The old acorn rewards and shop are gone. Their records (`rewardGranted`, `rewardDebited`, `itemPurchased`) stay in older databases untouched, but nothing reads or shows them, and earned acorns do not carry over. Profile settings live in the same database. The renderer uses Zustand for the current snapshot and unsaved drafts; reloading it reads committed state from SQLite. Settings can export events and preferences to JSON and back up the active database.
 
 See [STATE_PLAN.md](STATE_PLAN.md) for state ownership and day-planning rules.
+
+Before the first session of the day, Today offers **I started earlier**. Choose the actual start time today and **Start from this time** to count that work toward your focus timer and actual timeline. This leaves the planned day unchanged.

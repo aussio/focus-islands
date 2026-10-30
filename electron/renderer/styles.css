@@ -122,40 +122,130 @@ body{background:#f6f8f4}
 .sidebar-collapsed .sidebar-toggle{left:0}
 @media(max-width:1030px){.app-shell{--sidebar-width:178px}}
 
-/* Sky island on Today. The scene fills #today-island; the check-in card (or one short note after a tap)
-   shares the island's grid cell and sits over its lower edge. Neither changes the stage's height unless
-   the card needs more room than the island has. */
+/* Sky island on Today. The scene fills #today-island. The resource bar (#today-hud) and the check-in card
+   (#today-check-in), or one short note after a tap, share the island's grid cell: the bar along the top and the
+   card along the bottom. Neither changes the stage's height unless the card needs more room than the island has.
+   Both are drawn by game-hud.js, in one of three trial looks set by data-look: chips (A), corner (B), bare (C). */
 .today-island{grid-column:2;grid-row:1}
-.today-check-in{grid-column:2;grid-row:1;align-self:end;z-index:2;min-width:0;margin:0 14px 14px}
+.today-hud{grid-column:2;grid-row:1;align-self:start;justify-self:start;z-index:2;min-width:0;max-width:calc(100% - 20px);margin:10px;pointer-events:none}
+.today-hud[hidden]{display:none}
+.today-check-in{grid-column:2;grid-row:1;align-self:end;z-index:3;min-width:0;margin:0 10px 10px}
 .today-check-in:empty{display:none}
-.today-check-in[data-state="note"]{justify-self:start;max-width:calc(100% - 28px)}
-.check-in-card{padding:12px 14px 13px;background:#fffdf6f2;border:1px solid #dbe6d6;border-radius:16px;box-shadow:0 10px 28px #1b3f3126;color:#18372b}
+.today-check-in[data-state="note"]{justify-self:start;max-width:calc(100% - 20px)}
+/* Words for screen readers only: the amounts the icons and numbers show. */
+.hud-words{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.hud-icon{display:block;flex:none;width:20px;height:20px}
+.hud-list{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.hud-item{position:relative;min-width:0}
+.hud-big{display:block;font-family:"Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;font-weight:400;font-variant-numeric:tabular-nums;line-height:1;color:#1d3a2c}
+/* The small numbers use a narrower face, so they read as extra detail beside the big ones. */
+.hud-today,.hud-later,.hud-head{font-family:"Avenir Next Condensed","Arial Narrow",ui-sans-serif,sans-serif;font-weight:600;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
+.hud-today{color:#2c8450}
+.hud-today i{font-style:normal;font-weight:500;color:#5f7a68}
+.hud-coming{color:#6b7d72}
+.hud-pill{justify-self:start;padding:2px 5px 1px;border-radius:6px;background:#ffe07a;color:#6a4800;font-weight:700;box-shadow:0 1px 0 #e7b73c}
+/* Reward chips on the card ("+34" and an icon), and prices ("[icon] 40"). */
+.hud-chip{display:inline-flex;align-items:center;gap:2px;padding:3px 6px 3px 7px;border-radius:9px;background:#fff4cc;box-shadow:inset 0 0 0 1px #f2d98c;font:400 12px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;color:#6a4800;white-space:nowrap}
+.hud-chip .hud-icon{width:15px;height:15px}
+.hud-cost{display:inline-flex;align-items:center;gap:2px;font:400 11px/1 "Arial Rounded MT Bold",ui-rounded,system-ui,sans-serif;color:#2f4b3b;white-space:nowrap}
+.hud-cost .hud-icon{width:14px;height:14px}
+/* Look B's reward chips on their way up to the panel. */
+.hud-flyer{position:fixed;z-index:30;pointer-events:none;will-change:transform,opacity}
+
+/* One-time movement: a pill pops in when a card opens, settles into its number after a tap, and changed
+   numbers give one small bump. Nothing loops, and none of it plays with reduced motion. */
+@keyframes hud-pop{0%{opacity:0;transform:scale(.5)}60%{opacity:1;transform:scale(1.12)}100%{opacity:1;transform:none}}
+@keyframes hud-settle{0%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-10px) scale(.6)}}
+@keyframes hud-arrive{0%{opacity:0;transform:translateY(3px)}100%{opacity:1;transform:none}}
+@keyframes hud-bump{0%,100%{transform:none}40%{transform:scale(1.18)}}
+.hud-pill.is-new{animation:hud-pop .45s ease-out both}
+.hud-pill.is-settling{animation:hud-settle .7s ease-in .1s both}
+.hud-today.is-new,.hud-coming.is-new{animation:hud-arrive .45s ease-out .5s both}
+.hud-big.is-changed,.hud-big.is-bump{animation:hud-bump .5s ease-out}
+@media(prefers-reduced-motion:reduce){.today-hud *,.hud-flyer{animation:none!important}.hud-pill.is-settling{display:none}}
+
+/* The card's shared parts. Each look below places them. */
+.check-in-card{position:relative;color:#18372b}
+.check-in-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 9px}
 .check-in-card h3{margin:0;font-size:14px;font-weight:850;letter-spacing:-.2px;color:#18372b}
-.check-in-brought{margin:4px 0 0;font-size:11.5px;line-height:1.45;color:#5d7169}
-.check-in-amount{white-space:nowrap;color:#2f5b40;font-weight:650}.check-in-amount b{font-weight:850;font-variant-numeric:tabular-nums}
-.check-in-dot{color:#9aaa9f}
-.check-in-notes{margin:7px 0 0;padding:0;list-style:none;font-size:12px;line-height:1.4;color:#40584a}
-.check-in-notes li+li{margin-top:2px}
-.check-in-ask{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 6px;font-size:11px;font-weight:800;color:#376349}
-.check-in-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(138px,1fr));gap:7px}
-.check-in-option{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding:8px 10px;text-align:left;background:#fff;border:1px solid #d3e2ce;border-radius:11px;color:#18372b}
-.check-in-option strong{font-size:12px;font-weight:800;color:#176b4a}
-.check-in-option span{font-size:11px;line-height:1.3;color:#5d7169}
-.check-in-option .check-in-where{font-weight:700;color:#4c6b57}
-.check-in-option small{margin-top:2px;font-size:10.5px;line-height:1.3;font-weight:750;color:#376349;font-variant-numeric:tabular-nums}
-.check-in-option small .check-in-price{white-space:nowrap;font-size:inherit;line-height:inherit;color:inherit}
+.check-in-brought{margin:0}
+.check-in-rewards{display:flex;flex-wrap:wrap;gap:4px}
+.check-in-notes{margin:5px 0 0;padding:0;list-style:none;font-size:11.5px;line-height:1.35;color:#40584a;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.check-in-notes li{display:inline}
+.check-in-ask{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:6px 0 5px;font-size:11px;font-weight:800;color:#376349}
+.check-in-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:6px}
+.check-in-option{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding:6px 9px 7px;text-align:left;background:#fff;border:1px solid #d3e2ce;border-radius:11px;box-shadow:0 2px 0 #e1eadd;color:#18372b}
+.check-in-option strong{display:flex;align-items:center;gap:4px;font-size:12px;line-height:1.2;font-weight:800;color:#176b4a}
+.check-in-option strong .hud-icon{width:16px;height:16px}
+.check-in-does{font-size:10.5px;line-height:1.3;color:#5d7169;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.check-in-where{font-size:10.5px;line-height:1.3;font-weight:700;color:#4c6b57}
+.check-in-price{display:flex;flex-wrap:wrap;gap:3px 7px;margin-top:1px}
 .check-in-option:hover:not(:disabled){border-color:#9cc493;background:#f6faf3}
 .check-in-option.is-picked{border-color:#176b4a;background:#eaf3e6}
 .check-in-skip{flex:none;padding:3px 2px;border:0;background:transparent;color:#5d7169;font-size:11px;font-weight:750;text-decoration:underline;text-underline-offset:2px}
 .check-in-skip:hover:not(:disabled){color:#176b4a}
 .check-in-option:focus-visible,.check-in-skip:focus-visible,.check-in-collect .button:focus-visible{outline:2px solid #176b4a;outline-offset:2px}
-.check-in-collect{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:9px}
+.check-in-collect{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:7px}
 .check-in-collect p{margin:0;font-size:11px;line-height:1.35;color:#5d7169}
-.check-in-collect .button{flex:none;min-height:34px;padding:7px 16px}
+.check-in-collect .button{flex:none;min-height:32px;padding:6px 16px}
 .check-in-card[aria-busy="true"] button{cursor:progress}
 .check-in-card[aria-busy="true"] button:disabled{opacity:1}
 .island-note{margin:0;padding:6px 11px;border-radius:12px;background:#fffdf6e6;box-shadow:0 6px 18px #1b3f311f;font-size:11px;line-height:1.35;color:#2f5b40;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-@media(max-width:840px){.today-island,.today-check-in{grid-column:1;grid-row:2}}
+
+/* A, chips: one rounded chip per resource across the top, with "+N today" (or the arriving "+34") under the
+   number. The card is a compact sheet along the bottom of the island. */
+.today-hud[data-look="chips"] .hud-item{display:grid;grid-template-columns:auto auto;align-items:center;column-gap:5px;min-height:36px;padding:4px 10px 4px 6px;background:#fffdf7f2;border:1px solid #fff;border-radius:13px;box-shadow:0 2px 0 #d5e1d0,0 6px 14px #1b3f3124}
+.today-hud[data-look="chips"] .hud-icon{grid-row:1/3;width:22px;height:22px}
+.today-hud[data-look="chips"] .hud-item:not(:has(.hud-today,.hud-pill)) .hud-icon{grid-row:1}
+.today-hud[data-look="chips"] .hud-big{grid-column:2;font-size:15px}
+.today-hud[data-look="chips"] .hud-today,.today-hud[data-look="chips"] .hud-pill{grid-area:2/2;margin-top:2px;font-size:10.5px}
+.today-check-in[data-look="chips"] .check-in-card{padding:9px 11px 10px;background:#fffdf7f5;border:1px solid #fff;border-radius:16px;box-shadow:0 2px 0 #d5e1d0,0 10px 26px #1b3f3126}
+
+/* B, corner: one frosted panel in the top-left corner, with "today" and "on the way" (or "arriving") columns
+   named once at the top. The card is a centred bubble, and its rewards fly up into the panel after a tap. */
+.today-hud[data-look="corner"] .hud-list{display:grid;grid-template-columns:18px auto auto auto;align-items:center;gap:4px 7px;padding:8px 11px 8px 8px;background:#fffdf7b8;backdrop-filter:blur(10px) saturate(1.3);border:1px solid #ffffffcc;border-radius:15px;box-shadow:0 8px 22px #1b3f311f}
+.today-hud[data-look="corner"] .hud-list:not(:has(.hud-head)){grid-template-columns:18px auto}
+.today-hud[data-look="corner"] .hud-item,.today-hud[data-look="corner"] .hud-head{display:grid;grid-template-columns:subgrid;grid-column:1/-1;align-items:center}
+.today-hud[data-look="corner"] .hud-icon{grid-column:1;width:18px;height:18px}
+.today-hud[data-look="corner"] .hud-big{grid-column:2;justify-self:end;font-size:14px}
+.today-hud[data-look="corner"] .hud-today{grid-column:3;font-size:11.5px}
+.today-hud[data-look="corner"] .hud-later{grid-column:4;justify-self:start;font-size:11.5px}
+.today-hud[data-look="corner"] .hud-head span{font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#5f7468;background:none;box-shadow:none;padding:0}
+.today-check-in[data-look="corner"][data-state="card"]{justify-self:center;width:min(480px,calc(100% - 20px))}
+.today-check-in[data-look="corner"] .check-in-card{padding:10px 11px 11px;text-align:center;background:#fffdf7;border-radius:22px;box-shadow:0 12px 30px #1b3f3129}
+/* The bubble's little tail points up at the island, as if the helpers were speaking. */
+.today-check-in[data-look="corner"] .check-in-card:before{content:"";position:absolute;left:50%;top:-6px;width:14px;height:14px;margin-left:-7px;background:#fffdf7;border-radius:3px 0 0 0;transform:rotate(45deg)}
+.today-check-in[data-look="corner"] .check-in-head{justify-content:center;flex-direction:column;gap:5px}
+.today-check-in[data-look="corner"] .check-in-notes{-webkit-line-clamp:1}
+.today-check-in[data-look="corner"] .check-in-does{-webkit-line-clamp:1}
+.today-check-in[data-look="corner"] .check-in-rewards{justify-content:center}
+.today-check-in[data-look="corner"] .check-in-ask{justify-content:center;gap:9px}
+.today-check-in[data-look="corner"] .check-in-option{align-items:center;text-align:center;border-radius:14px}
+.today-check-in[data-look="corner"] .check-in-price{justify-content:center}
+.today-check-in[data-look="corner"] .check-in-collect{justify-content:center;flex-wrap:wrap;gap:6px 12px}
+
+/* C, bare: icons and totals straight over the sky, with only the arriving "+34". The card is a slim strip:
+   its first line holds the heading, the question, the notes and Just collect, and the choices sit below. */
+.today-hud[data-look="bare"] .hud-list{gap:4px 12px}
+.today-hud[data-look="bare"] .hud-item{display:flex;align-items:center;gap:4px}
+.today-hud[data-look="bare"] .hud-icon{width:19px;height:19px;filter:drop-shadow(0 1px 2px #1b3f3166)}
+.today-hud[data-look="bare"] .hud-big{font-size:15px;color:#fff;text-shadow:0 1px 2px #16301f99,0 0 7px #16301f59}
+.today-hud[data-look="bare"] .hud-pill{font-size:10.5px}
+.today-hud[data-look="bare"] .hud-pill.is-settling{position:absolute;left:calc(100% + 2px)}
+.today-check-in[data-look="bare"] .check-in-card{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;align-items:center;gap:6px 9px;padding:7px 10px 8px 12px;background:#fffdf7f0;border-radius:14px;box-shadow:0 8px 22px #1b3f3126}
+.today-check-in[data-look="bare"] .check-in-head,.today-check-in[data-look="bare"] .check-in-ask{display:contents}
+.today-check-in[data-look="bare"] h3{grid-area:1/1;font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#4c6b57}
+.today-check-in[data-look="bare"] .check-in-brought{position:absolute}
+.today-check-in[data-look="bare"] .check-in-rewards{display:none}
+.today-check-in[data-look="bare"] #check-in-ask{grid-area:1/2;font-size:12px;font-weight:800;color:#18372b}
+.today-check-in[data-look="bare"] .check-in-notes{grid-area:1/3;display:block;margin:0;white-space:nowrap;text-overflow:ellipsis;font-size:11px;color:#5d7169}
+.today-check-in[data-look="bare"] .check-in-skip{grid-area:1/4}
+.today-check-in[data-look="bare"] .check-in-options{grid-area:2/1/3/5;display:flex;flex-wrap:wrap;gap:5px}
+.today-check-in[data-look="bare"] .check-in-option{flex:1 1 0;min-width:max-content;flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:6px 10px;border-radius:999px}
+.today-check-in[data-look="bare"] .check-in-option .check-in-does{display:none}
+.today-check-in[data-look="bare"] .check-in-collect{grid-area:2/1/3/5;margin:0}
+
+@media(max-width:840px){.today-island,.today-hud,.today-check-in{grid-column:1;grid-row:2}}
 
 /* Game demo panel (the demo app only): a compact bar under the island, with the demo's status, its buttons,
    and its last few steps. It never sits over the island or the check-in card. */
@@ -173,6 +263,7 @@ body{background:#f6f8f4}
 .demo-group .button{min-height:31px;padding:6px 10px;font-size:12px}
 .demo-group .button.is-busy{background:#e8f5e9;opacity:1}
 .demo-group .button.is-warning{background:#a44343;border-color:#a44343;color:#fff}
+.demo-group .button.is-on{background:#176b4a;border-color:#176b4a;color:#fff}
 .demo-note{margin:1px 0 0;font-size:11.5px;line-height:1.4;color:#5d7169}
 .demo-note.error{color:#a44343}
 .demo-log-box{min-width:0;padding-left:14px;border-left:1px solid #edf0e9}
@@ -181,3 +272,5 @@ body{background:#f6f8f4}
 .demo-log time{margin-right:6px;font-weight:800;color:#7b897f;font-variant-numeric:tabular-nums;white-space:nowrap}
 .demo-log li:first-child{color:#18372b}
 @media(max-width:1030px){.demo-body{grid-template-columns:1fr}.demo-log-box{padding:9px 0 0;border-left:0;border-top:1px solid #edf0e9}}
+
+.earlier-start{font-size:12px;flex-basis:100%}.earlier-start summary{cursor:pointer;color:#547a5c}.earlier-start[open]{display:flex;flex-direction:column;gap:10px}.earlier-start .field{margin:10px 0}

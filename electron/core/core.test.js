@@ -1419,3 +1419,44 @@ test('demo Play a week plays seven days from an untouched morning, or from tomor
   assert.match(status.demo.log.at(-1).text, /from tomorrow/);
   core.close();
 });
+
+test('first focus can record an earlier start without moving the day plan, and survives restart', () => {
+  setComputerClock(pinnedTime(9, 30));
+  const { core, dbPath } = temporaryCore();
+  assert.equal(core.status().canBackdateStart, true);
+  const startedAt = new Date(pinnedTime(9, 5)).toISOString();
+  const s = core.action('start-focus', { startedAt });
+  assert.equal(s.timer.startedAt, startedAt);
+  assert.equal(s.timer.elapsedSeconds, 25 * 60);
+  assert.equal(s.timer.remainingSeconds, 35 * 60);
+  assert.equal(s.workingMinutesToday, 25);
+  assert.equal(s.canBackdateStart, false);
+  assert.equal(new Date(s.plan.start).getHours(), 9);
+  assert.ok(s.actualTimeline.some(row => row.kind === 'focus' && row.start === startedAt));
+  core.close();
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  assert.equal(reopened.status().timer.startedAt, startedAt);
+  assert.ok(Math.abs(reopened.status().timer.elapsedSeconds - 25 * 60) < 1);
+  reopened.action('end-focus');
+  assert.throws(() => reopened.action('start-focus', { startedAt }), /first session/);
+  reopened.close();
+});
+
+test('earlier start rejects future, invalid, and previous-day times without starting a session', () => {
+  const { core } = temporaryCore();
+  for (const startedAt of ['invalid', new Date(pinnedTime(10)).toISOString(), new Date(pinnedTime(9) - 86400000).toISOString()]) {
+    assert.throws(() => core.action('start-focus', { startedAt }), /earlier today/);
+    assert.equal(core.status().phase, 'idle');
+    assert.equal(core.status().canBackdateStart, true);
+  }
+  core.close();
+});
+
+test('an earlier start beyond the focus target immediately makes a break due', () => {
+  setComputerClock(pinnedTime(10, 30));
+  const { core } = temporaryCore();
+  const s = core.action('start-focus', { startedAt: new Date(pinnedTime(9, 5)).toISOString() });
+  assert.equal(s.breakDue, true);
+  assert.ok(s.events.some(event => event.kind === 'breakDue'));
+  core.close();
+});

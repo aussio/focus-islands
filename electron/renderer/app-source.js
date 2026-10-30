@@ -1,4 +1,5 @@
 import { dayPath } from './day-path.js';
+import { amountList, checkInCard, checkInNote, createHud, hudLook, looks, saveHudLook } from './game-hud.js';
 import { appStore } from './state.js';
 
 const pages = [
@@ -32,6 +33,9 @@ const checkInSlot = document.createElement('div');
 checkInSlot.className = 'today-check-in';
 checkInSlot.id = 'today-check-in';
 let checkInKey = null;
+// The resource bar over the top of the island (game-hud.js). Like the card, it lives for the whole window,
+// is read by screen readers, and redraws only when its numbers change.
+const hud = createHud();
 // The game demo's panel (the demo app only; status.demo is null everywhere else). It sits under the island, lives
 // for the whole window like the slots above, and each of its three parts is redrawn only when its markup changes.
 const demoSlot = document.createElement('section');
@@ -140,7 +144,7 @@ function updateTodayLive(status) {
     if (working) working.textContent = String(status.workingMinutesToday || 0);
     if (resting) resting.textContent = String(status.breakMinutesToday || 0);
   }
-  updateCheckIn(status);
+  updateGameHud(status);
   updateDemoPanel(status);
 }
 // ---- Game demo. Each button runs one demo step in the main process: the same actions as Today's buttons and the
@@ -186,11 +190,15 @@ function demoControls(s) {
     const warn = step === 'start-over' && confirming;
     return `<button class="button${step === demoBusy ? ' is-busy' : ''}${warn ? ' is-warning' : ''}" type="button" data-demo-step="${step}" title="${html(hint(s))}"${off ? ' disabled' : ''}>${html(warn ? 'Click again to wipe' : label(s))}</button>`;
   }).join('')}</div>`).join('');
+  // Trial looks for the island's resource bar and card (game-hud.js). The choice is kept in this window's storage.
+  const look = hudLook(s);
+  const lookGroup = `<div class="demo-group" role="group" aria-label="Look"><span class="demo-group-title">Look</span>${looks.map(([name, label]) =>
+    `<button class="button${name === look ? ' is-on' : ''}" type="button" data-hud-look="${name}" aria-pressed="${name === look}" title="Try this look for the resource bar and the check-in card.">${html(label)}</button>`).join('')}</div>`;
   const note = demoError || (demoBusy ? (demoBusy === 'week' ? 'Playing 7 days…' : demoBusy === 'month' ? 'Playing 30 days…' : 'Fast-forwarding…')
     : confirming ? 'Click Start over again within 5 seconds to delete this demo and begin again.'
       : s.dayEndedAt ? `The day is done. ${s.game?.checkIn ? 'Pick on the card when you like, then press' : 'Press'} Next morning.`
         : s.game?.checkIn ? 'A card is waiting on the island. Pick on it when you like. If you keep going first, it stays and gathers what you earn next, as in the real app.' : '');
-  return `${groups}${note ? `<p class="demo-note${demoError ? ' error' : ''}" id="demo-note">${html(note)}</p>` : ''}`;
+  return `${groups}${lookGroup}${note ? `<p class="demo-note${demoError ? ' error' : ''}" id="demo-note">${html(note)}</p>` : ''}`;
 }
 function demoLogItems(s) {
   return (s.demo.log || []).slice(-4).reverse().map(entry => `<li><time>${entry.day ? `Day ${html(entry.day)} · ` : ''}${html(clock(entry.at))}</time><span>${html(entry.text)}</span></li>`).join('');
@@ -226,73 +234,10 @@ async function runDemoStep(step) {
     updateDemoPanel(state().status);
   }
 }
-// ---- Sky island check-in. Amounts can have fractions; the page shows whole numbers and hides zeros.
-const resourceLabels = { wood: ['wood', 'wood'], stone: ['stone', 'stone'], planks: ['plank', 'planks'],
-  soil: ['soil', 'soil'], saplings: ['sapling', 'saplings'], starlight: ['Starlight', 'Starlight'] };
-function amountList(values) {
-  const keys = [...Object.keys(resourceLabels), ...Object.keys(values || {}).filter(key => !resourceLabels[key])];
-  return keys.map(key => [key, Math.round(Number(values?.[key]) || 0)]).filter(([, amount]) => amount > 0)
-    .map(([key, amount]) => { const [one, many] = resourceLabels[key] || [key, key]; return `${amount} ${amount === 1 ? one : many}`; });
-}
-const sentence = text => { const value = String(text ?? '').trim(); return value.charAt(0).toUpperCase() + value.slice(1); };
-const listWords = items => items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
-function checkInCard(status) {
-  const game = status.game, card = game.checkIn, choice = card.choice;
-  const islands = game.islands || [];
-  const islandName = id => islands.find(island => island.id === id)?.name || 'The island';
-  const brought = amountList(card.collected);
-  const notes = [
-    // newLand amounts are town grid points (5 rest minutes each), which mean nothing to a person.
-    ...(card.newLand || []).filter(grown => Math.round(grown.amount) > 0)
-      .map(grown => `${islandName(grown.island)} grew${grown.amount < 10 ? ' a little' : ''}.`),
-    ...(card.arrivals || []), ...(card.moments || []), ...(card.surprise ? [card.surprise] : []),
-  ].filter(Boolean);
-  const pick = (value, label, inner) => `<button class="check-in-option" type="button" data-check-in-pick="${html(value)}" aria-label="${html(label)}">${inner}</button>`;
-  let ask = '', options = '';
-  if (choice?.kind === 'job') {
-    const helper = choice.helperName || 'your helper';
-    ask = `Pick a job for ${helper}`;
-    options = choice.options.map(option => pick(option.job, `Make ${helper} a ${option.name}: ${option.doing}.`,
-      `<strong>${html(option.name)}</strong><span>${html(sentence(option.doing))}</span>`)).join('');
-  } else if (choice?.kind === 'build') {
-    // With more than one island, say where it goes: once in the question when every option shares an island.
-    const places = new Set(choice.options.map(option => option.island));
-    const shared = islands.length > 1 && places.size === 1 && choice.options[0]?.island ? islandName(choice.options[0].island) : '';
-    ask = shared ? `Pick something to build on ${shared}` : 'Pick something to build';
-    options = choice.options.map(option => {
-      const price = amountList(option.price);
-      const where = islands.length > 1 && option.island ? islandName(option.island) : '';
-      const shownWhere = shared ? '' : where;
-      const label = `Build ${option.name}${where ? ` on ${where}` : ''}. ${option.does || ''} ${price.length ? `Costs ${listWords(price)}.` : ''}`;
-      return pick(option.blueprint, label.replace(/\s+/g, ' ').trim(),
-        `<strong>${html(option.name)}</strong>${option.does ? `<span>${html(option.does)}</span>` : ''}${shownWhere ? `<span class="check-in-where">On ${html(shownWhere)}</span>` : ''}${price.length ? `<small>${price.map(item => `<span class="check-in-price">${html(item)}</span>`).join(' · ')}</small>` : ''}`);
-    }).join('');
-  }
-  const heading = status.dayEndedAt ? 'End of the day' : 'Back from your break';
-  const choosing = Boolean(options);
-  return `<section class="check-in-card" data-token="${html(card.token)}" aria-labelledby="check-in-title">
-    <h3 id="check-in-title">${heading}</h3>
-    ${brought.length ? `<p class="check-in-brought">Your helpers brought ${brought.map(item => { const [amount, ...label] = item.split(' '); return `<span class="check-in-amount"><b>${html(amount)}</b> ${html(label.join(' '))}</span>`; }).join('<span class="check-in-dot" aria-hidden="true"> · </span>')}</p>` : ''}
-    ${notes.length ? `<ul class="check-in-notes">${notes.map(note => `<li>${html(note)}</li>`).join('')}</ul>` : ''}
-    ${choosing ? `<div class="check-in-ask"><span id="check-in-ask">${html(ask)}</span><button class="check-in-skip" type="button" data-check-in-pick="" id="check-in-skip">Just collect</button></div>
-      <div class="check-in-options" role="group" aria-labelledby="check-in-ask">${options}</div>`
-    : `<div class="check-in-collect">${card.nextUp ? `<p>${html(card.nextUp)}</p>` : '<p></p>'}<button class="button primary" type="button" data-check-in-pick="" id="check-in-collect">Collect</button></div>`}
-  </section>`;
-}
-// After a tap: what the last check-in did, as one gentle line that stays until the next check-in.
-function checkInNote(game) {
-  const last = game?.lastCheckIn;
-  if (!last) return '';
-  const islands = game.islands || [];
-  const where = last.built && islands.length > 1 ? islands.find(island => island.id === last.built.island)?.name : '';
-  const parts = [...(last.built ? [`Built: ${last.built.name}${where ? ` on ${where}` : ''}.`] : []), ...(last.moments || [])].filter(Boolean);
-  if (!parts.length) return '';
-  const text = parts.join(' ');
-  return `<p class="island-note" title="${html(text)}">${html(text)}</p>`;
-}
-function updateCheckIn(status) {
+// ---- Sky island check-in. The bar and the card are drawn by game-hud.js; this keeps them in step with the status.
+function updateCheckIn(status, look) {
   const game = status.game, card = game?.checkIn;
-  const key = card?.token ? `card:${card.token}` : game?.lastCheckIn ? `note:${status.profile}:${game.lastCheckIn.number}` : '';
+  const key = `${look}|${card?.token ? `card:${card.token}` : game?.lastCheckIn ? `note:${status.profile}:${game.lastCheckIn.number}` : ''}`;
   if (key === checkInKey) return;
   checkInKey = key;
   let markup = '';
@@ -300,10 +245,17 @@ function updateCheckIn(status) {
   catch (error) { console.error('Could not show the island check-in:', error); }
   checkInSlot.innerHTML = markup;
   checkInSlot.dataset.state = !markup ? 'empty' : card?.token ? 'card' : 'note';
+  checkInSlot.dataset.look = look;
+}
+function updateGameHud(status) {
+  const look = hudLook(status);
+  try { hud.update(status, look); } catch (error) { console.error('Could not show the island resources:', error); }
+  updateCheckIn(status, look);
 }
 async function tapCheckIn(button) {
   const cardNode = button.closest('.check-in-card');
   if (!cardNode || cardNode.getAttribute('aria-busy') === 'true') return;
+  try { hud.noteTap(cardNode); } catch { /* only the look B flight needs this */ }
   const buttons = [...cardNode.querySelectorAll('button')];
   cardNode.setAttribute('aria-busy', 'true');
   button.classList.add('is-picked');
@@ -393,7 +345,7 @@ function updatePresenceDisplay() {
   const resting = away || status.inferredBreakActive || status.phase === 'rest' || status.phase === 'break';
   document.querySelector('.today-stage')?.classList.toggle('is-resting', resting);
   const mood = islandMood(status);
-  if (islandSlot.dataset.mood !== mood) islandSlot.dataset.mood = mood;
+  if (islandSlot.dataset.mood !== mood) islandSlot.dataset.mood = hud.slot.dataset.mood = mood;
   showIsland(status, mood);
   const threshold = activity.inactiveAfterSeconds || 5;
   const elapsed = activity.idleSeconds;
@@ -455,6 +407,11 @@ function todayReflection() {
   const editing = state().todayReflectionDraft !== null || !saved;
   return card(`<div class="card-head">${section('How did today feel?')}${saved && !editing ? actionButton('Edit reflection', 'edit-today-reflection', undefined, false, 'edit-today-reflection') : ''}</div>${editing ? `<p class="muted">Reflection is optional.</p><input class="text-input" id="today-reflection-input" data-day-key="${html(state().status.todayKey)}" aria-label="Today’s reflection" placeholder="Write a reflection…" value="${html(state().todayReflectionDraft ?? saved)}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-today-reflection', undefined, false, 'cancel-today-reflection') : ''}${actionButton('Save reflection', 'save-today-reflection', undefined, false, 'save-today-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`}`);
 }
+function earlierStart() {
+  const s = state().status;
+  if (!s.canBackdateStart) return '';
+  return `<details class="earlier-start"><summary>I started earlier</summary><label class="field"><span>Actual start time today</span><input type="time" id="actual-start-time" required aria-label="Actual start time today"></label>${actionButton('Start from this time', 'start-earlier', undefined, false, 'start-earlier')}</details>`;
+}
 function todayActions(g) {
   const s = state().status;
   if (g.situation === 'dayEnded') return '<button class="button" data-page="plan" data-plan-tomorrow id="plan-tomorrow">Plan tomorrow</button>';
@@ -491,7 +448,7 @@ function today() {
   const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
   return `<div class="today-page">
     <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span></div></header>
-    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}</div>${activityMeter()}</div><div data-island-slot></div><div data-check-in-slot></div></section>
+    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-hud-slot></div><div data-check-in-slot></div></section>
     ${s.demo ? '<div data-demo-slot></div>' : ''}<div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
@@ -591,6 +548,7 @@ function render() {
   if (view === today) {
     updateTodayLive(state().status);
     content.querySelector('[data-island-slot]')?.replaceWith(islandSlot);
+    content.querySelector('[data-hud-slot]')?.replaceWith(hud.slot);
     content.querySelector('[data-check-in-slot]')?.replaceWith(checkInSlot);
     content.querySelector('[data-demo-slot]')?.replaceWith(demoSlot);
   }
@@ -838,6 +796,8 @@ document.addEventListener('click', event => {
   if (event.target.closest('#delete-meeting')) { if (state().selectedMeeting) removeMeeting(state().selectedMeeting); state().setUI({ selectedMeeting: null, meetingDraft: '' }); meetingDialog(); return; }
   const checkInButton = event.target.closest('#today-check-in [data-check-in-pick]');
   if (checkInButton) { tapCheckIn(checkInButton); return; }
+  const lookButton = event.target.closest('#demo-panel [data-hud-look]');
+  if (lookButton) { saveHudLook(lookButton.dataset.hudLook); updateGameHud(state().status); updateDemoPanel(state().status); return; }
   const demoButton = event.target.closest('#demo-panel [data-demo-step]');
   if (demoButton) { if (!demoButton.disabled) runDemoStep(demoButton.dataset.demoStep); return; }
   const button = event.target.closest('[data-action]');
@@ -865,6 +825,18 @@ document.addEventListener('click', event => {
     return;
   }
   if (name === 'snooze-break' || name === 'snooze-end-day') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
+  if (name === 'start-earlier') {
+    const input = document.getElementById('actual-start-time');
+    if (!input.reportValidity()) return;
+    const s = state().status, started = new Date(s.currentWallTimeISO);
+    const [hours, minutes] = input.value.split(':').map(Number);
+    started.setHours(hours, minutes, 0, 0);
+    input.setCustomValidity(started > new Date(s.currentWallTimeISO) ? 'Choose a time earlier today.' : '');
+    if (!input.reportValidity()) { input.setCustomValidity(''); return; }
+    dispatch('start-focus', { startedAt: started.toISOString(),
+      ...(!s.dayPlans?.[s.todayKey]?.baseline ? { planDraft: state().planDrafts[s.todayKey] } : {}) });
+    return;
+  }
   if (name === 'start-focus' && !state().status.dayPlans?.[state().status.todayKey]?.baseline) {
     dispatch(name, { planDraft: state().planDrafts[state().status.todayKey] }); return;
   }

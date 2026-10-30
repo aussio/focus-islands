@@ -87,3 +87,5 @@ All checks use the isolated Testing database. Personal history is never reset or
 ## Current limits
 
 The plan selector covers today and tomorrow. Meeting attendance has no separate fact type yet. The app assumes sessions remain within one local date and does not reconcile time-zone changes. These limits do not change the ownership rules above.
+
+The first focus session of a local day may use an explicitly reported earlier start from the same day. The main process rejects future dates and days with an existing focus or break session. It appends the reported focus start plus a progress checkpoint at recording time in one transaction, so elapsed work, restart replay, and break timing agree. The plan remains unchanged.
