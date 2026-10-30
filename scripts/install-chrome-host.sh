@@ -20,7 +20,7 @@ from pathlib import Path
 
 manifest = {
     "name": "com.cozyfocuspet.status",
-    "description": "Cozy Focus Pet focus phase bridge",
+    "description": "Focus Islands focus phase bridge",
     "path": os.environ["HOST_PATH"],
     "type": "stdio",
     "allowed_origins": ["chrome-extension://gpomofinaopfjfpieooejmlpjaiadfnp/"],

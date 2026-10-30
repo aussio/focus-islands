@@ -1,4 +1,4 @@
-# Cozy Focus Pet state plan
+# Focus Islands state plan
 
 Status: implemented in the Electron app. The boundaries below describe the current behavior and the rules for further changes.
 

@@ -17,6 +17,6 @@ The scene is decoration with no game clock. All progress comes from the saved ev
 
 ## Checking visual work
 
-- **Gallery page:** one page shows every model, item, outfit, and pet state. Add each new piece of art to it.
+- **Gallery page:** one page shows every model, item, outfit, and helper state. Add each new piece of art to it.
 - **Screenshot tour:** a fixed set of scenes (focus, break, break due, away, day done) captured with `scripts/dev-control.sh screenshot` from the Testing app. A covered window redraws only while being captured, so take one throwaway capture before the real one.
 - A visual change is done when the gallery and the tour show it and the screenshots have been shared with the user. Agents miss obvious problems in their own screenshots, so a person looks too.

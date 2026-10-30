@@ -1,14 +1,14 @@
-# Cozy Focus Pet
+# Focus Islands
 
 A local macOS menu bar companion for planning a flexible day, focusing, and taking real breaks. The plan is a guide. Append-only events keep what happened, while a small activity indicator and the sky above a small island reflect the current rhythm.
 
 ## Thesis / Purpose
 
-Cozy Focus Pet should help one person make a realistic plan, protect time for real breaks, and learn from the difference between the day they intended and the day they lived. Focus often needs less prompting than breaks do. Reminders should be gentle and repeatable, with room to snooze or skip rather than pressure to follow a rigid schedule.
+Focus Islands should help one person make a realistic plan, protect time for real breaks, and learn from the difference between the day they intended and the day they lived. Focus often needs less prompting than breaks do. Reminders should be gentle and repeatable, with room to snooze or skip rather than pressure to follow a rigid schedule.
 
 A day may be planned the previous evening or that morning: enter expected meetings and intended start and finish times, then see suggested focus and break blocks. The actual day begins with the first focus session, on time or not. Meetings can be added or cancelled; focus and breaks can start early, run late, or be skipped. The day can end simply because activity stops or the user turns to tomorrow's plan. The original plan, later deliberate revisions, and actual activity should remain distinct so a future view can show how expectations and work patterns change over time.
 
-The companion is local-first and useful without a browser extension. It records aggregate activity and confirmed breaks, never keystrokes, mouse movements, or browsing history. An optional Chrome nudge can redirect chosen distracting sites during focus, with a deliberate bypass. A pet can make healthy rhythms pleasant to revisit; the reward rules and art can evolve without rewriting the recorded facts. A task list is outside the current scope.
+The companion is local-first and useful without a browser extension. It records aggregate activity and confirmed breaks, never keystrokes, mouse movements, or browsing history. An optional Chrome nudge can redirect chosen distracting sites during focus, with a deliberate bypass. A small sky-island game can make healthy rhythms pleasant to revisit; the reward rules and art can evolve without rewriting the recorded facts. A task list is outside the current scope.
 
 ## Computer activity signal
 
@@ -29,11 +29,11 @@ npm install
 scripts/run-personal.sh
 ```
 
-The launcher opens the Electron app in **Personal**. The paw in the menu bar opens or hides the window. The app has no Dock icon. Right-click the paw and choose **Quit Cozy Focus Pet** to stop it. `scripts/run-personal.sh --watch` checks source changes and restarts the app after a successful check.
-To load updated code, quit from the paw menu and run `scripts/run-personal.sh` again. A focus or break session restarted on the same day keeps its session and recorded timer progress. Time while the app was closed is paused unless a recorded away interval is open; that interval continues as a break until return. A normal quit saves a final progress checkpoint. A session left open from a previous day closes at its last recorded checkpoint on launch.
-`run-personal.sh` builds, signs, and installs the app at `/Applications/Cozy Focus Pet.app` before launching it. The installation does not change the Personal database.
+The launcher opens the Electron app in **Personal**. The small island in the menu bar opens or hides the window. It is sunny while you are at the Mac and turns to night while you are away; the Testing profile adds 🧪 next to it. The app has no Dock icon. Right-click the island and choose **Quit Focus Islands** to stop it. `scripts/run-personal.sh --watch` checks source changes and restarts the app after a successful check.
+To load updated code, quit from the island's menu and run `scripts/run-personal.sh` again. A focus or break session restarted on the same day keeps its session and recorded timer progress. Time while the app was closed is paused unless a recorded away interval is open; that interval continues as a break until return. A normal quit saves a final progress checkpoint. A session left open from a previous day closes at its last recorded checkpoint on launch.
+`run-personal.sh` builds, signs, and installs the app at `/Applications/Focus Islands.app` before launching it. The app used to be called Cozy Focus Pet; the install removes the old `/Applications/Cozy Focus Pet.app` so only one copy can open the Personal data, and it stops if the old app is still running. The installation does not change the Personal database.
 
-Personal history stays at `~/Library/Application Support/CozyFocusPet/events.sqlite`. Settings can switch to a separate normal Testing profile while idle. A later normal launch starts in Personal again. The development launch below cannot enter Personal.
+Personal history stays at `~/Library/Application Support/CozyFocusPet/events.sqlite`. The folder keeps the app's earlier name on purpose. Settings can switch to a separate normal Testing profile while idle. A later normal launch starts in Personal again. The development launch below cannot enter Personal.
 
 ## Develop and verify
 

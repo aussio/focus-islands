@@ -1,13 +1,13 @@
-# Working on Cozy Focus Pet
+# Working on Focus Islands
 
 Build a calm, local-first macOS companion that encourages real breaks. Read [README.md](README.md) for the product purpose and user commands, and [STATE_PLAN.md](STATE_PLAN.md) for state ownership. Keep the user's Personal facts untouched during development.
 
 ## Launch and data boundary
 
-- `scripts/run-personal.sh` is for the user. It starts in Personal, shows a menu bar paw, and has no Dock icon. Do not use it for agent checks or scenarios.
+- `scripts/run-personal.sh` is for the user. It starts in Personal, shows a small island in the menu bar, and has no Dock icon. Do not use it for agent checks or scenarios.
 - Always use `scripts/run-dev.sh` as the entry point when an agent runs the app locally. It checks and launches Electron behind the user's windows, locked to Testing, and writes to `.build/dev-state/events.sqlite` by default. Do not launch Electron directly or treat `scripts/dev-control.sh` as a launcher; that script only controls an already running development app. Set `COZY_FOCUS_INSTANCE` to a short name to use an independent `.build/dev-instances/<name>/` database, lease, control inbox, and Electron user data. Pass the same variable to `scripts/dev-control.sh` and smoke scripts. Personal stays at `~/Library/Application Support/CozyFocusPet/events.sqlite`. Normal app Testing data has its own `profiles/testing/events.sqlite` under Application Support.
 - Use `scripts/run-dev.sh --reset` only when a disposable fresh Testing database is needed. The smoke scripts default to their own isolated Testing instances and reset only those. Do not reset or inspect Personal to clean up tests.
-- Check `scripts/dev-control.sh status` before test actions: require `profile=testing` and `appActive=false`. Use `scripts/dev-control.sh quit` to stop the development app. The user's normal app is quit from the paw's right-click menu.
+- Check `scripts/dev-control.sh status` before test actions: require `profile=testing` and `appActive=false`. Use `scripts/dev-control.sh quit` to stop the development app. The user's normal app is quit from the menu bar island's right-click menu.
 
 ## Background interaction and screenshots
 

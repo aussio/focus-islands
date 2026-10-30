@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Cozy Focus Pet Nudge",
+  "name": "Focus Islands Nudge",
   "version": "0.1.0",
-  "description": "A gentle reminder on chosen sites while a focus session is active.",
+  "description": "A gentle Focus Islands reminder on chosen sites while a focus session is active.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAs8+STcNBgGegIhNv4wnSVOrRAJnhgPCP9UyxcVmk8wium24SyRfZHvgB3SmrkzuGm2wywFf9k4zEsSSHzOyjqJe4iAmTsNr7vy0eUjq4D8/gdU2MInlYKQedjpBfNT22kmBA9eV62A50Iq4ysKzgFMVvqER3HvpMBckJra13vAFnjRdSz0H0+Dj0tRFJGbLSfqltd5JzW1l+DamvUbj8oxfobtaF+473aWsQpt6j6dx6iXv6vp+9x0LlRSquKCzQxTYr3Q6lcQAXdcUBD67180FIivwvW96DQx3PEYlqXnOL0OitmWzdYpzMTnQDhS4QHedWnp7HZUi/xIjojo9FcwIDAQAB",
   "minimum_chrome_version": "102",
   "permissions": ["alarms", "declarativeNetRequest", "nativeMessaging", "storage"],
@@ -14,7 +14,7 @@
   "optional_host_permissions": ["*://*/*"],
   "background": { "service_worker": "background.js" },
   "options_page": "options.html",
-  "action": { "default_title": "Cozy Focus Pet sites", "default_popup": "popup.html" },
+  "action": { "default_title": "Focus Islands sites", "default_popup": "popup.html" },
   "web_accessible_resources": [{
     "resources": ["nudge.html", "nudge.js", "style.css"],
     "matches": ["<all_urls>"]

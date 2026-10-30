@@ -9,6 +9,8 @@ const files = [
   'electron/renderer/game.js', 'electron/renderer/game/index.js',
   'electron/renderer/break-reminder-effect.html', 'electron/renderer/break-reminder-effect.js',
   'electron/renderer/alarm-clock.svg',
+  'electron/tray/island-day.png', 'electron/tray/island-day@2x.png',
+  'electron/tray/island-night.png', 'electron/tray/island-night@2x.png',
   'electron/renderer/state.js', 'scripts/build-renderer.js',
   'electron/renderer/styles.css',
   'scripts/package-app.js',

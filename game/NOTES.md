@@ -1,6 +1,6 @@
 # Game notes
 
-Notes for the game side of Cozy Focus Pet: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. No game code exists on `main` yet. Today's acorns, shop, and pixel garden are placeholders that the game replaces, starting fresh with nothing carried over.
+Notes for the game side of Focus Islands: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. No game code exists on `main` yet. Today's acorns, shop, and pixel garden are placeholders that the game replaces, starting fresh with nothing carried over.
 
 ## Prototypes (kept on a separate branch)
 

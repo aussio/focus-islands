@@ -33,6 +33,9 @@ async function main() {
   });
   if (!fs.existsSync(path.join(source, 'electron', 'renderer', 'game.js'))) throw new Error('Missing electron/renderer/game.js. Run npm run check:source first.');
   if (!fs.existsSync(path.join(source, 'electron', 'core', 'game', 'index.js'))) throw new Error('Missing electron/core/game/ in the packaged copy.');
+  for (const image of ['island-day.png', 'island-day@2x.png', 'island-night.png', 'island-night@2x.png']) {
+    if (!fs.existsSync(path.join(source, 'electron', 'tray', image))) throw new Error(`Missing electron/tray/${image}. Run node scripts/make-icon.js.`);
+  }
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({
     name: manifest.name, version: manifest.version, main: manifest.main,
   }));
@@ -41,11 +44,15 @@ async function main() {
     platform: 'darwin', arch: process.arch, electronVersion: manifest.devDependencies.electron,
     electronZipDir: cachedElectronZip(manifest.devDependencies.electron),
     appBundleId: 'local.cozyfocuspet.app', overwrite: true,
+    // Drawn by scripts/make-icon.js. The packager copies it into Contents/Resources/electron.icns.
+    icon: path.join(root, 'assets', 'app-icon.icns'),
     extendInfo: { LSUIElement: true },
   });
   const app = path.join(bundles[0], 'CozyFocusPet.app');
+  // The name people see. The bundle file, executable and CFBundleName stay CozyFocusPet: Electron finds its
+  // helper apps (CozyFocusPet Helper.app) by CFBundleName, and run-dev.sh and pgrep checks use the executable name.
   const displayName = spawnSync('/usr/libexec/PlistBuddy',
-    ['-c', 'Set :CFBundleDisplayName Cozy Focus Pet', path.join(app, 'Contents', 'Info.plist')], { stdio: 'inherit' });
+    ['-c', 'Set :CFBundleDisplayName Focus Islands', path.join(app, 'Contents', 'Info.plist')], { stdio: 'inherit' });
   if (displayName.status !== 0) throw new Error('Could not set the app display name.');
   const signed = spawnSync('codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' });
   if (signed.status !== 0) throw new Error('Local app signing failed.');

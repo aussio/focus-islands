@@ -34,7 +34,7 @@ import os
 from pathlib import Path
 Path(os.environ["MANIFEST_PATH"]).write_text(json.dumps({
     "name": "com.cozyfocuspet.status",
-    "description": "Cozy Focus Pet smoke test host",
+    "description": "Focus Islands smoke test host",
     "path": os.environ["HOST_PATH"],
     "type": "stdio",
     "allowed_origins": ["chrome-extension://gpomofinaopfjfpieooejmlpjaiadfnp/"]
