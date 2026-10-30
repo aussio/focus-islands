@@ -499,7 +499,13 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
 
 - **Moods:** unchanged (`MOODS`, `moodMaterials`, mood hooks). Block windows use the glass material, so the town lights up at dusk.
 - **Camera (decision 6):**
-  - The yaw stays fixed (looking north), so the north coast stays hidden.
+  - **The sway (the default):** the camera turns slowly up to 14° each way from north and back. One whole swing (left, right and back) takes 150 s, so one side to the other takes 75 s. It turns fastest in the middle of the swing, at about 0.6° a second (the island's edge moves about 0.6% of the picture's width a second).
+    - It turns with one island too. With more islands it turns on top of the drift's trips.
+    - It runs on its own clock from the first world. Check-ins, trips and mood changes never restart it, so it never jumps or hurries back. Only a style change starts it again.
+    - Every framing holds over the whole swing. The busy view, each stop and the whole group are each fitted to what they cover at −14°, 0° and +14° together, so nothing leaves the picture or slips under the top band while it turns. That puts the camera up to about 4% farther away than facing north would.
+    - Whole or close (below) is chosen facing north, so the sway never changes which view a town gets. The helpers' size boost uses the swing's fit.
+    - The sun does not turn with the camera. Each mood's sun sits about 50° to one side of south (focus to the east, dusk to the west), so it stays on the camera's side even at 14°, and shadows stay still while the view only turns.
+    - At 14° the north coast stays hidden, and no model, bridge or pier shows a hole or open back (checked in the gallery's sway sections and the app, days 1 to 180).
   - **The busy view (home):** it frames `view.island` whole if helpers there stay at least 18 px tall, with a size boost of at most 1.4 (was 1.7). Otherwise it frames `view.points` plus 4 steps around them.
   - **The drift (`scene/drift.js`), between check-ins:** the camera shows the rest of the world slowly, so other islands and bridges are seen whole now and then instead of only peeking in at the edges.
     - After every world change it rests on the busy view for 60 s.
@@ -507,19 +513,20 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
     - An island is never framed much closer than home (at least 0.9 × home's distance). Stops that look like home are skipped. With one island and a busy view that already shows it whole, there is no drift.
     - Moves ease in and out with no jolt (smootherstep). They take 16 to 40 s, longer the farther they go, so at their fastest they cross about 6% of the picture's width a second. A round takes about 4½ minutes with two or three islands (days 8 to 30), and about 11½ minutes with five (day 180). The camera rests at home about 40% of the time.
     - The pose is a pure function of the seconds since the drift started (the stage clock), not of frames drawn. It stays the same if frames are skipped, and `capture()` shows wherever the drift is at that moment.
-    - The drift restarts at home at every world change (a check-in) and every style change. A resize keeps its place (the stops are framed again for the new size).
+    - The drift restarts at home at every world change (a check-in) and every style change. A resize keeps its place (the stops are framed again for the new size). The sway's clock goes on through all of these except a style change.
   - **A check-in:** `stage.aim(points, aspect, { ease, top, wide, others })` plans the new drift. The camera eases from where it is to the new busy view in 2.5 s, up to 6 s for a big move (smoothstep), then the new drift goes on from there.
-  - **Styles:** `createIslandScene(host, { cameraStyle })`, and `scene.cameraStyle` to change it later. `'drift'` (default), `'sway'` or `'still'` (the busy view only, as first built). `'sway'` is the drift plus a slow turn of up to 14° each way over 150 s. It is there to try by eye, not as the default: turning shows walls the art was not checked from (join-wall windows that only face the camera, the lit sliver under the sun, the edge of the north coast). The gallery uses `'still'` for its plain town pictures.
+  - **Styles:** `createIslandScene(host, { cameraStyle })`, and `scene.cameraStyle` to change it later. `'sway'` (default, in the normal app and the demo), `'drift'` (the trips only, always facing north) or `'still'` (the busy view only, as first built). Turning the sway on or off frames again and eases there. The gallery uses `'still'` for its plain town pictures and `'drift'` for its drift pictures.
   - **The top band:** the page lays a resource bar over the top of the island (about 64 px). Every framing keeps its points below that band. The band is `clearTop` (64 by default, `scene.clearTop` to change it), and the framing always keeps at least 30% of the picture's top half for the town, however tall the band. When the busy view is close (from about day 60), the town fills the whole picture, so land and roofs past the framed points still show under the bar.
   - Mood changes never move it.
-  - It jumps without moving on the first world, on resize, with reduced motion, and while hidden. With reduced motion it also never drifts.
+  - It jumps without moving on the first world, on resize, with reduced motion, and while hidden. With reduced motion it also never drifts or turns: it stays on the busy view, facing north.
   - `capture()` finishes any check-in move first.
 - **Shadows:** the shadow box follows the view in steps so that a moving camera never makes shadows shimmer.
   - The box covers the ground in view, from the grass (−0.6) up to the roofs (2.2), so islands at the edges get shadows too.
   - Its size comes in fixed steps (4 per doubling). Its middle moves in whole steps of 1/8 of its half width (128 texels of the 2048 map), so the shadow map only ever moves by whole texels and shadows don't crawl.
   - The shadow map is drawn again only when the box steps: about once every 2 s while moving and never while resting.
+  - With the sway, the box covers the ground in view over the whole swing (−14°, −7°, 0°, 7° and 14°), so it never steps while the camera only turns. It is sometimes one size step bigger than facing north, which makes shadows a little softer.
   - Soft edges are set from the camera's distance, so they look the same at every zoom.
-- **Gallery:** `views/town.js` adds `drift-early`, `drift-month` and `drift-year` (each stop and the middle of each move, in focus and break, with the top band drawn faintly) and `sway` (the turn at its widest, both ways).
+- **Gallery:** `views/town.js` adds `drift-early`, `drift-month` and `drift-year` (each stop and the middle of each move, facing north, in focus and break, with the top band drawn faintly). The sway sections show the busy view at both ends of the swing and at its middle: `sway-first` and `sway-week` (one island), `sway-month` and `sway-year`, big, in focus and break, and `sway-today` (days 1 to 180 at Today's size, with the top band).
 
 ### Speed
 

@@ -13,12 +13,15 @@
 // - The camera moves slowly to where a new world should be seen. It jumps instead on the first world, on
 //   resize, with reduced motion, and while hidden or off screen. After a lost drawing context comes back,
 //   every island is built again. A world that isn't a town draws as an empty sky (scene/core.js).
-// - Between check-ins the camera drifts (scene/drift.js): it rests on the busy view, then slowly pulls back
-//   to the whole group now and then, visits each other island framed whole, and comes home. Where it is
-//   depends only on the time since the world last changed, so nothing is drawn while hidden; when shown
-//   again it is wherever the drift has got to. With reduced motion it stays on the busy view.
-// - cameraStyle (get or set): 'drift' (default), 'sway' (the drift plus a slow turn of up to 14° left and
-//   right) or 'still' (the busy view only). CAMERA_STYLES lists them. A change eases back to the busy view.
+// - Between check-ins the camera sways and drifts (scene/drift.js). It turns slowly up to 14° left and
+//   right of north and back, one whole swing every 150 s, even with only one island. With other islands it
+//   also rests on the busy view, then slowly pulls back to the whole group now and then, visits each other
+//   island framed whole, and comes home. Where it is depends only on the clock (the trips on the time since
+//   the world last changed, the turn on the time since the first world), so nothing is drawn while hidden;
+//   when shown again it is wherever it has got to. With reduced motion it stays on the busy view, facing
+//   north.
+// - cameraStyle (get or set): 'sway' (default), 'drift' (the trips without the turn) or 'still' (the busy
+//   view only). CAMERA_STYLES lists them. A change eases back to the busy view.
 // - clearTop (get or set): pixels kept clear of the town across the top, where the page's resource bar
 //   sits (scene/core.js CLEAR_TOP, 64 by default).
 // - stats() is a speed readout for the gallery: triangles, draw calls, frame time and rebuild time.

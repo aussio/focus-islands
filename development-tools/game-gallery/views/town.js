@@ -168,16 +168,19 @@ function segmentName(route, segment) {
 }
 // Pictures of one world's drift: the middle of each rest and of each move, for the first `count`
 // segments, in each mood side by side. The core's clock is moved by hand, so the pictures repeat exactly.
+// The drift style alone, facing north: the sway's turn on top of it is in the sway sections.
 async function driftPictures(tools, entry, { moods = ['focus', 'break'], count = 12 } = {}) {
   if (!entry) { tools.note('No state for this day.'); return; }
   const { core, clock, draw, renderer } = coreAt(TODAY);
   try {
+    core.cameraStyle = 'drift';
     core.setWorld(entry.world);
     const route = core.stage.route;
     if (!route) { tools.note(`${entry.label ?? ''}: nowhere else to look, so the camera stays on the busy view.`); return; }
     const segments = route.segments.slice(0, count);
     tools.note(`steady, day ${entry.day}: ${describe(entry.world)}. One round of trips takes ${Math.round(route.period)} s; `
-      + `these are its first ${segments.length} parts. ${framing(core)}. The faint band is the top ${CLEAR_TOP} px kept clear for the resource bar.`);
+      + `these are its first ${segments.length} parts, facing north (the default sway also turns the view; see the sway sections). `
+      + `${framing(core)}. The faint band is the top ${CLEAR_TOP} px kept clear for the resource bar.`);
     const grid = tools.grid('gallery-today');
     for (const segment of segments) {
       const seconds = segment.start + segment.seconds / 2;
@@ -195,9 +198,39 @@ async function driftPictures(tools, entry, { moods = ['focus', 'break'], count =
   } finally { core.dispose(); }
 }
 
+// The sway (the default camera): the busy view at each end of the swing and at its middle, in each mood.
+// The core's clock is moved by hand to the first such moment while the drift rests at home.
+const SWAY_TURNS = [[-1, 'turned right (camera to the west)'], [0, 'facing north (the middle of the swing)'], [1, 'turned left (camera to the east)']];
+async function swayPictures(tools, entry, size, { moods = ['focus', 'break'], band = false, grid = null } = {}) {
+  if (!entry) { tools.note('No state for this day.'); return; }
+  const { core, clock, draw, renderer } = coreAt(size);
+  try {
+    core.setWorld(entry.world);
+    const route = core.stage.route;
+    const atHome = s => !route || driftPose(route, s) === route.home;
+    const find = sign => { for (let s = 0; s < 20000; s += 0.5) if (Math.abs(swayYaw(s) - sign * SWAY.degrees * Math.PI / 180) < 1e-4 && atHome(s)) return s; return null; };
+    const list = grid ?? tools.grid(band ? 'gallery-today' : 'gallery-wide');
+    for (const [sign, words] of SWAY_TURNS) {
+      const seconds = find(sign);
+      if (seconds === null) continue;
+      const images = [];
+      for (const mood of moods) {
+        core.setMood(mood);
+        clock.ms = seconds * 1000;
+        draw(seconds);
+        const img = await picture(renderer, size);
+        images.push(band ? banded(img, size) : img);
+      }
+      list.append(tools.card(`day ${entry.day}, ${sign ? `${words} ${SWAY.degrees}°` : words}`, `${seconds} s · ${moods.join(' · ')} · ${framing(core)}, distance ${core.stage.look.distance.toFixed(1)}`, images));
+    }
+  } finally { core.dispose(); }
+}
+const SWAY_NOTE = `The sway is the default camera: the view turns slowly up to ${SWAY.degrees}° left and right of north and back, one whole swing every ${SWAY.seconds} s, even with one island (with more, it also takes the drift's trips). Every framing holds over the whole swing. These are the busy view at each end of the swing and at its middle, to check join walls, the north coast, shadows, the sun's side and models' backs.`;
+const SWAY_BIG = [1400, 846];
+
 export default {
   id: 'town',
-  title: 'Town scene (stream E): worlds with the follow camera, film, moods, camera moves, the drift and speed',
+  title: 'Town scene (stream E): worlds with the follow camera, film, moods, camera moves, the drift, the sway and speed',
   sections: [
     {
       id: 'states', title: 'States, large and at Today\'s size (591 × 357), with the follow camera',
@@ -295,36 +328,27 @@ export default {
       async render(host, tools) { await driftPictures(tools, steadyDay(tools, 180)); },
     },
     {
-      id: 'sway', title: `The sway style: the busy view turned ${SWAY.degrees}° each way, large, focus and break`,
+      id: 'sway-first', title: 'The sway, day 1 (one island): both ends of the swing and the middle, big, focus and break',
+      async render(host, tools) { tools.note(SWAY_NOTE); await swayPictures(tools, steadyDay(tools, 1), SWAY_BIG); },
+    },
+    {
+      id: 'sway-week', title: 'The sway, day 7 (one island): both ends of the swing and the middle, big, focus and break',
+      async render(host, tools) { tools.note(SWAY_NOTE); await swayPictures(tools, steadyDay(tools, 7), SWAY_BIG); },
+    },
+    {
+      id: 'sway-month', title: 'The sway, day 30 (three islands): both ends of the swing and the middle, big, focus and break',
+      async render(host, tools) { tools.note(SWAY_NOTE); await swayPictures(tools, steadyDay(tools, 30), SWAY_BIG); },
+    },
+    {
+      id: 'sway-year', title: 'The sway, day 180 (five islands): both ends of the swing and the middle, big, focus and break',
+      async render(host, tools) { tools.note(SWAY_NOTE); await swayPictures(tools, steadyDay(tools, 180), SWAY_BIG); },
+    },
+    {
+      id: 'sway-today', title: 'The sway at Today\'s size, with the top band: both ends of the swing and the middle',
       async render(host, tools) {
-        tools.note(`The sway style turns the view up to ${SWAY.degrees}° left and right of north over ${SWAY.seconds} s. These are the busy view at each end of the swing, large, to check join walls, the north coast, shadows and the sun's side.`);
-        const size = LARGE;
-        for (const day of [30, 180]) {
-          const entry = steadyDay(tools, day);
-          if (!entry) continue;
-          const { core, clock, draw, renderer } = coreAt(size);
-          try {
-            core.cameraStyle = 'sway';
-            core.setWorld(entry.world);
-            const route = core.stage.route;
-            // The first moments at each end of the swing while the drift rests at home.
-            const atHome = s => !route || driftPose(route, s) === route.home;
-            const find = sign => { for (let s = 0; s < 20000; s += 0.5) if (Math.abs(swayYaw(s) - sign * SWAY.degrees * Math.PI / 180) < 1e-4 && atHome(s)) return s; return null; };
-            const grid = tools.grid('gallery-wide');
-            for (const sign of [-1, 1]) {
-              const seconds = find(sign);
-              if (seconds === null) continue;
-              const images = [];
-              for (const mood of ['focus', 'break']) {
-                core.setMood(mood);
-                clock.ms = seconds * 1000;
-                draw(seconds);
-                images.push(await picture(renderer, size));
-              }
-              grid.append(tools.card(`day ${day}, turned ${sign > 0 ? 'left (camera to the east)' : 'right (camera to the west)'} ${SWAY.degrees}°`, `${seconds} s · focus · break`, images));
-            }
-          } finally { core.dispose(); }
-        }
+        tools.note(`${SWAY_NOTE} The faint band is the top ${CLEAR_TOP} px kept clear for the resource bar.`);
+        const grid = tools.grid('gallery-today');
+        for (const day of [1, 7, 21, 30, 60, 180]) await swayPictures(tools, steadyDay(tools, day), TODAY, { moods: ['focus'], band: true, grid });
       },
     },
     {

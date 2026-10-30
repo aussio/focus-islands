@@ -19,8 +19,8 @@ globalThis.document ??= { createElement: element, createElementNS: (_, tag) => e
 const { SAMPLE_NAMES, sampleTown, sampleFilm } = await import('../../town/samples.js');
 const { parseTown, isTownWorld, drawKey } = await import('./world.js');
 const { CLEAR_TOP, createSceneCore } = await import('../core.js');
-const { AIM_SECONDS, ELEVATION, createStage } = await import('../stage.js');
-const { DRIFT, samePlace } = await import('../drift.js');
+const { AIM_SECONDS, CAMERA_STYLES, ELEVATION, createStage } = await import('../stage.js');
+const { DRIFT, SWAY, samePlace } = await import('../drift.js');
 const THREE = await import('three');
 
 test('parseTown reads every sample town', () => {
@@ -314,10 +314,12 @@ const inView = (camera, points, top = 1) => points.every(p => {
 });
 const restingAt = (route, seconds) => route.segments.find(g => (seconds % route.period) < g.start + g.seconds);
 const at = (core, clock, seconds) => { clock.ms = seconds * 1000; core.update(seconds); };
-// A town big enough to drift in: several islands, at Today's size.
-function driftingCore(options) {
-  const world = sampleTown('manyIslands');
+// A town big enough to drift in: several islands, at Today's size. These tests look at the drift's
+// trips alone, so the camera keeps facing north unless a style is given.
+function driftingCore({ style = 'drift', name = 'manyIslands', ...options } = {}) {
+  const world = sampleTown(name);
   const { core, clock } = clockedCore(options);
+  core.cameraStyle = style;
   core.resize(591, 357);
   core.setWorld(world);
   return { world, core, clock, route: core.stage.route };
@@ -415,6 +417,82 @@ test('reduced motion and the still style keep the camera on the busy view; sway 
     most = Math.max(most, Math.abs(core.stage.look.yaw));
   }
   assert.ok(most > 0.2 && most <= 14 * Math.PI / 180 + 1e-9, `sway turned ${most}`);
+  core.dispose();
+});
+
+test('the sway is the default: one island turns slowly, and every framed point stays in view and below the band', () => {
+  assert.equal(CAMERA_STYLES[0], 'sway');
+  const { core, clock } = clockedCore();
+  core.resize(591, 357);
+  core.setWorld(sampleTown('firstDay'));
+  assert.equal(core.cameraStyle, 'sway', 'the default');
+  assert.equal(core.stage.route, null, 'one island: no trips');
+  const top = 1 - 2 * CLEAR_TOP / 357;
+  const points = core.town.framePoints(core.aimed.island);
+  const most = SWAY.degrees * Math.PI / 180;
+  let low = 0, high = 0, fastest = 0, last = core.stage.look.yaw;
+  core.update(0);
+  core.takeChanged();
+  for (let s = 0.5; s <= SWAY.seconds * 1.5; s += 0.5) {
+    at(core, clock, s);
+    const { yaw } = core.stage.look;
+    low = Math.min(low, yaw); high = Math.max(high, yaw);
+    fastest = Math.max(fastest, Math.abs(yaw - last) / 0.5);
+    last = yaw;
+    assert.ok(inView(core.camera, points, top + 0.01), `at ${s} s something framed left the picture or reached into the band`);
+    assert.equal(core.takeChanged(), false, `no shadow redraw while the view only turns (${s} s)`);
+  }
+  assert.ok(Math.abs(high - most) < 1e-3 && Math.abs(low + most) < 1e-3, `turned from ${low} to ${high}`);
+  // At most 2π × 14° / 150 s: about 0.6° a second, at the middle of the swing.
+  assert.ok(fastest <= 2 * Math.PI * most / SWAY.seconds * 1.001, `turned ${(fastest * 180 / Math.PI).toFixed(2)}° a second`);
+  // The swing is fitted whole: framed facing north alone, it would sit closer.
+  const fitted = core.stage.target.distance;
+  core.cameraStyle = 'drift';
+  assert.ok(core.stage.target.distance < fitted, 'the drift alone frames closer');
+  assert.equal(core.moving, true, 'and eases there');
+  at(core, clock, clock.ms / 1000 + AIM_SECONDS * 3);
+  assert.equal(core.stage.look.yaw, 0, 'facing north again');
+  core.cameraStyle = 'sway';
+  assert.ok(Math.abs(core.stage.target.distance - fitted) < 1e-9, 'the sway frames for its swing again');
+  core.dispose();
+  // The sway never changes whether a town is framed whole or close, at any size.
+  for (const name of SAMPLE_NAMES) for (const size of [[591, 357], [400, 300], [160, 100]]) {
+    const pick = style => { const made = driftingCore({ style, name }); made.core.resize(...size); const close = made.core.aimed.close; made.core.dispose(); return close; };
+    assert.equal(pick('sway'), pick('drift'), `${name} at ${size}`);
+  }
+});
+
+test('the sway goes on through check-ins and trips; reduced motion shows the busy view facing north', () => {
+  const { world, core, clock, route } = driftingCore({ style: 'sway' });
+  assert.ok(route, 'with other islands the sway takes the drift\'s trips too');
+  const top = 1 - 2 * CLEAR_TOP / 357;
+  // At each rest, what it rests on stays whole, wherever the swing is.
+  for (const g of route.segments.filter(g => g.from === g.to)) {
+    for (const k of [0.1, 0.5, 0.9]) {
+      at(core, clock, g.start + g.seconds * k);
+      const list = g.from === route.home ? core.town.framePoints(core.aimed.island)
+        : g.from === route.wide ? world.islands.flatMap(i => core.town.framePoints(i.id)) : null;
+      if (list) assert.ok(inView(core.camera, list, top + 0.01), `the rest at ${g.start} s keeps its view whole`);
+    }
+  }
+  // A check-in that keeps the same busy view: the drift starts again, the sway does not, nothing jumps.
+  at(core, clock, SWAY.seconds / 4 + 3 * SWAY.seconds);
+  const swaying = core.stage.swaySeconds;
+  const yaw = core.stage.look.yaw;
+  assert.ok(Math.abs(yaw) > 0.2, 'turned well away from north');
+  const renamed = copy(world);
+  renamed.helpers[0].name = 'Pippa';
+  core.setWorld(renamed);
+  assert.equal(core.stage.driftSeconds, 0, 'the drift starts again');
+  assert.equal(core.stage.swaySeconds, swaying, 'the sway goes on');
+  at(core, clock, clock.ms / 1000 + 0.5);
+  assert.ok(Math.abs(core.stage.look.yaw - yaw) < 0.01, 'no snap back to north');
+  // A still frame (reduced motion; the page never eases then, and settles any move): the busy view,
+  // facing north.
+  core.settle();
+  core.update(clock.ms / 1000, true);
+  assert.ok(samePlace(core.stage.look, core.stage.target, 1e-9));
+  assert.equal(core.stage.look.yaw, 0);
   core.dispose();
 });
 

@@ -5,17 +5,26 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MOODS, moodOf } from './style.js';
 import { blobTexture, glowTexture, moonTexture, skyTexture } from './parts.js';
 import { hash01 } from './ground.js';
-import { blendPose, driftPose, moveSize, planDrift, samePlace, swayYaw } from './drift.js';
+import { SWAY, blendPose, driftPose, moveSize, planDrift, samePlace, swayYaw } from './drift.js';
 
 export const ELEVATION = 0.8; // about 46 degrees above the horizon: the base-builder view
 const FOV = 20; // a narrow lens, so the island reads almost like a little map
 const MAX_STARS = 160;
 
-// How the town camera behaves between check-ins (scene/drift.js):
-//   drift: rests on the busy view, then takes slow trips to the whole group and the other islands (default);
-//   sway: the same trips, and the view also turns slowly up to 14° left and right of north;
+// How the town camera behaves between check-ins (scene/drift.js). The first is the default.
+//   sway: the view turns slowly up to 14° left and right of north, all the time, even with one island;
+//     with other islands it also takes the drift's trips;
+//   drift: rests on the busy view, then takes slow trips to the whole group and the other islands;
 //   still: stays on the busy view, as first built (decision 6).
-export const CAMERA_STYLES = ['drift', 'sway', 'still'];
+export const CAMERA_STYLES = ['sway', 'drift', 'still'];
+// The turns every framing is fitted at, so nothing framed leaves the picture or reaches into the top band
+// anywhere in the swing. The shadow box covers the ground in view at each of them, so it stays put while
+// the view only turns.
+const TURN = SWAY.degrees * Math.PI / 180;
+const SWAY_FIT = [-TURN, 0, TURN];
+const SWAY_SHADOW = [-TURN, -TURN / 2, 0, TURN / 2, TURN];
+const NORTH = [0];
+const fitYawsFor = style => (style === 'sway' ? SWAY_FIT : NORTH);
 
 // Shadows follow the view in steps, so a moving camera never makes them shimmer. The shadow box covers
 // the ground in view. Its size comes in fixed steps (4 per doubling), and its middle moves only in steps
@@ -66,7 +75,8 @@ function cloudGeometry(seed) {
 // margin: [x, y] or [x, bottom, top], how far from the middle points may reach (1 is the frame's edge). A
 // lower top keeps a band clear across the top of the picture (the page's resource bar sits there).
 // elevation: the camera's angle above the horizon, in radians (the gallery tilts it; the scene never does).
-export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elevation = ELEVATION } = {}) {
+// yaws: turns from north (radians) the fit must hold at; every point fits at each of them.
+export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elevation = ELEVATION, yaws = [0] } = {}) {
   const bottom = margin[1], top = margin[2] ?? margin[1];
   camera.fov = FOV;
   camera.aspect = aspect;
@@ -88,19 +98,23 @@ export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elev
     target += ((e.y0 + e.y1) / 2 - (top - bottom) / 2) * halfHeight * 0.9;
     side += (e.x0 + e.x1) / 2 * halfHeight * aspect * 0.9;
   }
-  extentsAt(side);
+  extentsAt(side, 0);
   return { distance, target, side };
 
-  function extentsAt(x) {
-    camera.position.set(x, target + Math.sin(elevation) * distance, Math.cos(elevation) * distance);
-    camera.lookAt(x, target, 0);
-    camera.updateMatrixWorld();
+  // The points' reach on screen (-1..1) over every yaw, or for one yaw when `only` is given.
+  function extentsAt(x, only = null) {
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const p of points) {
-      v.set(p[0], p[1], p[2]).project(camera);
-      // A point behind the camera means it is far too close.
-      if (v.z > 1 || v.z < -1) return { x0: -10, x1: 10, y0: -10, y1: 10 };
-      x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+    for (const yaw of only === null ? yaws : [only]) {
+      const flat = Math.cos(elevation) * distance;
+      camera.position.set(x + Math.sin(yaw) * flat, target + Math.sin(elevation) * distance, Math.cos(yaw) * flat);
+      camera.lookAt(x, target, 0);
+      camera.updateMatrixWorld();
+      for (const p of points) {
+        v.set(p[0], p[1], p[2]).project(camera);
+        // A point behind the camera means it is far too close.
+        if (v.z > 1 || v.z < -1) return { x0: -10, x1: 10, y0: -10, y1: 10 };
+        x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y);
+      }
     }
     return { x0, x1, y0, y1 };
   }
@@ -109,15 +123,16 @@ export function frameCamera(camera, points, aspect, margin = [0.9, 0.86], { elev
 // Where the camera looks to fit every point, without moving the real camera:
 // { look: [x, y, z], distance, elevation }. The same fit as frameCamera, for points anywhere in the sky:
 // the yaw stays fixed (looking north) and the look point follows the points' middle. Used by aim().
-// top: how high points may reach (frame edge 1; see frameCamera's margin).
+// top: how high points may reach (frame edge 1; see frameCamera's margin). yaws: turns the fit must hold at
+// (the sway style fits its whole swing).
 export const TOP = 0.86;
 const scratch = new THREE.PerspectiveCamera(FOV, 1.6, 0.1, 400);
-export function fitView(points, aspect, { elevation = ELEVATION, top = TOP } = {}) {
+export function fitView(points, aspect, { elevation = ELEVATION, top = TOP, yaws = [0] } = {}) {
   if (!points.length) return { look: [0, 0, 0], distance: 20, elevation };
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const p of points) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]); }
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-  const fit = frameCamera(scratch, points.map(p => [p[0] - cx, p[1], p[2] - cz]), aspect, [0.9, 0.86, top], { elevation });
+  const fit = frameCamera(scratch, points.map(p => [p[0] - cx, p[1], p[2] - cz]), aspect, [0.9, 0.86, top], { elevation, yaws });
   return { look: [cx + fit.side, fit.target, cz], distance: fit.distance, elevation };
 }
 
@@ -177,9 +192,11 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
   let mood = MOODS.focus, distance = 20, half = [2, 2], spots = [];
   // The town camera. look: the pose on screen now. target: the busy view, where every drift starts and
   // rests. route: the drift's trips (drift.js), or null. started: when the drift started (ms, now()).
-  // move: a check-in move in progress ({ from, start, seconds }) or null; it eases from where the camera
-  // was toward the drift's pose, which is the busy view for the drift's first DRIFT.home (60) seconds.
-  let look = null, target = null, route = null, started = 0, move = null, style = CAMERA_STYLES[0];
+  // swayed: when the sway started (ms, now()); unlike the drift it does not start again at a check-in, so
+  // the turn never snaps back to north. move: a check-in move in progress ({ from, start, seconds }) or
+  // null; it eases from where the camera was toward the drift's pose, which is the busy view for the
+  // drift's first DRIFT.home (60) seconds.
+  let look = null, target = null, route = null, started = 0, swayed = null, move = null, style = CAMERA_STYLES[0];
   let shadowKey = '', shadowMoved = false;
   const placeCamera = pose => {
     const { at, distance: d, elevation, yaw = 0 } = pose;
@@ -201,7 +218,7 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
     let base = target;
     if (!still && style !== 'still') {
       base = driftPose(route, seconds) ?? target;
-      if (style === 'sway') base = { ...base, yaw: (base.yaw ?? 0) + swayYaw(seconds) };
+      if (style === 'sway') base = { ...base, yaw: (base.yaw ?? 0) + swayYaw((now() - (swayed ?? now())) / 1000) };
     }
     if (!move) return base;
     const k = (now() - move.start) / (move.seconds * 1000);
@@ -220,23 +237,38 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
   };
   // The shadow box for the camera as it is now (see SHADOW above). force: set it even if it hasn't
   // stepped (a new mood turns the sun).
+  // With the sway, the box covers the ground in view at every turn of the swing (SWAY_SHADOW), so it
+  // holds still while the view only turns and shadows never redraw during a rest.
   const lightX = new THREE.Vector3(), lightY = new THREE.Vector3(), lightZ = new THREE.Vector3();
   const corner = new THREE.Vector3(), hit = new THREE.Vector3();
+  const turned = new THREE.PerspectiveCamera();
   const fitShadow = (force = false) => {
     lightZ.set(...mood.sun.dir).normalize();
     lightX.set(0, 1, 0).cross(lightZ).normalize();
     lightY.copy(lightZ).cross(lightX);
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (const [sx, sy] of CORNERS) {
-      corner.set(sx, sy, 0.5).unproject(camera).sub(camera.position).normalize();
-      for (const plane of SHADOW.planes) {
-        // A corner that looks above the horizon (only in the gallery's low views) reaches 4 distances out.
-        const k = corner.y < -1e-3 ? Math.min((plane - camera.position.y) / corner.y, distance * 4) : distance * 4;
-        hit.copy(camera.position).addScaledVector(corner, Math.max(0, k));
-        const x = hit.dot(lightX), y = hit.dot(lightY);
-        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    const cover = view => {
+      for (const [sx, sy] of CORNERS) {
+        corner.set(sx, sy, 0.5).unproject(view).sub(view.position).normalize();
+        for (const plane of SHADOW.planes) {
+          // A corner that looks above the horizon (only in the gallery's low views) reaches 4 distances out.
+          const k = corner.y < -1e-3 ? Math.min((plane - view.position.y) / corner.y, distance * 4) : distance * 4;
+          hit.copy(view.position).addScaledVector(corner, Math.max(0, k));
+          const x = hit.dot(lightX), y = hit.dot(lightY);
+          x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        }
       }
-    }
+    };
+    if (style === 'sway' && look) {
+      const flat = Math.cos(look.elevation) * look.distance;
+      turned.copy(camera);
+      for (const yaw of SWAY_SHADOW) {
+        turned.position.set(look.at[0] + Math.sin(yaw) * flat, look.at[1] + Math.sin(look.elevation) * look.distance, look.at[2] + Math.cos(yaw) * flat);
+        turned.lookAt(...look.at);
+        turned.updateMatrixWorld();
+        cover(turned);
+      }
+    } else cover(camera);
     // Snapping moves the middle by up to half a step, so the box needs that much more room.
     const need = Math.max(x1 - x0, y1 - y0) / 2 * (1 + 1 / SHADOW.steps);
     const level = Math.ceil(Math.log2(Math.max(0.5, need)) * SHADOW.levels);
@@ -332,9 +364,10 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       camera.fov = FOV;
       camera.aspect = aspect;
       camera.updateProjectionMatrix();
-      const fit = fitView(points, aspect, { elevation, top });
+      const yaws = fitYawsFor(style);
+      const fit = fitView(points, aspect, { elevation, top, yaws });
       const end = { at: fit.look, distance: fit.distance, elevation, yaw: 0 };
-      const poseFor = list => { const f = fitView(list, aspect, { elevation, top }); return { at: f.look, distance: f.distance, elevation, yaw: 0 }; };
+      const poseFor = list => { const f = fitView(list, aspect, { elevation, top, yaws }); return { at: f.look, distance: f.distance, elevation, yaw: 0 }; };
       const keep = ease && move && samePlace(target, end, 1e-3);
       route = planDrift({ home: end, wide: wide?.length ? poseFor(wide) : null, others: others.filter(list => list?.length).map(poseFor) });
       target = end;
@@ -343,6 +376,7 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       for (const p of points) { sx = Math.max(sx, Math.abs(p[0] - end.at[0])); sz = Math.max(sz, Math.abs(p[2] - end.at[2])); }
       half = [sx, sz];
       if (restart || !look) started = now();
+      swayed ??= now();
       if (!keep) {
         move = null;
         const to = poseNow();
@@ -360,13 +394,14 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
       show();
       return true;
     },
-    // How the camera behaves between check-ins: one of CAMERA_STYLES. A change starts the drift again
-    // from its rest on the busy view, and the camera eases there from wherever it is.
+    // How the camera behaves between check-ins: one of CAMERA_STYLES. A change starts the drift (and the
+    // sway) again from its rest on the busy view, facing north, and the camera eases there from wherever it is.
     get style() { return style; },
     set style(next) {
       if (!CAMERA_STYLES.includes(next) || next === style) return;
       style = next;
       started = now();
+      swayed = now();
       if (!target || !look) return;
       move = null;
       const to = poseNow();
@@ -375,10 +410,14 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
     },
     // True while a check-in (or style) move is under way. The drift itself never counts as moving.
     get moving() { return Boolean(move); },
+    // The turns a framing must fit at for the current style (fitView's yaws).
+    get fitYaws() { return fitYawsFor(style); },
     // The drift's plan (drift.js planDrift), or null when the camera has nowhere else to look.
     get route() { return route; },
     // Seconds since the drift started (it starts again at each new world and style).
     get driftSeconds() { return target ? (now() - started) / 1000 : 0; },
+    // Seconds since the sway started (at the first world, and again at each style change).
+    get swaySeconds() { return swayed === null ? 0 : (now() - swayed) / 1000; },
     get look() { return copyPose(look); },
     get target() { return copyPose(target); },
     // True once after the shadow box stepped, so the shadow map needs drawing again.
