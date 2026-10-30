@@ -517,6 +517,7 @@ let historyShell = null, historyLogOpen = false;
 const minutesText = value => { const m = Math.max(0, Math.round(Number(value) || 0)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`; };
 const withArticle = name => `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
 const planFitWords = { on: 'On plan', near: 'Near plan', off: 'Own pace' };
+const planFitNotes = { on: 'close to what you planned', near: 'a little off the plan', off: 'you went your own way' };
 // "[icon] 40" chips, in the resource bar's order, with words for screen readers. With `columns` (resource keys),
 // each key gets a fixed slot, left empty when there is none, so rows of chips line up.
 function resourceChips(values, emptyText = '', columns = null) {
@@ -535,7 +536,7 @@ function historyGlance(s) {
   const realBreaks = summary?.realBreaks ?? null;
   const plannedSessions = summary?.plannedSessions ?? (plannedFocus.length || null);
   let plan;
-  if (summary?.planFit) plan = tile('Plan', planFitWords[summary.planFit], `${Math.round(summary.planMatch * 100)}% match for the day`);
+  if (summary?.planFit) plan = tile('Plan', planFitWords[summary.planFit], planFitNotes[summary.planFit]);
   else if (plannedSessions && summary?.focusSessions) plan = tile('Plan', `${summary.onPlanSessions} of ${plannedSessions}`, 'sessions on plan so far', ' title="A session is on plan when it lasts close to its planned length."');
   else if (plannedSessions) plan = tile('Plan', `${plannedSessions} sessions`, 'planned for today');
   else plan = tile('Plan', 'No plan yet', 'made at your first focus');
@@ -611,7 +612,7 @@ function historyRecent(s) {
       const game = day.game, quiet = !day.focusMinutes && !day.breakMinutes && !game?.checkIns;
       if (quiet) return `<div class="history-day is-quiet"><span>${html(label(day.dayKey))}</span><span class="history-quiet-note">No sessions</span></div>`;
       const fit = game?.planFit;
-      const plan = fit ? `<span class="history-fit" data-fit="${fit}" title="${html(`${Math.round(game.planMatch * 100)}% match with the plan`)}">${planFitWords[fit]}</span>` : '<span class="history-none" title="No plan that day">—</span>';
+      const plan = fit ? `<span class="history-fit" data-fit="${fit}" title="${html(planFitNotes[fit])}">${planFitWords[fit]}</span>` : '<span class="history-none" title="No plan that day">—</span>';
       const counts = new Map();
       for (const item of game?.happenings || []) if (item.kind === 'built') counts.set(item.name, (counts.get(item.name) || 0) + 1);
       const built = [...counts].map(([name, count]) => count > 1 ? `${name} ×${count}` : name).join(', ');
