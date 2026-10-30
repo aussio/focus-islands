@@ -1,0 +1,66 @@
+{
+  "rulesVersion": 2,
+  "change": 47,
+  "onHand": {
+    "wood": 62.39,
+    "stone": 53.7,
+    "planks": 0,
+    "soil": 80.86,
+    "saplings": 65.57,
+    "starlight": 10
+  },
+  "waiting": {
+    "wood": 0,
+    "stone": 0,
+    "planks": 0,
+    "soil": 0,
+    "saplings": 0,
+    "starlight": 0
+  },
+  "islands": [
+    {
+      "id": "home",
+      "name": "Home island",
+      "kind": "home",
+      "size": "medium",
+      "land": 50,
+      "golden": false,
+      "buildings": [
+        {
+          "id": "b1",
+          "blueprint": "nursery",
+          "name": "Seed nursery",
+          "landWhenBuilt": 44,
+          "checkIn": 2
+        },
+        {
+          "id": "b2",
+          "blueprint": "garden",
+          "name": "Garden plot",
+          "landWhenBuilt": 48,
+          "checkIn": 4
+        }
+      ]
+    }
+  ],
+  "links": [],
+  "helpers": [
+    {
+      "id": "h1",
+      "name": "Pip",
+      "job": "wood",
+      "island": "home"
+    }
+  ],
+  "wonders": [],
+  "checkIn": null,
+  "nextUp": "Next up: Flower bed, about 1 more break away. Lighthouse: 10 of 90 Starlight.",
+  "activeDays": 1,
+  "checkIns": 6,
+  "lastCheckIn": {
+    "number": 6,
+    "moments": [],
+    "built": null,
+    "job": null
+  }
+}

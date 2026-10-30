@@ -6,8 +6,12 @@
 // - Draws at most about 30 frames a second, and stops completely while the page is hidden, the host is
 //   detached, has no size, or is scrolled off screen. When shown again, helpers start fresh.
 // - With reduced motion, it draws one still frame per change with helpers standing at their spots.
-// - capture() draws one fresh frame right away (even while paused) and resolves with the canvas
-//   (or null when nothing can be drawn).
+// - capture() draws one fresh frame right away (even while paused), with any camera move finished
+//   first, and resolves with the canvas (or null when nothing can be drawn).
+// - Town worlds (islands with a grid): the camera moves slowly to where a new world should be seen. It
+//   jumps instead on the first world, on resize, with reduced motion, and while hidden or off screen.
+//   After a lost drawing context comes back, every island is built again.
+// - stats() is a speed readout for the gallery: triangles, draw calls, frame time and rebuild time.
 // - If WebGL cannot start, the host gets a soft sky-coloured background instead, and nothing throws.
 // The canvas fills the host (width and height 100%), so the host needs a size of its own.
 import * as THREE from 'three';
@@ -25,6 +29,7 @@ export function createIslandScene(host) {
   let disposed = false, lost = false, broken = false;
   let running = false, frameRequest = 0, lastDraw = 0, clockStart = now();
   let onScreen = true, width = 0, height = 0;
+  const frameTimes = []; // the last draws, in ms, for stats()
   let mood = 'focus';
   const reducedQuery = view.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null;
   const reduced = () => Boolean(reducedQuery?.matches);
@@ -78,9 +83,12 @@ export function createIslandScene(host) {
   const draw = (still = reduced()) => {
     if (!renderer || lost || broken || disposed || width <= 0 || height <= 0) return false;
     try {
+      const started = now();
       core.update((now() - clockStart) / 1000, still);
       if (core.takeChanged()) renderer.shadowMap.needsUpdate = true;
       renderer.render(core.scene, core.camera);
+      frameTimes.push(now() - started);
+      if (frameTimes.length > 60) frameTimes.shift();
       return true;
     } catch (error) {
       // A drawing error should never break the page: stop drawing and keep the last frame.
@@ -123,6 +131,8 @@ export function createIslandScene(host) {
       }
     } else {
       if (running) stop();
+      // Nobody sees a camera move while paused: finish it.
+      core?.settle();
       // Reduced motion: a still frame for each change while visible.
       if (reduced() && !hidden() && core?.hasWorld) draw(true);
     }
@@ -130,7 +140,17 @@ export function createIslandScene(host) {
 
   const onVisibility = () => sync();
   const onLost = event => { event.preventDefault(); lost = true; stop(); };
-  const onRestored = () => { lost = false; if (core) core.takeChanged(); renderer.shadowMap.needsUpdate = true; sync(); if (!running) draw(); };
+  const onRestored = () => {
+    lost = false;
+    if (core) {
+      // Town islands are built again from the model; the square island is kept as it was.
+      try { core.rebuild(); } catch (error) { console.error('Island scene could not rebuild:', error); }
+      core.takeChanged();
+    }
+    renderer.shadowMap.needsUpdate = true;
+    sync();
+    if (!running) draw();
+  };
   const onReducedChange = () => { stop(); sync(); };
   let resizeObserver = null, intersectionObserver = null;
   if (renderer) {
@@ -158,18 +178,23 @@ export function createIslandScene(host) {
   }
 
   return {
+    // Returns true when the scene now shows this world (newly built, or the same as before), and false
+    // when it can't: disposed, no WebGL, or the world failed to build (the last world stays on screen).
     setWorld(world) {
-      if (disposed) return;
-      if (!core) return;
+      if (disposed) return false;
+      if (!core) return false;
+      measure();
       try {
-        if (core.setWorld(world)) { clockStart = now(); lastDraw = 0; }
+        // A camera move only makes sense while someone can watch it.
+        const ease = !reduced() && !hidden() && onScreen && host.isConnected !== false;
+        if (core.setWorld(world, { ease })) { clockStart = now(); lastDraw = 0; }
       } catch (error) {
         console.error('Island scene could not build this world:', error);
-        return;
+        return false;
       }
-      measure();
       if (running) draw(false);
       sync();
+      return true;
     },
     setMood(next) {
       if (disposed) return;
@@ -188,7 +213,16 @@ export function createIslandScene(host) {
     capture() {
       if (!renderer || disposed || lost) return Promise.resolve(null);
       measure();
+      core.settle();
       return Promise.resolve(draw() ? canvas : null);
+    },
+    // Speed readout (gallery only): what the last frame drew, the average frame time over the last
+    // draws, and what the last world change rebuilt. Null without WebGL.
+    stats() {
+      if (!renderer || !core) return null;
+      const info = renderer.info.render;
+      const average = frameTimes.length ? frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length : 0;
+      return { triangles: info.triangles, calls: info.calls, frameMs: average, frames: frameTimes.length, town: core.stats() };
     },
     dispose() {
       if (disposed) return;
