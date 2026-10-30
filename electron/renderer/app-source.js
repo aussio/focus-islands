@@ -148,10 +148,9 @@ function checkInCard(status) {
   const islandName = id => islands.find(island => island.id === id)?.name || 'The island';
   const brought = amountList(card.collected);
   const notes = [
-    ...(card.newLand || []).filter(grown => Math.round(grown.amount) > 0).map(grown => {
-      const spots = Math.round(grown.amount);
-      return `${islandName(grown.island)} grew, with room for ${spots} more building${spots === 1 ? '' : 's'}.`;
-    }),
+    // newLand amounts are town grid points (5 rest minutes each), which mean nothing to a person.
+    ...(card.newLand || []).filter(grown => Math.round(grown.amount) > 0)
+      .map(grown => `${islandName(grown.island)} grew${grown.amount < 10 ? ' a little' : ''}.`),
     ...(card.arrivals || []), ...(card.moments || []), ...(card.surprise ? [card.surprise] : []),
   ].filter(Boolean);
   const pick = (value, label, inner) => `<button class="check-in-option" type="button" data-check-in-pick="${html(value)}" aria-label="${html(label)}">${inner}</button>`;
