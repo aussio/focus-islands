@@ -38,6 +38,7 @@ The page gets the game state as `status.game` in the once-a-second status. The c
 - A bridge's `built.link` becomes `{ from, to, type: 'rope', land: { [from]: n, [to]: m } }`: the two islands it joins (always neighbours in the sky table), and each one's land at that moment, so the layout can place the bridge's feet at the right point in the replay.
 - A new island in `gameCheckedIn.islands[]` also stores `ring`, `angle`, `lift` and `appetite`, worked out when it arrives (see "Islands grow at different speeds"). They never change, so a rules change can't move an island.
 - A fancy bridge surprise stores what it did in `gameCheckedIn.surprise`: `link: { id, from, to, type, land }` for a new bridge, or `upgrade: { link, type }` for a rope bridge that changed type.
+- A surprise also stores its `flavour` (a variation inside its slot), a `visitor` kind when one comes, and `keepsake: { id, kind, ground? }` when it leaves one. `applySurprise` replays them from the record, and older records lack them, so nothing changes for past check-ins.
 - Version-1 records were only ever made on this branch, for testing. `fold()` reads them through a small converter, so a database that tried the square island still opens:
   - land amounts × 7, and `cottage` read as `house`;
   - islands missing `ring`, `angle`, `lift` or `appetite` get them from the same rules and rolls as new ones;
@@ -135,6 +136,10 @@ Thing kinds, their footprints, which job works at each, and pad and coast flags 
 - **A special building** on a pad: every current blueprint except the cottage, with no change to what they do.
 - A **rope bridge** between two neighbouring islands, a **wonder**, a **helper's job**, as now. Still at most one choice per check-in.
 - **A surprise** can add a fancy bridge, or turn a rope bridge into one (see "Bridges").
+- **Surprise flavours, visitors and keepsakes.** The slot roll (`surprise-kind`, weights unchanged) and `surprise-island` are as before. A second roll, `${key}:surprise-flavour`, picks a variation inside the slot from `SURPRISE_FLAVOURS` in `rules.js`. Every flavour gives exactly its slot's gift (`slotGifts` in `play.js`), so totals and pacing are unchanged (`surprises.test.js` checks the 180-day totals).
+  - Water slot: rain cloud (a visitor), dew, mist, a keepsake, or plain. Soil: worms or plain. Stones: tumbled or plain. Fireflies: fireflies, a balloon or a rainbow (all visitors). Lost helper: a tent (a visitor).
+  - **Visitors** stay from their check-in until the next one (`viewState().visitor`, from the last check-in's surprise). One at a time.
+  - **Keepsakes** (`KEEPSAKES`): fountain, well, bench, cairn, telescope, birdhouse, lamp. They come from the water slot's keepsake flavour, and from the golden slot once its island already has its golden tree (`${key}:keepsake-kind`). Never the same kind twice on one island, at most `maxKeepsakesPerIsland` (3). The fountain takes 1 ground, saved in the record and counted in `play.js` and `room-check.js` before that check-in's buildings; the rest stand on the coast. About one a month.
 
 The rules only say which island a house, room or floor goes on. The layout picks which house grows and where.
 
@@ -259,6 +264,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 ### Replaying an island
 
 - Start the island (below). Then take its buildings and bridge feet in check-in order. For each one, grow land to its `landWhenBuilt` (or the link's `land`, for built and surprise links alike), then place it. Upgrades place nothing. At the end, grow to the island's `land`.
+- Keepsakes are replayed in the same order, first within their check-in (the surprise comes before the build), at the land saved with them: on a free coast point facing out, the fountain beside the square, never on borrowed land, and left out if there is no spot.
 - If something has no place, try looser rules first: houses and pads may touch the coast, pads may sit beside blocks, and lanterns needn't touch a lane. Then a pad may squeeze in (see "Free for a pad"). Only then add the next land points until it fits, and count them in `borrowed`. The long-run check requires `borrowed` to be 0 on the real rules.
 - Land only grows next to land helpers can walk to from the plaza, so new land never starts from a corner a pad squeezed off.
 - Every choice uses a roll from the island id, the building id and point numbers, never positions in the sky.
@@ -500,6 +506,9 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
 - **Work spots:** walkable points next to the thing. Helpers stand a little toward it (up to 0.45 of a step).
 - **Carrying:** to the nearest pile by route, otherwise to the nearest house door on the same island. Routes can cross bridges, so a helper on an island without a pile carries over to the nearest pile it can reach.
 - `helpers.js` and today's plans (work, rest cycles, idle by the first tree) stay. `motion.js` gains the `hop` and slide moves. The route finding changes: `scene/town/walk.js` exports `planHelpers(model, mood)` with the same plan shape as `routes.js`.
+
+- **Small life** (`models/growing.js`): butterflies over gardens and flower beds and bees at the hives (focus), ducks, ripples and a frog on ponds, leaves from the great tree, a drip and a break-time drizzle cloud at the rain catcher, and moths at lantern paths (moods with lit windows). Look-only extras: water lilies and a scarecrow, each on about 1 in 3. Each island adds at most 3 shared meshes, only in the moods that need them, with no shadows and capped counts (`LIFE`); nothing is in the air at time 0, and every pick uses `hashString`. About +3,700 triangles (+4,700 at break) and 9 to 10 draws at steady day 180; `builder.stats()` doesn't count these meshes. Tests: `scene/life.test.js`; gallery: `views/life.js`.
+- **Visitors and keepsakes:** visitors (`scene/town/visitors.js`) are their own meshes, drawn after the island's batch, moved by scene time and the mood, still at time 0 (the rainbow hides at night; fireflies show only in break and done). The cloud and fireflies sit over the busy view's middle; the tent and balloon use the coast nearest it. An island redraws when its visitor comes and goes, both at check-ins. Keepsake models are in `models/keepsakes.js` (250 to 750 triangles each). Tests: `visitors.test.js`, `surprises.test.js`; gallery: `views/surprises.js`.
 
 ### Moods and camera
 
