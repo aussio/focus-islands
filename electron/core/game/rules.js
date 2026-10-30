@@ -6,7 +6,7 @@
 const RESOURCES = ['wood', 'stone', 'planks', 'soil', 'saplings', 'starlight'];
 const MATERIALS = ['wood', 'stone', 'planks'];
 const GROWTH = ['soil', 'saplings'];
-const KIND_NAMES = { making: 'making things', growing: 'growing things', decor: 'homes and decor', wonder: 'Starlight wonder' };
+const KIND_NAMES = { making: 'making things', growing: 'growing things', decor: 'pretty things', homes: 'homes', wonder: 'Starlight wonder' };
 
 const JOBS = {
   wood: { name: 'Woodcutter', doing: 'gathering fallen branches by the old tree' },
@@ -32,10 +32,12 @@ const ISLAND_KINDS = {
   misty: { label: 'misty', names: ['Misty Reach', 'Fog Hollow'], special: 'loom' },
 };
 const NEW_ISLAND_KINDS = ['mossy', 'rocky', 'meadow', 'crystal', 'misty'];
+// weight: how land is shared between islands (see the land step in play.js). Each size's starting
+// land and most land are rules numbers (startLand, maxLand) so they can be tuned with the rest.
 const ISLAND_SIZES = {
-  small: { startLand: 2, weight: 1 },
-  medium: { startLand: 3, weight: 1.5 },
-  large: { startLand: 5, weight: 2 },
+  small: { weight: 1 },
+  medium: { weight: 1.5 },
+  large: { weight: 2 },
 };
 const SURPRISES = [
   { id: 'seeds', weight: 4 }, { id: 'soil', weight: 3 }, { id: 'stones', weight: 3 },
@@ -43,7 +45,7 @@ const SURPRISES = [
 ];
 
 const DEFAULT_RULES = Object.freeze({
-  rulesVersion: 1,
+  rulesVersion: 2,
   woodPerFocusMinute: 0.35,
   stonePerFocusMinute: 0.25,
   planksPerFocusMinute: 0.15,          // only once a Sawmill exists
@@ -56,8 +58,16 @@ const DEFAULT_RULES = Object.freeze({
   realBreakMinimumMinutes: 3,          // matches electron/core/planning.js qualifyingRestSeconds
   realBreakShareOfPlan: 0.75,          // of the day plan's usual break, not the break's own timer
   breakMinutesWithoutPlan: 10,         // usual break when a day has no plan, matches qualifyingRestSeconds
-  restMinutesPerNewSpot: 35,
-  startingSpots: 4,
+  // Land is counted in points of the island's town grid. One old building spot is about 7 points.
+  restMinutesPerLand: 5,               // rest minutes for one more land point
+  startingLand: 40,                    // home's land at the start
+  startLand: Object.freeze({ small: 30, medium: 40, large: 55 }), // a new island's land when it drifts in
+  maxLand: Object.freeze({ small: 320, medium: 450, large: 600, home: 600 }), // most land each island's grid holds
+  // Room for buildings: land - coastPerRootLand * sqrt(land) - laneShareOfLand * land - used, where used is
+  // the start things (startGround) plus every building's ground. The coast takes no houses or pads.
+  coastPerRootLand: 4,
+  laneShareOfLand: 0.12,
+  startGround: Object.freeze({ home: 4, island: 2 }),
   startingSoil: 40,
   startingSaplings: 25,
   starlightPerOnPlanSession: 1,        // only if a real break follows (or it is the day's last session)
@@ -69,15 +79,16 @@ const DEFAULT_RULES = Object.freeze({
   helperBoost: 0.08,
   firstHelperGapDays: 2,               // in active days
   helperGapGrowth: 1.3,
-  bedsPerCottage: 2,
+  bedsPerBlock: 1,                     // one bed for each block storey of a house
   startingBeds: 3,                     // the first 3 helpers sleep in the old tree's hollow
+  homesShareOfIsland: 0.3,             // house blocks cover at most this share of an island's land
   islandGapsDays: Object.freeze([7, 14, 30, 45]), // in active days
   laterIslandGapDays: 60,
   priceScale: 1,
   repeatPriceStep: 0.4,                // each copy you own adds this share of the first price
-  fastRepeatPriceStep: 1,              // the same, for cheap decor
+  fastRepeatPriceStep: 1,              // the same, for cheap decor (a blueprint's own `step` comes first)
   blueprintsOffered: 3,
-  maxShareOfIsland: 0.25,
+  maxShareOfIsland: 0.25,              // of an island's pad buildings (homes don't count)
   surpriseChance: 0.05,
   surpriseChanceAfterBreak: 0.12,
   surpriseCatchUpAfterActiveDays: 4,
@@ -86,32 +97,39 @@ const DEFAULT_RULES = Object.freeze({
   lostHelpersAfterActiveDays: 10,
 });
 
-// kind: making / growing / decor / wonder. perIsland caps repeatable items on each island.
+// kind: making / growing / decor / homes / wonder. perIsland caps repeatable items on each island.
 // tier 2 needs a Sawmill; tier 3 needs a Workshop and 3 islands. Ids match electron/renderer/game/kinds.js.
+// ground: land points it takes from an island's room, from its footprint in kinds.js (point 1, pair 2,
+// cell 5, cells 7, ring 11); bridges take none.
+// Homes are parts of block houses, never things on a pad. blocks: new blocks on the ground; storeys:
+// new block storeys (one bed each); weight: how often the homes slot shows it (lowest owned / weight);
+// step: its own repeat price step. The layout picks which house grows and where.
 const DEFAULT_BLUEPRINTS = deepFreeze([
-  { id: 'flowers', name: 'Flower bed', kind: 'decor', tier: 1, again: true, perIsland: 2, fast: true, cost: { wood: 25, stone: 10, soil: 25, saplings: 15 }, does: 'Something pretty to look at.' },
-  { id: 'cottage', name: 'Cottage', kind: 'decor', tier: 1, again: true, perIsland: 3, beds: true, cost: { wood: 45, stone: 25, soil: 25, saplings: 10 }, does: 'A home for 2 more helpers.' },
-  { id: 'garden', name: 'Garden plot', kind: 'growing', tier: 1, opensJob: 'soil', cost: { wood: 30, stone: 15, soil: 50, saplings: 25 }, does: 'A helper can work here as a Gardener, making soil.' },
-  { id: 'nursery', name: 'Seed nursery', kind: 'growing', tier: 1, opensJob: 'saplings', cost: { wood: 40, stone: 20, soil: 60, saplings: 35 }, does: 'A helper can work here as a Seed keeper, growing saplings.' },
-  { id: 'sawmill', name: 'Sawmill', kind: 'making', tier: 1, opensJob: 'planks', cost: { wood: 110, stone: 60, soil: 60, saplings: 30 }, does: 'Focus makes planks too, and new buildings open up.' },
-  { id: 'workshop', name: 'Workshop', kind: 'making', tier: 2, cost: { stone: 80, planks: 60, soil: 80, saplings: 40 }, does: 'Opens bigger buildings once you have 3 islands.' },
-  { id: 'windmill', name: 'Windmill', kind: 'making', tier: 2, again: true, perIsland: 2, cost: { stone: 100, planks: 90, soil: 60, saplings: 35 }, does: 'Turns slowly in the wind.' },
-  { id: 'orchard', name: 'Orchard', kind: 'growing', tier: 2, again: true, perIsland: 2, cost: { wood: 90, planks: 40, soil: 110, saplings: 80 }, does: 'A little grove of fruit trees.' },
-  { id: 'lanterns', name: 'Lantern path', kind: 'decor', tier: 2, again: true, perIsland: 2, fast: true, cost: { wood: 40, stone: 40, planks: 20, soil: 30, saplings: 20 }, does: 'Little lights along the paths.' },
-  { id: 'bridge', name: 'Rope bridge', kind: 'decor', tier: 2, again: true, perExtraIsland: true, noSpot: true, cost: { wood: 60, planks: 60, soil: 40, saplings: 40 }, does: 'A rope bridge to another island.' },
-  { id: 'tower', name: 'Lookout tower', kind: 'making', tier: 3, again: true, perIsland: 1, cost: { wood: 100, stone: 300, planks: 180, soil: 70, saplings: 40 }, does: 'A tall tower that looks out over the sky.' },
-  { id: 'pond', name: 'Lily pond', kind: 'growing', tier: 3, again: true, perIsland: 1, cost: { wood: 80, stone: 250, soil: 180, saplings: 100 }, does: 'A quiet pond, with roots and water hanging below.' },
-  { id: 'greattree', name: 'Great tree', kind: 'growing', tier: 3, cost: { wood: 200, stone: 100, soil: 400, saplings: 300 }, does: 'A huge old tree.' },
-  { id: 'grotto', name: 'Mushroom grotto', kind: 'growing', onlyOn: 'mossy', cost: { wood: 60, stone: 40, soil: 150, saplings: 100 }, does: 'Glowing mushrooms in a mossy cave. Only on mossy islands.' },
-  { id: 'quarry', name: 'Stone quarry', kind: 'making', onlyOn: 'rocky', cost: { wood: 120, stone: 60, planks: 40, soil: 50, saplings: 30 }, does: 'Stone cut straight from the cliff. Only on rocky islands.' },
-  { id: 'beehives', name: 'Beehive meadow', kind: 'growing', onlyOn: 'meadow', cost: { wood: 80, planks: 30, soil: 120, saplings: 100 }, does: 'Busy bees among the clover. Only on meadow islands.' },
-  { id: 'forge', name: 'Crystal forge', kind: 'making', onlyOn: 'crystal', cost: { stone: 150, planks: 80, soil: 60, saplings: 40 }, does: 'A warm forge that glows in the crystal light. Only on crystal islands.' },
-  { id: 'loom', name: 'Mist loom', kind: 'decor', onlyOn: 'misty', cost: { wood: 80, planks: 60, soil: 60, saplings: 60 }, does: 'Weaves soft cloth from the mist. Only on misty islands.' },
-  { id: 'lighthouse', name: 'Lighthouse', kind: 'wonder', order: 1, cost: { stone: 100, starlight: 90 }, does: 'The first Starlight wonder: a light that sweeps the sky.', moment: 'The Lighthouse is lit. Its beam sweeps slowly across the sky.' },
-  { id: 'airship', name: 'Airship dock', kind: 'wonder', order: 2, cost: { planks: 150, starlight: 170 }, does: 'A Starlight wonder: little airships drift between the islands.', moment: 'The Airship dock is finished. Little airships drift between the islands now.' },
-  { id: 'observatory', name: 'Observatory', kind: 'wonder', order: 3, cost: { stone: 200, starlight: 180 }, does: 'A Starlight wonder: a dome that opens to the stars.', moment: 'The Observatory opens its roof to the stars.' },
-  { id: 'skyfall', name: 'Sky waterfall', kind: 'wonder', order: 4, cost: { stone: 150, soil: 200, starlight: 190 }, does: 'A Starlight wonder: water pouring off the edge of the island.', moment: 'A Sky waterfall pours off the edge and turns to mist far below.' },
-  { id: 'aurora', name: 'Aurora garden', kind: 'wonder', order: 5, cost: { soil: 250, saplings: 200, starlight: 200 }, does: 'A Starlight wonder: a garden that glows after dark.', moment: 'The Aurora garden glows green and violet after dark.' },
+  { id: 'house', name: 'Little house', kind: 'homes', tier: 1, again: true, ground: 3, blocks: 2, storeys: 2, weight: 1, step: 0.25, cost: { wood: 40, stone: 20, soil: 20, saplings: 10 }, does: 'A new house of two rooms, with beds for 2 more helpers.' },
+  { id: 'room', name: 'Extra room', kind: 'homes', tier: 1, again: true, ground: 1, blocks: 1, storeys: 1, weight: 3, step: 0.06, cost: { wood: 20, stone: 12, soil: 10, saplings: 5 }, does: 'One more room on a house, with a bed for 1 more helper.' },
+  { id: 'floor', name: 'Upper floor', kind: 'homes', tier: 2, again: true, ground: 0, blocks: 0, storeys: 1, weight: 2, step: 0.06, cost: { stone: 14, planks: 18, soil: 8, saplings: 4 }, does: 'One more storey on a house, with a bed for 1 more helper.' },
+  { id: 'flowers', name: 'Flower bed', kind: 'decor', tier: 1, again: true, perIsland: 2, fast: true, ground: 2, cost: { wood: 25, stone: 10, soil: 25, saplings: 15 }, does: 'Something pretty to look at.' },
+  { id: 'garden', name: 'Garden plot', kind: 'growing', tier: 1, opensJob: 'soil', ground: 5, cost: { wood: 30, stone: 15, soil: 50, saplings: 25 }, does: 'A helper can work here as a Gardener, making soil.' },
+  { id: 'nursery', name: 'Seed nursery', kind: 'growing', tier: 1, opensJob: 'saplings', ground: 5, cost: { wood: 40, stone: 20, soil: 60, saplings: 35 }, does: 'A helper can work here as a Seed keeper, growing saplings.' },
+  { id: 'sawmill', name: 'Sawmill', kind: 'making', tier: 1, opensJob: 'planks', ground: 5, cost: { wood: 110, stone: 60, soil: 60, saplings: 30 }, does: 'Focus makes planks too, and new buildings open up.' },
+  { id: 'workshop', name: 'Workshop', kind: 'making', tier: 2, ground: 5, cost: { stone: 80, planks: 60, soil: 80, saplings: 40 }, does: 'Opens bigger buildings once you have 3 islands.' },
+  { id: 'windmill', name: 'Windmill', kind: 'making', tier: 2, again: true, perIsland: 2, ground: 5, cost: { stone: 100, planks: 90, soil: 60, saplings: 35 }, does: 'Turns slowly in the wind.' },
+  { id: 'orchard', name: 'Orchard', kind: 'growing', tier: 2, again: true, perIsland: 2, ground: 5, cost: { wood: 90, planks: 40, soil: 110, saplings: 80 }, does: 'A little grove of fruit trees.' },
+  { id: 'lanterns', name: 'Lantern path', kind: 'decor', tier: 2, again: true, perIsland: 2, fast: true, ground: 1, cost: { wood: 40, stone: 40, planks: 20, soil: 30, saplings: 20 }, does: 'Little lights along the paths.' },
+  { id: 'bridge', name: 'Rope bridge', kind: 'decor', tier: 2, again: true, perExtraIsland: true, noSpot: true, ground: 0, cost: { wood: 60, planks: 60, soil: 40, saplings: 40 }, does: 'A rope bridge to another island.' },
+  { id: 'tower', name: 'Lookout tower', kind: 'making', tier: 3, again: true, perIsland: 1, ground: 5, cost: { wood: 100, stone: 300, planks: 180, soil: 70, saplings: 40 }, does: 'A tall tower that looks out over the sky.' },
+  { id: 'pond', name: 'Lily pond', kind: 'growing', tier: 3, again: true, perIsland: 1, ground: 5, cost: { wood: 80, stone: 250, soil: 180, saplings: 100 }, does: 'A quiet pond, with roots and water hanging below.' },
+  { id: 'greattree', name: 'Great tree', kind: 'growing', tier: 3, ground: 5, cost: { wood: 200, stone: 100, soil: 400, saplings: 300 }, does: 'A huge old tree.' },
+  { id: 'grotto', name: 'Mushroom grotto', kind: 'growing', onlyOn: 'mossy', ground: 5, cost: { wood: 60, stone: 40, soil: 150, saplings: 100 }, does: 'Glowing mushrooms in a mossy cave. Only on mossy islands.' },
+  { id: 'quarry', name: 'Stone quarry', kind: 'making', onlyOn: 'rocky', ground: 5, cost: { wood: 120, stone: 60, planks: 40, soil: 50, saplings: 30 }, does: 'Stone cut straight from the cliff. Only on rocky islands.' },
+  { id: 'beehives', name: 'Beehive meadow', kind: 'growing', onlyOn: 'meadow', ground: 5, cost: { wood: 80, planks: 30, soil: 120, saplings: 100 }, does: 'Busy bees among the clover. Only on meadow islands.' },
+  { id: 'forge', name: 'Crystal forge', kind: 'making', onlyOn: 'crystal', ground: 5, cost: { stone: 150, planks: 80, soil: 60, saplings: 40 }, does: 'A warm forge that glows in the crystal light. Only on crystal islands.' },
+  { id: 'loom', name: 'Mist loom', kind: 'decor', onlyOn: 'misty', ground: 5, cost: { wood: 80, planks: 60, soil: 60, saplings: 60 }, does: 'Weaves soft cloth from the mist. Only on misty islands.' },
+  { id: 'lighthouse', name: 'Lighthouse', kind: 'wonder', order: 1, ground: 5, cost: { stone: 100, starlight: 90 }, does: 'The first Starlight wonder: a light that sweeps the sky.', moment: 'The Lighthouse is lit. Its beam sweeps slowly across the sky.' },
+  { id: 'airship', name: 'Airship dock', kind: 'wonder', order: 2, ground: 7, cost: { planks: 150, starlight: 170 }, does: 'A Starlight wonder: little airships drift between the islands.', moment: 'The Airship dock is finished. Little airships drift between the islands now.' },
+  { id: 'observatory', name: 'Observatory', kind: 'wonder', order: 3, ground: 11, cost: { stone: 200, starlight: 180 }, does: 'A Starlight wonder: a dome that opens to the stars.', moment: 'The Observatory opens its roof to the stars.' },
+  { id: 'skyfall', name: 'Sky waterfall', kind: 'wonder', order: 4, ground: 5, cost: { stone: 150, soil: 200, starlight: 190 }, does: 'A Starlight wonder: water pouring off the edge of the island.', moment: 'A Sky waterfall pours off the edge and turns to mist far below.' },
+  { id: 'aurora', name: 'Aurora garden', kind: 'wonder', order: 5, ground: 11, cost: { soil: 250, saplings: 200, starlight: 200 }, does: 'A Starlight wonder: a garden that glows after dark.', moment: 'The Aurora garden glows green and violet after dark.' },
 ]);
 
 function deepFreeze(value) {
@@ -169,9 +187,23 @@ function dayPlanMatch(day, rules) {
   const breakMatch = Math.min(1, realBreaks / Math.max(1, day.plan.sessions - 1));
   return (focusMatch + breakMatch) / 2;
 }
+// Room an island has for buildings, in land points: its land less the coast (no houses or pads there),
+// the lanes, and the ground already used. The layout relies on this sum to never need extra land.
+function roomOf(land, used, rules) {
+  return land - rules.coastPerRootLand * Math.sqrt(land) - rules.laneShareOfLand * land - used;
+}
+// The most land an island's grid can hold.
+function maxLandOf(island, rules) {
+  const most = rules.maxLand && rules.maxLand[island.kind === 'home' ? 'home' : island.size];
+  return typeof most === 'number' ? most : Infinity;
+}
+// Ground the start things take: the plaza, pile, campfire, tree and rock on home, less on a new island.
+function startGroundOf(island, rules) {
+  return island.kind === 'home' ? rules.startGround.home : rules.startGround.island;
+}
 // state needs { counts: { blueprintId: number owned } }.
 function priceOf(bp, state, rules) {
-  const step = bp.fast ? rules.fastRepeatPriceStep : rules.repeatPriceStep;
+  const step = bp.step ?? (bp.fast ? rules.fastRepeatPriceStep : rules.repeatPriceStep);
   const owned = (state.counts && state.counts[bp.id]) || 0;
   const factor = rules.priceScale * (bp.again ? 1 + step * owned : 1), price = {};
   for (const r of Object.keys(bp.cost)) if (bp.cost[r] > 0) price[r] = Math.round(bp.cost[r] * factor);
@@ -181,5 +213,5 @@ function priceOf(bp, state, rules) {
 module.exports = {
   RESOURCES, MATERIALS, GROWTH, KIND_NAMES, JOBS, STARTING_JOBS, HELPER_NAMES, FIRST_HELPER_WAY, LOST_HELPER_WAY,
   ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
-  islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf,
+  islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, roomOf, maxLandOf, startGroundOf,
 };

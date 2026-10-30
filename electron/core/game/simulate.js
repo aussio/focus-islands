@@ -9,10 +9,11 @@ const { scan } = require('./history');
 const play = require('./play');
 const MadeUpDays = require('./made-up-days');
 
-// Copies the prototype's simulated player: a wonder first, a Cottage if someone is waiting for a bed,
-// otherwise something new before something repeated. For a job it takes the first option, which the
-// rules already rank the way the prototype's job picker did.
-function simulatedPlayer(state, { blueprints, helpersWaiting }) {
+// The simulated player: a wonder first. Then homes if a helper is waiting for a bed. Then the homes
+// option on every third build choice that offers one (homesOffers counts them, this one included),
+// standing in for a player who likes the town. Otherwise something new before something repeated.
+// For a job it takes the first option, which the rules already rank the way the prototype's job picker did.
+function simulatedPlayer(state, { blueprints, helpersWaiting, homesOffers = 0 }) {
   const choice = state.checkIn && state.checkIn.choice;
   if (!choice) return null;
   if (choice.kind === 'job') return choice.options[0].job;
@@ -21,15 +22,16 @@ function simulatedPlayer(state, { blueprints, helpersWaiting }) {
   owned.bridge = state.links.length;
   const wonder = choice.options.find(o => o.kind === 'wonder');
   if (wonder) return wonder.blueprint;
-  if (helpersWaiting && choice.options.some(o => o.blueprint === 'cottage')) return 'cottage';
+  const homes = choice.options.find(o => o.kind === 'homes');
+  if (homes && (helpersWaiting || (homesOffers > 0 && homesOffers % 3 === 0))) return homes.blueprint;
   const again = id => (blueprints.find(bp => bp.id === id).again ? 1 : 0);
   return choice.options.map((o, i) => ({ o, i }))
     .sort((a, b) => (again(a.o.blueprint) - again(b.o.blueprint)) || ((owned[a.o.blueprint] || 0) - (owned[b.o.blueprint] || 0)) || (a.i - b.i))[0].o.blueprint;
 }
 
-function helpersWaitingFor(events, rules) {
+function helpersWaitingFor(events, rules, blueprints) {
   const facts = scan(events);
-  return facts ? play.fold(facts, rules).queue.length : 0;
+  return facts ? play.fold(facts, rules, blueprints).queue.length : 0;
 }
 
 // Runs one person for `dayCount` days. Options:
@@ -46,6 +48,7 @@ function run(personId, dayCount, options = {}) {
   const history = MadeUpDays.createHistory();
   const plans = new Map();
   const states = {}, timeline = [], log = [];
+  let homesOffers = 0;
   let todayKey = MadeUpDays.dayKeyFor(1), now = `${todayKey}T07:00:00.000Z`;
   const ctx = () => ({ now, todayKey, dayKeyOf: MadeUpDays.dayKeyOf, planFor: key => plans.get(key) || null, rules, blueprints });
   history.appendRecord(game.startRecord(ctx()));
@@ -56,7 +59,9 @@ function run(personId, dayCount, options = {}) {
     if (!mayCheckIn) return;
     const state = game.gameState(history.events, ctx());
     if (!state.checkIn) return;
-    const pick = chooser(state, { blueprints, rules, helpersWaiting: helpersWaitingFor(history.events, rules) });
+    const choice = state.checkIn.choice;
+    if (choice && choice.kind === 'build' && choice.options.some(o => o.kind === 'homes')) homesOffers += 1;
+    const pick = chooser(state, { blueprints, rules, helpersWaiting: helpersWaitingFor(history.events, rules, blueprints), homesOffers });
     const record = game.checkInRecord(history.events, ctx(), { token: state.checkIn.token, pick });
     history.appendRecord(record);
     log.push({ day: today.day, ...record.payload });

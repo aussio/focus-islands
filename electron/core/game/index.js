@@ -26,7 +26,7 @@ function environment(ctx = {}) {
 function startRecord(ctx = {}) {
   const rules = environment(ctx).rules;
   return { kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: ctx.now,
-    payload: { rulesVersion: rules.rulesVersion, startingLand: rules.startingSpots,
+    payload: { rulesVersion: rules.rulesVersion, startingLand: rules.startingLand,
       startingSoil: rules.startingSoil, startingSaplings: rules.startingSaplings } };
 }
 
@@ -36,7 +36,7 @@ function dueGrants(events, ctx = {}) {
   const facts = scan(events);
   if (!facts) return [];
   const env = environment(ctx);
-  return computeDueGrants(facts, play.fold(facts, env.rules), ctx, env);
+  return computeDueGrants(facts, play.fold(facts, env.rules, env.blueprints), ctx, env);
 }
 
 // The game state for the page, or null before the game has started.
@@ -44,7 +44,7 @@ function gameState(events, ctx = {}) {
   const facts = scan(events);
   if (!facts) return null;
   const env = environment(ctx);
-  const state = play.fold(facts, env.rules);
+  const state = play.fold(facts, env.rules, env.blueprints);
   const prepared = play.prepare(state, facts, env);
   const plan = ctx.planFor && ctx.todayKey ? ctx.planFor(ctx.todayKey) : null;
   env.typical = { focusMinutes: (plan && plan.focusMinutes) || 60, breakMinutes: (plan && plan.breakMinutes) || 10 };
@@ -57,7 +57,7 @@ function checkInRecord(events, ctx = {}, { token, pick = null } = {}) {
   const facts = scan(events);
   if (!facts) throw new Error("The island hasn't started yet.");
   const env = environment(ctx);
-  const prepared = play.prepare(play.fold(facts, env.rules), facts, env);
+  const prepared = play.prepare(play.fold(facts, env.rules, env.blueprints), facts, env);
   if (!prepared) throw new Error('There is nothing to collect right now.');
   if (token !== prepared.draft.token) throw new Error('This card has changed. Please look at it again.');
   play.pick(prepared, pick, env);
@@ -73,5 +73,5 @@ module.exports = {
   DEFAULT_RULES: R.DEFAULT_RULES, DEFAULT_BLUEPRINTS: R.DEFAULT_BLUEPRINTS, JOBS: R.JOBS, KIND_NAMES: R.KIND_NAMES,
   ISLAND_KINDS: R.ISLAND_KINDS, RESOURCES: R.RESOURCES,
   isRealBreak: R.isRealBreak, restValue: R.restValue, focusOnPlan: R.focusOnPlan, dayPlanMatch: R.dayPlanMatch,
-  priceOf: R.priceOf, islandDueAt: R.islandDueAt, helperDueAt: R.helperDueAt,
+  priceOf: R.priceOf, islandDueAt: R.islandDueAt, helperDueAt: R.helperDueAt, roomOf: R.roomOf, maxLandOf: R.maxLandOf,
 };

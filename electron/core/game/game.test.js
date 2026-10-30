@@ -65,6 +65,31 @@ function setup({ plan = PLAN } = {}) {
   return h;
 }
 const grantFor = (h, key) => h.events.find(e => e.uniqueKey === key);
+const { roomProblems } = require('./room-check');
+const play = require('./play');
+
+// A bare rules state for unit checks: home only, with plenty on hand. build() saves one building the
+// way a check-in would, and island() adds a new island.
+function bareState(rules = R.DEFAULT_RULES, land = undefined) {
+  const state = play.initialState({ id: 'S', sequence: 1, payload: { rulesVersion: 2, startingLand: land } }, rules);
+  Object.assign(state.onHand, { wood: 5000, stone: 5000, planks: 5000, soil: 5000, saplings: 5000 });
+  let number = 0;
+  const record = extra => ({ number: ++number, collected: {}, landProgress: state.landProgress, newLand: [], ...extra });
+  return {
+    state,
+    build(blueprint, island = 'home', blueprints = R.DEFAULT_BLUEPRINTS) {
+      const bp = blueprints.find(b => b.id === blueprint);
+      const where = state.islands.find(i => i.id === island);
+      play.applyRecord(state, record({ built: { id: `b${state.buildingsMade + 1}`, blueprint, name: bp.name, kind: bp.kind, island,
+        price: {}, landWhenBuilt: where.land, link: null } }), number, rules, blueprints);
+    },
+    island(id, size, land, kind = 'rocky') { play.applyRecord(state, record({ islands: [{ id, name: id, kind, size, land }] }), number, rules, R.DEFAULT_BLUEPRINTS); },
+  };
+}
+const placeOf = (bp, state, rules = R.DEFAULT_RULES) => {
+  const i = play.placeFor(R.DEFAULT_BLUEPRINTS.find(b => b.id === bp), state, rules);
+  return i === null ? null : i < 0 ? 'none' : state.islands[i].id;
+};
 
 test('a real break and the 10/20-minute rest curve', () => {
   const rules = R.DEFAULT_RULES;
@@ -108,10 +133,10 @@ test('nothing exists before the game starts, and earlier history never counts', 
   assert.equal(rest.payload.amounts.starlight, undefined, 'the focus session before the start earns no Starlight');
   const start = game.startRecord({ now: '2026-01-05T08:00:00.000Z' });
   assert.deepEqual(start, { kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: '2026-01-05T08:00:00.000Z',
-    payload: { rulesVersion: 1, startingLand: 4, startingSoil: 40, startingSaplings: 25 } });
+    payload: { rulesVersion: 2, startingLand: 40, startingSoil: 40, startingSaplings: 25 } });
   const state = h.state();
-  assert.equal(state.rulesVersion, 1);
-  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 4]]);
+  assert.equal(state.rulesVersion, 2);
+  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 40]]);
   assert.deepEqual(state.helpers, [{ id: 'h1', name: 'Pip', job: null, island: 'home' }]);
 });
 
@@ -123,7 +148,7 @@ test('focus earns materials, real rests earn growth, and each grant is written o
   assert.deepEqual(game.dueGrants(h.events, h.ctx()), due, 'asking twice without writing gives the same answer');
   due.forEach(h.history.appendRecord);
   assert.deepEqual(game.dueGrants(h.events, h.ctx()), [], 'nothing is returned twice once written');
-  assert.deepEqual(due[0].payload, { rulesVersion: 1, source: 'focus', sourceID: f1, dayKey: '2026-01-05',
+  assert.deepEqual(due[0].payload, { rulesVersion: 2, source: 'focus', sourceID: f1, dayKey: '2026-01-05',
     amounts: { wood: 21, stone: 15 }, restMinutes: 0 });
   assert.equal(due[0].occurredAt, h.ctx().now);
 
@@ -229,7 +254,7 @@ test('a check-in is ready after a break or a day end, never when focus ends, and
   assert.ok(state.checkIn, 'ready after the day ends');
   assert.equal(state.checkIn.collected.wood, 7.56, 'Pip the Woodcutter adds 8%');
   assert.equal(state.checkIn.choice, null, 'only one kind of thing is affordable, so there is no pointless choice');
-  assert.equal(state.checkIn.nextUp, 'Next choice: Flower bed or Garden plot, about 1 more focus session away. Lighthouse: 1 of 90 Starlight.');
+  assert.equal(state.checkIn.nextUp, 'Next choice: Flower bed or Little house, about 1 more focus session away. Lighthouse: 1 of 90 Starlight.');
 });
 
 test('a card already waiting stays through later focus and collects it too; counted time away makes a card ready', () => {
@@ -301,7 +326,7 @@ test('building: price, land, stable ids, and the record replays exactly as shown
   assert.deepEqual(state.islands.map(i => i.id), ['home', 'isle-1']);
   assert.deepEqual(state.helpers.map(h => h.id), state.helpers.map((_, i) => `h${i + 1}`));
   for (const island of state.islands) {
-    assert.ok(island.buildings.length <= island.land, 'never more buildings than land');
+    assert.ok(roomProblems(island).length === 0, roomProblems(island).join('; '));
     for (const b of island.buildings) assert.ok(b.landWhenBuilt <= island.land && b.checkIn >= 1);
   }
   // The money adds up: start + everything collected + gifts - everything spent.
@@ -321,7 +346,7 @@ test('the same events always give the same state, and a rules change never rewri
   assert.deepEqual(game.gameState(JSON.parse(JSON.stringify(result.events)), ctx), before);
   const changed = {
     ...ctx,
-    rules: { ...R.DEFAULT_RULES, rulesVersion: 2, woodPerFocusMinute: 9, restMinutesPerNewSpot: 3, startingSoil: 999, startingSpots: 12,
+    rules: { ...R.DEFAULT_RULES, rulesVersion: 3, woodPerFocusMinute: 9, restMinutesPerLand: 1, startingSoil: 999, startingLand: 120,
       islandGapsDays: [1, 1, 1], realBreakMinimumMinutes: 1, helperBoost: 3, surpriseChance: 1, surpriseChanceAfterBreak: 1 },
     blueprints: R.DEFAULT_BLUEPRINTS.map(bp => ({ ...bp, cost: Object.fromEntries(Object.entries(bp.cost).map(([r, n]) => [r, Math.ceil(n / 3)])) })),
   };
@@ -414,4 +439,191 @@ test('a source that already has a grant keeps the day saved in it when the Mac c
   h.focus(60); h.rest(10);
   const later = game.dueGrants(h.events, h.ctx({ dayKeyOf: west }));
   assert.deepEqual(later.map(g => g.payload.dayKey), [west(h.events.at(-1).occurredAt), west(h.events.at(-1).occurredAt)]);
+});
+
+// The town (version 2).
+
+test('blueprint ids, footprints and homes match electron/renderer/game/kinds.js', async () => {
+  const { KINDS, FOOTS, BLOCK_BLUEPRINTS } = await import('../../renderer/game/kinds.js');
+  const GROUND = { point: 1, pair: 2, cell: 5, cells: 7, ring: 11 };
+  assert.deepEqual(Object.keys(GROUND).sort(), Object.keys(FOOTS).sort());
+  const homes = R.DEFAULT_BLUEPRINTS.filter(bp => bp.kind === 'homes').map(bp => bp.id);
+  assert.deepEqual(homes, BLOCK_BLUEPRINTS);
+  assert.ok(!R.DEFAULT_BLUEPRINTS.some(bp => bp.id === 'cottage'), 'cottages are block houses now');
+  for (const bp of R.DEFAULT_BLUEPRINTS) {
+    assert.equal(typeof bp.ground, 'number', `${bp.id} has a ground`);
+    if (bp.kind === 'homes' || bp.noSpot) continue;
+    assert.ok(KINDS[bp.id], `${bp.id} is a kind`);
+    assert.equal(bp.ground, GROUND[KINDS[bp.id].foot], `${bp.id}: ground matches its ${KINDS[bp.id].foot} footprint`);
+  }
+  assert.deepEqual(['house', 'room', 'floor'].map(id => R.DEFAULT_BLUEPRINTS.find(bp => bp.id === id).ground), [3, 1, 0]);
+  assert.equal(R.DEFAULT_BLUEPRINTS.find(bp => bp.id === 'bridge').ground, 0);
+  assert.deepEqual(R.KIND_NAMES, { making: 'making things', growing: 'growing things', decor: 'pretty things', homes: 'homes', wonder: 'Starlight wonder' });
+});
+
+test('the room sum: home starts with room for one cell pad, and a day of breaks makes room for a second', () => {
+  const rules = R.DEFAULT_RULES;
+  const room = R.roomOf(40, 4, rules);
+  assert.ok(room >= 5 && room < 10, `room ${room}`);
+  assert.ok(R.roomOf(40, 4 + 5, rules) < 5, 'not a second cell pad yet');
+  assert.ok(R.roomOf(48, 4 + 5, rules) >= 5, 'about 8 more points (40 rest minutes) make room for the second');
+  for (const land of [40, 100, 300, 600]) assert.ok(R.roomOf(land + 1, 0, rules) > R.roomOf(land, 0, rules), 'more land is always more room');
+  const { state, island } = bareState();
+  island('isle-1', 'small', rules.startLand.small);
+  assert.deepEqual(state.islands.map(i => [i.id, i.used]), [['home', 4], ['isle-1', 2]], 'start things use 4 on home and 2 on a new island');
+  assert.deepEqual(state.islands.map(i => R.maxLandOf(i, rules)), [600, 320]);
+});
+
+test("priceOf reads a blueprint's own step before the shared ones", () => {
+  const bp = id => R.DEFAULT_BLUEPRINTS.find(b => b.id === id);
+  const price = (id, owned) => R.priceOf(bp(id), { counts: { [id]: owned } }, R.DEFAULT_RULES);
+  assert.deepEqual(price('room', 0), { wood: 20, stone: 12, soil: 10, saplings: 5 });
+  assert.deepEqual(price('room', 10), { wood: 32, stone: 19, soil: 16, saplings: 8 }, '6% for each one owned');
+  assert.deepEqual(price('house', 4), { wood: 80, stone: 40, soil: 40, saplings: 20 }, '25% for each one owned');
+  assert.deepEqual(price('flowers', 1), { wood: 50, stone: 20, soil: 50, saplings: 30 }, 'cheap decor still doubles');
+  assert.deepEqual(price('windmill', 1), { stone: 140, planks: 126, soil: 84, saplings: 49 });
+});
+
+test('homes: a house first, rooms before another house, floors under the blocks, on the island with the most room', () => {
+  const { state, build, island } = bareState(R.DEFAULT_RULES, 100);
+  assert.equal(placeOf('house', state), 'home', 'the first house is always allowed');
+  assert.equal(placeOf('room', state), null, 'a room needs a house');
+  assert.equal(play.available(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'floor'), state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS), false, 'a floor needs the Sawmill');
+  build('house');
+  assert.equal(placeOf('house', state), null, 'houses grow before new ones start');
+  assert.equal(placeOf('room', state), 'home');
+  build('room');
+  assert.equal(placeOf('house', state), 'home');
+  assert.equal(placeOf('floor', state), 'home', 'tier 2 is checked by available(), the island only needs floors under its blocks');
+  build('floor'); build('floor'); build('floor');
+  assert.equal(placeOf('floor', state), null, 'three floors on three blocks: no more until the house grows');
+  assert.equal(play.beds(state, R.DEFAULT_RULES), 3 + 6, 'one bed per block storey: 2 for the house, 1 for the room, 1 per floor');
+  // Rooms and floors only go where a house is; everything else goes to the island with the most room.
+  island('isle-1', 'large', 300);
+  assert.equal(placeOf('garden', state), 'isle-1');
+  assert.equal(placeOf('room', state), 'home');
+  assert.equal(placeOf('house', state), 'isle-1');
+  assert.equal(placeOf('bridge', state), 'none');
+  // Not enough room for the ground: nowhere.
+  const small = bareState();
+  small.build('garden');
+  assert.equal(placeOf('house', small.state), null, `room ${play.roomOn(small.state.islands[0], R.DEFAULT_RULES).toFixed(2)} is under 3`);
+  // Blocks cover at most 30% of an island's land.
+  const open = { ...R.DEFAULT_RULES, coastPerRootLand: 0, laneShareOfLand: 0 };
+  const tiny = bareState(open);
+  tiny.state.islands[0].land = 20;
+  tiny.build('house'); tiny.build('room'); tiny.build('room'); tiny.build('room'); tiny.build('room');
+  assert.equal(tiny.state.islands[0].blocks, 6);
+  assert.equal(placeOf('room', tiny.state, open), null, '7 blocks would cover 35% of 20 points');
+});
+
+test('the homes slot shows the affordable homes blueprint with the lowest number owned ÷ weight', () => {
+  const { state, build } = bareState(R.DEFAULT_RULES, 200);
+  build('sawmill');
+  build('house'); build('room'); build('room');
+  const homesIn = offer => offer.find(o => o.bp.kind === 'homes')?.bp.id;
+  const offer = key => play.makeOffer(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, key);
+  assert.equal(homesIn(offer('a')), 'floor', 'house 1 ÷ 1, room 2 ÷ 3, floor 0 ÷ 2');
+  build('floor'); build('floor');
+  assert.equal(homesIn(offer('a')), 'room', 'house 1 ÷ 1, room 2 ÷ 3, floor 2 ÷ 2');
+  state.onHand.planks = 0;
+  build('room');
+  assert.equal(homesIn(offer('a')), 'house', 'floors cost planks, so the next lowest that is affordable');
+  for (const key of ['a', 'b', 'c', 'd']) {
+    const kinds = offer(key).map(o => o.bp.kind);
+    assert.ok(kinds.length >= 2 && kinds.length <= 3 && new Set(kinds).size === kinds.length);
+  }
+});
+
+test('homes are offered whenever they fit, and a helper with no bed hears about houses and rooms', () => {
+  const rules = { ...R.DEFAULT_RULES, startingBeds: 1, firstHelperGapDays: 0.5 };
+  const h = setup().start();
+  h.focus(60); h.rest(10); h.grants({ rules });
+  const card = h.state({ rules }).checkIn;
+  assert.ok(card.arrivals.includes('Wren would like to move in, but every bed is taken. A new house or room would give them a home.'), card.arrivals.join(' | '));
+  // With beds to spare the house is still on offer (decision 7).
+  const { state } = bareState();
+  assert.ok(play.beds(state, R.DEFAULT_RULES) > state.helpers.length);
+  assert.ok(play.makeOffer(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, 'k').some(o => o.bp.id === 'house'));
+});
+
+test('rest minutes become land points; full islands are skipped and the minutes wait when all are full', () => {
+  const h = setup().start();
+  h.focus(60); h.rest(10); h.grants();
+  const first = h.checkIn('wood');
+  assert.deepEqual(first.payload.newLand, [{ island: 'home', amount: 2 }], 'a 10-minute break grows 2 points');
+  assert.equal(first.payload.landProgress, 0);
+  assert.equal(h.state().islands[0].land, 42);
+
+  const full = { ...R.DEFAULT_RULES, startingLand: 598 };
+  const h2 = setup();
+  h2.history.appendRecord(game.startRecord(h2.ctx({ rules: full })));
+  h2.focus(60); h2.rest(15); h2.grants();
+  const a = h2.checkIn('wood');
+  assert.deepEqual([a.payload.newLand, a.payload.landProgress], [[{ island: 'home', amount: 2 }], 2.5], '12.5 rest minutes: 2 points to reach 600, 2.5 minutes over');
+  h2.focus(60); h2.rest(10); h2.grants();
+  const b = h2.checkIn(null);
+  assert.deepEqual([b.payload.newLand, b.payload.landProgress, h2.state().islands[0].land], [[], 12.5, 600], 'home is full, so the minutes wait');
+});
+
+test('"next up" counts the land points still missing', () => {
+  const { state, build } = bareState();
+  build('garden');
+  const typical = { focusMinutes: 60, breakMinutes: 10 };
+  // Room 0.9 after the garden. A Flower bed needs 2 more land points (one 10-minute break); a pad needs 8.
+  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Next up: Flower bed, about 1 more break away.');
+  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8);
+  state.landProgress = 9;
+  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8, 'progress is minutes, counted by the caller');
+});
+
+test('version-1 records still read: land × 7, a cottage is a house', () => {
+  const history = MD.createHistory();
+  const at = '2026-01-05T08:00:00.000Z';
+  history.appendRecord({ kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: at,
+    payload: { rulesVersion: 1, startingLand: 4, startingSoil: 40, startingSaplings: 25 } });
+  history.append('focusStarted', { sessionID: 'f1', targetSeconds: 3600, reason: 'suggestion' }, at);
+  history.append('focusEnded', { sessionID: 'f1', targetSeconds: 3600, elapsedSeconds: 3600 }, '2026-01-05T09:00:00.000Z');
+  history.appendRecord({ kind: 'gameCheckedIn', uniqueKey: 'game:checkin:1', occurredAt: '2026-01-05T09:10:00.000Z', payload: {
+    rulesVersion: 1, number: 1, token: 'old', covered: 3, dayKey: '2026-01-05', activeDays: 1,
+    collected: { wood: 60, stone: 30, planks: 0, soil: 0, saplings: 0, starlight: 0 }, restMinutes: 40, landProgress: 5,
+    newLand: [{ island: 'home', amount: 1 }], surprise: null,
+    islands: [{ id: 'isle-1', name: 'Flint Peak', kind: 'rocky', size: 'medium', land: 3 }],
+    helpersQueued: [], helpersArrived: [], arrivals: [], moments: [], firsts: ['building'],
+    choice: { kind: 'build', options: [{ blueprint: 'cottage', island: 'home', price: { wood: 45, stone: 25, soil: 25, saplings: 10 } }] },
+    picked: 'cottage', job: null,
+    built: { id: 'b1', blueprint: 'cottage', name: 'Cottage', kind: 'decor', island: 'home', price: { wood: 45, stone: 25, soil: 25, saplings: 10 }, landWhenBuilt: 5, link: null },
+  } });
+  const ctx = { now: '2026-01-05T10:00:00.000Z', todayKey: '2026-01-05', dayKeyOf: MD.dayKeyOf, planFor: () => PLAN };
+  const state = game.gameState(history.events, ctx);
+  assert.deepEqual(state.islands.map(i => [i.id, i.land]), [['home', 35], ['isle-1', 21]]);
+  assert.deepEqual(state.islands[0].buildings, [{ id: 'b1', blueprint: 'house', name: 'Little house', landWhenBuilt: 35, checkIn: 1 }]);
+  assert.equal(state.lastCheckIn.built.blueprint, 'house');
+  assert.equal(play.beds(play.fold(require('./history').scan(history.events), R.DEFAULT_RULES), R.DEFAULT_RULES), 5, 'the cottage still gives 2 beds');
+  assert.deepEqual(state.onHand, { wood: 15, stone: 5, planks: 0, soil: 15, saplings: 15, starlight: 0 });
+  // A version-2 check-in on top: the 5 waiting rest minutes and a 10-minute break become 3 points, for
+  // the island with the least land for its size.
+  history.append('breakStarted', { sessionID: 'r1', targetSeconds: 600, followsSessionID: 'f1' }, '2026-01-05T10:00:00.000Z');
+  history.append('breakConfirmed', { sessionID: 'r1', targetSeconds: 600, elapsedSeconds: 600 }, '2026-01-05T10:10:00.000Z');
+  history.append('breakEnded', { sessionID: 'r1', targetSeconds: 600, elapsedSeconds: 600 }, '2026-01-05T10:10:00.000Z');
+  game.dueGrants(history.events, ctx).forEach(history.appendRecord);
+  const card = game.gameState(history.events, ctx).checkIn;
+  assert.deepEqual(card.newLand, [{ island: 'isle-1', amount: 3 }]);
+  const record = game.checkInRecord(history.events, ctx, { token: card.token, pick: null });
+  assert.equal(record.payload.rulesVersion, 2);
+});
+
+test('the simulated player: a wonder, then homes for a bed or on every third homes offer, else something new', () => {
+  const blueprints = R.DEFAULT_BLUEPRINTS;
+  const opt = id => ({ blueprint: id, kind: blueprints.find(b => b.id === id).kind });
+  const state = (ids, built = []) => ({ islands: [{ buildings: built.map(blueprint => ({ blueprint })) }], links: [],
+    checkIn: { choice: { kind: 'build', options: ids.map(opt) } } });
+  const choose = (s, extra = {}) => sim.simulatedPlayer(s, { blueprints, helpersWaiting: 0, homesOffers: 1, ...extra });
+  assert.equal(choose(state(['lighthouse', 'room', 'garden'])), 'lighthouse');
+  assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { helpersWaiting: 1 }), 'room', 'a helper needs a bed');
+  assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { homesOffers: 3 }), 'room', 'every third homes offer');
+  assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { homesOffers: 4 }), 'windmill', 'otherwise something new');
+  assert.equal(choose(state(['flowers', 'house'], ['flowers'])), 'house', 'a first house is something new too');
+  assert.equal(choose(state(['flowers', 'sawmill'])), 'sawmill', 'a one-off before a repeatable');
+  assert.equal(sim.simulatedPlayer({ checkIn: { choice: { kind: 'job', options: [{ job: 'stone' }, { job: 'wood' }] } } }, { blueprints }), 'stone');
 });

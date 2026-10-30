@@ -7,6 +7,7 @@
 const R = require('./rules');
 const { roll, pickOne, fingerprint } = require('./dice');
 const { latestTrigger } = require('./history');
+const version1 = require('./version1');
 
 const round2 = x => Math.round(x * 100) / 100;
 const EPSILON = 1e-6;
@@ -26,21 +27,29 @@ const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
 // ---------------------------------------------------------------------------------------------
 // The starting state and replaying saved check-ins.
 
+// An island as the rules keep it. used: ground taken by start things and buildings (see R.roomOf).
+// blocks and storeys: house blocks on the ground and block storeys. pads: buildings that aren't homes.
+function makeIsland(fields, rules) {
+  const island = { ...fields, weight: R.ISLAND_SIZES[fields.size].weight, golden: false, buildings: [], counts: {},
+    used: 0, blocks: 0, storeys: 0, pads: 0 };
+  island.used = R.startGroundOf(island, rules);
+  return island;
+}
+
 function initialState(started, rules) {
-  const p = started.payload || {};
-  const home = R.ISLAND_SIZES.medium;
+  const p = version1.startPayload(started.payload || {});
   return {
     startedID: started.id,
     covered: started.sequence ?? 0,
     onHand: { ...empty(), soil: p.startingSoil ?? rules.startingSoil, saplings: p.startingSaplings ?? rules.startingSaplings },
     landProgress: 0,
-    islands: [{ id: 'home', name: R.ISLAND_KINDS.home.names[0], kind: 'home', size: 'medium', land: p.startingLand ?? rules.startingSpots,
-      weight: home.weight, golden: false, buildings: [], counts: {} }],
+    islands: [makeIsland({ id: 'home', name: R.ISLAND_KINDS.home.names[0], kind: 'home', size: 'medium',
+      land: p.startingLand ?? rules.startingLand }, rules)],
     links: [],
     helpers: [{ id: 'h1', name: R.HELPER_NAMES[0], job: null, island: 'home', how: R.FIRST_HELPER_WAY }],
     queue: [],
     helpersMade: 1, helpersScheduled: 0, lostHelpers: 0,
-    counts: {}, buildingsMade: 0, wonders: [], firsts: {},
+    counts: {}, storeys: 0, buildingsMade: 0, wonders: [], firsts: {},
     checkIns: 0, lastSurpriseDay: null, activeDaysAtLastSurprise: 0,
     last: null,
   };
@@ -61,10 +70,9 @@ function applySurprise(state, p) {
   state.lastSurpriseDay = p.dayKey;
   state.activeDaysAtLastSurprise = p.activeDays;
 }
-function applyIslands(state, p) {
+function applyIslands(state, p, rules) {
   for (const island of p.islands || []) {
-    state.islands.push({ id: island.id, name: island.name, kind: island.kind, size: island.size, land: island.land,
-      weight: R.ISLAND_SIZES[island.size].weight, golden: false, buildings: [], counts: {} });
+    state.islands.push(makeIsland({ id: island.id, name: island.name, kind: island.kind, size: island.size, land: island.land }, rules));
   }
 }
 function applyHelpers(state, p) {
@@ -84,35 +92,39 @@ function applyJob(state, job) {
   helper.job = job.job;
   helper.island = job.island;
 }
-function applyBuild(state, built, number) {
+function applyBuild(state, built, number, blueprints) {
   if (!built) return;
   addInto(state.onHand, built.price, -1);
   state.counts[built.blueprint] = (state.counts[built.blueprint] || 0) + 1;
   state.buildingsMade += 1;
+  const bp = blueprints.find(b => b.id === built.blueprint) || {};
+  if (bp.kind === 'homes') state.storeys += bp.storeys || 0;
   if (built.island) {
     const island = islandById(state, built.island);
     island.buildings.push({ id: built.id, blueprint: built.blueprint, name: built.name, landWhenBuilt: built.landWhenBuilt, checkIn: number });
     island.counts[built.blueprint] = (island.counts[built.blueprint] || 0) + 1;
+    island.used += bp.ground || 0;
+    if (bp.kind === 'homes') { island.blocks += bp.blocks || 0; island.storeys += bp.storeys || 0; } else island.pads += 1;
   }
   if (built.link) state.links.push({ id: built.id, from: built.link.from, to: built.link.to });
   if (built.kind === 'wonder') state.wonders.push(built.blueprint);
 }
-function applyRecord(state, p, sequence) {
+function applyRecord(state, p, sequence, rules, blueprints) {
   applyCollect(state, p);
   applySurprise(state, p);
-  applyIslands(state, p);
+  applyIslands(state, p, rules);
   applyHelpers(state, p);
   applyJob(state, p.job);
-  applyBuild(state, p.built, p.number);
+  applyBuild(state, p.built, p.number, blueprints);
   for (const key of p.firsts || []) state.firsts[key] = p.number;
   state.checkIns = p.number;
   state.covered = p.covered ?? sequence;
   state.last = p;
 }
 
-function fold(facts, rules) {
+function fold(facts, rules, blueprints = R.DEFAULT_BLUEPRINTS) {
   const state = initialState({ ...facts.started, sequence: facts.startedSequence }, rules);
-  for (const record of facts.checkIns) applyRecord(state, record.payload, record.sequence);
+  for (const record of facts.checkIns) applyRecord(state, version1.checkInPayload(record.payload, blueprints), record.sequence, rules, blueprints);
   return state;
 }
 
@@ -125,8 +137,8 @@ function cloneState(state) {
 // Small rule helpers (ported from the prototype).
 
 function count(state, id) { return state.counts[id] || 0; }
-function beds(state, rules) { return rules.startingBeds + rules.bedsPerCottage * count(state, 'cottage'); }
-function free(island) { return island.land - island.buildings.length; }
+function beds(state, rules) { return rules.startingBeds + rules.bedsPerBlock * state.storeys; }
+function roomOn(island, rules, land = island.land) { return R.roomOf(land, island.used, rules); }
 function openJobs(state, blueprints) {
   const jobs = R.STARTING_JOBS.slice();
   for (const bp of blueprints) if (bp.opensJob && count(state, bp.id) > 0 && !jobs.includes(bp.opensJob)) jobs.push(bp.opensJob);
@@ -146,21 +158,63 @@ function available(bp, state, rules, blueprints) {
   if (!bp.again && !bp.onlyOn && count(state, bp.id)) return false;
   if (bp.onlyOn && !state.islands.some(i => i.kind === bp.onlyOn && !i.counts[bp.id])) return false;
   if (bp.perExtraIsland && count(state, bp.id) >= state.islands.length - 1) return false;
-  if (bp.beds && beds(state, rules) - state.helpers.length >= rules.bedsPerCottage && !state.queue.length) return false;
-  return true;
+  return true; // homes are offered whenever they fit, not only when a helper needs a bed
+}
+// Homes on one island: a new house once the houses there have at least one room each (the first is
+// always allowed), a room on an island with a house, and a floor while floors are fewer than blocks (so
+// houses average under 2 storeys). Blocks cover at most homesShareOfIsland of the island's land.
+function homesFit(bp, island, rules, land) {
+  if (island.blocks + (bp.blocks || 0) > rules.homesShareOfIsland * land + EPSILON) return false;
+  const houses = island.counts.house || 0;
+  if (bp.id === 'house') return (island.counts.room || 0) >= houses;
+  if (bp.id === 'floor') return houses > 0 && (island.counts.floor || 0) < island.blocks;
+  return houses > 0;
 }
 // Where it would go: an island index, -1 for things that need no spot, or null if there is no room.
-function placeFor(bp, state, rules) {
+// It picks the island with the most room that has enough room for the blueprint's ground (ties: the
+// later island). landOf(island) can stand in for each island's land, to look ahead.
+function placeFor(bp, state, rules, landOf = null) {
   if (bp.noSpot) return -1;
-  let best = null;
+  let best = null, bestRoom = -Infinity;
   state.islands.forEach((island, i) => {
-    if (free(island) <= 0) return;
+    const land = landOf ? landOf(island) : island.land;
+    const room = roomOn(island, rules, land);
+    if (room + EPSILON < (bp.ground || 0)) return;
     if (bp.onlyOn && (island.kind !== bp.onlyOn || island.counts[bp.id])) return;
-    // A repeatable item may fill at most a set share of an island (never less than its small base cap).
-    if (bp.perIsland && (island.counts[bp.id] || 0) >= Math.max(bp.perIsland, Math.floor(island.buildings.length * rules.maxShareOfIsland))) return;
-    if (best === null || free(island) >= free(state.islands[best])) best = i;
+    if (bp.kind === 'homes' && !homesFit(bp, island, rules, land)) return;
+    // A repeatable item may fill at most a set share of an island's pad buildings (never less than its small base cap).
+    if (bp.perIsland && (island.counts[bp.id] || 0) >= Math.max(bp.perIsland, Math.floor(island.pads * rules.maxShareOfIsland))) return;
+    if (best === null || room >= bestRoom) { best = i; bestRoom = room; }
   });
   return best;
+}
+// Hands out land points one at a time to the island with the least land for its size (ties: the
+// earlier island), skipping islands that are full. land: Map of island id to land, changed in place.
+// Returns how many points were handed out: fewer than asked when every island is full.
+function shareLand(islands, land, points, rules) {
+  let given = 0;
+  for (; given < points; given++) {
+    let target = null;
+    for (const island of islands) {
+      if (land.get(island.id) >= R.maxLandOf(island, rules)) continue;
+      if (!target || land.get(island.id) / island.weight < land.get(target.id) / target.weight) target = island;
+    }
+    if (!target) break;
+    land.set(target.id, land.get(target.id) + 1);
+  }
+  return given;
+}
+// How many more land points, shared out as at a check-in, before this blueprint fits somewhere. Null if
+// land alone won't make it fit.
+function landPointsNeeded(bp, state, rules) {
+  if (placeFor(bp, state, rules, island => R.maxLandOf(island, rules)) === null) return null;
+  const land = new Map(state.islands.map(island => [island.id, island.land]));
+  const landOf = island => land.get(island.id);
+  for (let points = 1; points <= 1000; points++) {
+    if (!shareLand(state.islands, land, 1, rules)) return null;
+    if (placeFor(bp, state, rules, landOf) !== null) return points;
+  }
+  return null;
 }
 function canAfford(price, state) {
   return Object.keys(price).every(r => (state.onHand[r] || 0) + EPSILON >= price[r]);
@@ -185,9 +239,11 @@ function rankJobs(state, rules, blueprints) {
   return jobs.slice().sort((a, b) => (need[b] - need[a]) || (on(a) - on(b)));
 }
 
-// An offer of 2 or 3 blueprints, one per kind. A wonder may be offered on its own.
+// An offer of 2 or 3 blueprints, one per kind. A wonder may be offered on its own. Each kind shows
+// the affordable blueprint with the lowest number owned ÷ its weight (1 unless it has one), then by roll.
 function makeOffer(state, rules, blueprints, key) {
   const byKind = {};
+  const owned = option => count(state, option.bp.id) / (option.bp.weight || 1);
   for (const bp of blueprints) {
     if (!available(bp, state, rules, blueprints)) continue;
     const price = R.priceOf(bp, state, rules);
@@ -196,8 +252,7 @@ function makeOffer(state, rules, blueprints, key) {
     if (where === null) continue;
     const option = { bp, price, island: where >= 0 ? state.islands[where].id : null, order: roll(`${key}:offer:${bp.id}`) };
     const current = byKind[bp.kind];
-    const better = !current || count(state, bp.id) < count(state, current.bp.id) ||
-      (count(state, bp.id) === count(state, current.bp.id) && option.order < current.order);
+    const better = !current || owned(option) < owned(current) || (owned(option) === owned(current) && option.order < current.order);
     if (better) byKind[bp.kind] = option;
   }
   const kinds = Object.keys(byKind).filter(k => k !== 'wonder')
@@ -253,7 +308,10 @@ function teaser(state, rules, blueprints, typical) {
       else impossible = true;
     }
     if (placeFor(bp, state, rules) === null) {
-      breaks = Math.max(breaks, Math.ceil((rules.restMinutesPerNewSpot - state.landProgress) / Math.max(1, breakRest)));
+      // It needs more land first: count the land points still missing, in rest minutes.
+      const points = landPointsNeeded(bp, state, rules);
+      if (points === null) continue;
+      breaks = Math.max(breaks, Math.ceil((points * rules.restMinutesPerLand - state.landProgress) / Math.max(1, breakRest)));
     }
     if (impossible || (!breaks && !sessions)) continue;
     if (!best || breaks + sessions < best.breaks + best.sessions) best = { bp, breaks, sessions };
@@ -382,17 +440,14 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   };
   const work = cloneState(state);
 
-  // Collect, and turn rest minutes into new land on the island with the least room for its size.
-  let progress = work.landProgress + draft.restMinutes;
-  const land = new Map(work.islands.map(island => [island.id, island.land])), grown = new Map();
-  while (progress >= rules.restMinutesPerNewSpot - EPSILON) {
-    progress -= rules.restMinutesPerNewSpot;
-    const target = work.islands.slice().sort((a, b) => land.get(a.id) / a.weight - land.get(b.id) / b.weight)[0];
-    land.set(target.id, land.get(target.id) + 1);
-    grown.set(target.id, (grown.get(target.id) || 0) + 1);
-  }
-  draft.landProgress = round2(Math.max(0, progress));
-  draft.newLand = work.islands.filter(island => grown.has(island.id)).map(island => ({ island: island.id, amount: grown.get(island.id) }));
+  // Collect, and turn rest minutes into new land points on the island with the least land for its size.
+  // Full islands are skipped; when every island is full, the rest minutes wait in landProgress.
+  const progress = work.landProgress + draft.restMinutes;
+  const land = new Map(work.islands.map(island => [island.id, island.land]));
+  const given = shareLand(work.islands, land, Math.floor((progress + EPSILON) / rules.restMinutesPerLand), rules);
+  draft.landProgress = round2(Math.max(0, progress - given * rules.restMinutesPerLand));
+  draft.newLand = work.islands.filter(island => land.get(island.id) > island.land)
+    .map(island => ({ island: island.id, amount: land.get(island.id) - island.land }));
   applyCollect(work, draft);
 
   // At most one surprise a day. After a quiet stretch of active days, the next one gets gently more likely.
@@ -415,13 +470,13 @@ function draftCheckIn(state, facts, env, trigger, skip) {
     const size = sizeRoll < 0.35 ? 'small' : sizeRoll < 0.75 ? 'medium' : 'large';
     const same = taken.filter(k => k === kind).length, names = R.ISLAND_KINDS[kind].names;
     const name = names[same] || names[0] + ' ' + (same + 1);
-    draft.islands.push({ id: `isle-${index}`, name, kind, size, land: R.ISLAND_SIZES[size].startLand });
+    draft.islands.push({ id: `isle-${index}`, name, kind, size, land: rules.startLand[size] });
     const special = blueprints.find(bp => bp.onlyOn === kind);
     draft.arrivals.push(`${article(size)} ${R.ISLAND_KINDS[kind].label} island drifted in: ${name}.` +
       (special ? ` Only here can you build ${article(special.name)}.` : ''));
     firstTime(work, draft, 'island', 'Your first new island! A bridge of mist hangs between it and home until you build a real one.');
   }
-  applyIslands(work, draft);
+  applyIslands(work, draft, rules);
 
   // Helpers arrive by active days, and move in when there's a free bed.
   if (R.helperDueAt(rules, work.helpersScheduled) <= draft.activeDays) {
@@ -436,7 +491,7 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   }
   for (const helper of draft.helpersQueued) {
     if (draft.helpersArrived.some(h => h.id === helper.id)) continue;
-    draft.arrivals.push(`${helper.name} would like to move in, but every bed is taken. A Cottage would give them a home.`);
+    draft.arrivals.push(`${helper.name} would like to move in, but every bed is taken. A new house or room would give them a home.`);
   }
   applyHelpers(work, draft);
 
@@ -490,7 +545,7 @@ function pick(prepared, choiceID, env) {
       draft.moments.push(bp.moment);
     }
     if (bp.onlyOn) draft.moments.push(`The ${bp.name} is the first of its kind on ${island.name}.`);
-    applyBuild(work, draft.built, draft.number);
+    applyBuild(work, draft.built, draft.number, blueprints);
   }
   draft.picked = choiceID;
   for (const key of draft.firsts) work.firsts[key] = draft.number;
@@ -557,4 +612,5 @@ function viewState(state, facts, prepared, env) {
 module.exports = {
   empty, round2, initialState, fold, applyRecord, prepare, pick, viewState, teaser, countActiveDays,
   count, beds, boost, available, placeFor, canAfford, rankJobs, makeOffer, nextWonder, openJobs,
+  roomOn, homesFit, shareLand, landPointsNeeded,
 };

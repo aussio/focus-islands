@@ -1,18 +1,15 @@
-// Long-run pacing: months of made-up days through the real rules, checked against the design's
-// targets and against the pacing prototype's own replay of the same days.
+// Long-run pacing: months of made-up days through the real rules, checked against the design's targets.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { existsSync, readFileSync } = require('node:fs');
-const { join } = require('node:path');
 const game = require('./index');
 const R = require('./rules');
 const MD = require('./made-up-days');
 const sim = require('./simulate');
+const { roomProblems, blocksOn } = require('./room-check');
 
 const DAYS = 180;
-const PROTOTYPE = join(__dirname, '..', '..', '..', '.build', 'prototype-ref', 'game', 'prototypes', 'pacing-prototype.html');
 const runs = {};
-const runFor = id => (runs[id] ||= sim.run(id, DAYS));
+const runFor = id => (runs[id] ||= sim.run(id, DAYS, { snapshots: [DAYS] }));
 
 test('steady planner: about 3 choices on day 1, the first island around active day 7-9, the first wonder in weeks 2-3', t => {
   const m = sim.milestones(runFor('steady'));
@@ -21,7 +18,8 @@ test('steady planner: about 3 choices on day 1, the first island around active d
   assert.ok(m.islandDays[0].activeDay >= 7 && m.islandDays[0].activeDay <= 9, `first island on active day ${m.islandDays[0].activeDay}`);
   assert.ok(m.wonderDays[0].day >= 8 && m.wonderDays[0].day <= 21, `first wonder on day ${m.wonderDays[0].day}`);
   assert.ok(m.wonderDays.length >= 4, 'roughly one wonder a month after the first');
-  assert.ok(m.choicesPerWeekMonth3 >= 2.5 && m.choicesPerWeekMonth3 <= 5, `about one choice every workday or two: ${m.choicesPerWeekMonth3} a week`);
+  // Homes are offered whenever they fit (decision 7), so month 3 runs a little busier than the old 2.5 to 5.
+  assert.ok(m.choicesPerWeekMonth3 >= 2.5 && m.choicesPerWeekMonth3 <= 6, `about one choice every workday: ${m.choicesPerWeekMonth3} a week`);
   assert.ok(m.surprisesPerWeek >= 1 && m.surprisesPerWeek <= 4, `a few surprises a week: ${m.surprisesPerWeek}`);
 });
 
@@ -41,7 +39,21 @@ test('every person: saved records stay clean and every offer is a real choice', 
     }
     const end = result.timeline.at(-1);
     for (const r of R.RESOURCES) assert.ok(end.onHand[r] >= -0.01, `${person.id}: ${r} never goes below zero`);
+    // Every building fit the room its island had when it was built, so the town layout never needs extra land.
+    for (const island of result.states[DAYS].islands) assert.deepEqual(roomProblems(island), [], `${person.id} ${island.id}`);
   }
+});
+
+test('steady planner: by day 180 the islands read as a town, with at least 20 blocks and 8 on home', t => {
+  const state = runFor('steady').states[DAYS];
+  const blocks = state.islands.map(island => [island.id, blocksOn(island)]);
+  t.diagnostic(JSON.stringify(blocks));
+  const total = blocks.reduce((n, [, b]) => n + b, 0);
+  assert.ok(total >= 20, `${total} blocks`);
+  assert.ok(blocks[0][1] >= 8, `${blocks[0][1]} blocks on home`);
+  const count = id => state.islands.reduce((n, island) => n + island.buildings.filter(b => b.blueprint === id).length, 0);
+  t.diagnostic(`houses ${count('house')}, rooms ${count('room')}, floors ${count('floor')}`);
+  assert.ok(count('room') >= 2 * count('house') && count('floor') >= count('house'), 'houses grow by rooms and floors more than they start');
 });
 
 test('vacation pauses the island clock, and skipping breaks piles up materials without taking anything away', () => {
@@ -52,52 +64,6 @@ test('vacation pauses the island clock, and skipping breaks piles up materials w
   const materials = s => s.onHand.wood + s.onHand.stone + s.onHand.planks, growth = s => s.onHand.soil + s.onHand.saplings;
   assert.ok(materials(skipper) / growth(skipper) > 2 * materials(steady) / growth(steady), 'materials pile up when breaks are skipped');
   assert.ok(skipper.buildings < steady.buildings && skipper.islands < steady.islands);
-});
-
-// The prototype's SkyRules and MadeUpDays, run from its HTML with today's numbers.
-function prototypeModules() {
-  const html = readFileSync(PROTOTYPE, 'utf8');
-  const grab = id => html.match(new RegExp(`<script id="${id}">([\\s\\S]*?)</script>`))[1];
-  return new Function(`${grab('sky-rules')}\n${grab('made-up-days')}\nreturn { SkyRules, MadeUpDays };`)();
-}
-
-test('matches the pacing prototype run on the same made-up days', { skip: !existsSync(PROTOTYPE) && 'prototype export not found' }, t => {
-  const { SkyRules, MadeUpDays } = prototypeModules();
-  const rules = JSON.parse(JSON.stringify(R.DEFAULT_RULES)), blueprints = JSON.parse(JSON.stringify(R.DEFAULT_BLUEPRINTS));
-  const rows = [];
-  for (const person of MD.PEOPLE) {
-    const madeUp = MadeUpDays.days(person.id, DAYS, MD.SEED);
-    assert.deepEqual(madeUp, MD.days(person.id, DAYS), `${person.id}: the made-up days are the prototype's`);
-    const proto = SkyRules.replay(madeUp, rules, blueprints, MD.SEED);
-    const pt = proto.timeline;
-    const protoWonders = proto.state.buildings.filter(b => b.kind === 'wonder').map(b => b.builtDay);
-    const protoIslands = proto.state.islands.slice(1).map(i => i.arrivedDay);
-    const p = {
-      dayOneChoices: pt[1].choicesToday,
-      choicesPerWeekMonth3: Math.round(SkyRules.sumOver(pt, 'choicesToday', 61, 90) / (30 / 7) * 10) / 10,
-      helpers: pt[DAYS].helpers, buildings: pt[DAYS].buildings,
-    };
-    const m = sim.milestones(runFor(person.id));
-    const mine = { islands: m.islandDays.map(x => x.day), wonders: m.wonderDays.map(x => x.day) };
-    rows.push(`${person.id}: day-1 choices ${m.dayOneChoices} (prototype ${p.dayOneChoices}); islands ${mine.islands.join(',')} (${protoIslands.join(',')}); ` +
-      `wonders ${mine.wonders.join(',') || 'none'} (${protoWonders.join(',') || 'none'}); choices/week month 3 ${m.choicesPerWeekMonth3} (${p.choicesPerWeekMonth3}); ` +
-      `helpers ${m.helpers} (${p.helpers}); buildings ${m.buildings} (${p.buildings})`);
-    assert.deepEqual(mine.islands, protoIslands, `${person.id}: islands arrive on the same days`);
-    assert.ok(Math.abs(m.dayOneChoices - p.dayOneChoices) <= 1, `${person.id}: day-1 choices`);
-    assert.equal(mine.wonders.length > 0, protoWonders.length > 0, `${person.id}: wonders reached or not`);
-    // Only on-plan sessions take one of the day's planned Starlight places (the prototype counted every
-    // session). Someone with 9-10 uneven sessions a day earns more Starlight, so their first wonder
-    // can come earlier (day 88 against the prototype's 110), never later.
-    if (mine.wonders.length && person.id === 'long') assert.ok(mine.wonders[0] <= protoWonders[0] + 7, `${person.id}: first wonder no later than a week after`);
-    else if (mine.wonders.length) assert.ok(Math.abs(mine.wonders[0] - protoWonders[0]) <= 7, `${person.id}: first wonder within a week`);
-    assert.ok(Math.abs(m.helpers - p.helpers) <= 2, `${person.id}: helpers`);
-    assert.ok(Math.abs(m.buildings - p.buildings) <= 0.1 * p.buildings, `${person.id}: buildings`);
-    // Check-ins now come after breaks instead of after every focus session, so someone who skips
-    // most breaks gets fewer choices. Everyone else should stay close.
-    if (person.id !== 'skipper') assert.ok(Math.abs(m.choicesPerWeekMonth3 - p.choicesPerWeekMonth3) <= 1, `${person.id}: choices per week`);
-    else assert.ok(m.choicesPerWeekMonth3 <= p.choicesPerWeekMonth3);
-  }
-  for (const row of rows) t.diagnostic(row);
 });
 
 // Six months with the app's 30-second progress records, about 100,000 events.
