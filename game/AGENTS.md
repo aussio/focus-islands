@@ -1,6 +1,6 @@
 # Working on the game layer
 
-The game turns focus and break facts into a growing set of sky islands. The agreed design, its guardrails, and the research sources are in [NOTES.md](NOTES.md). Read its "Game direction" section before changing how the game plays. Before building, read [BUILD_PLAN.md](BUILD_PLAN.md): where code lives, the new saved records, the stages, and the gotchas.
+The game turns focus and break facts into a growing set of sky islands. The agreed design, its guardrails, and the research sources are in [NOTES.md](NOTES.md). Read its "Game direction" section before changing how the game plays. Before building, read the parts of [BUILD_PLAN.md](BUILD_PLAN.md) that cover your change: "How the pieces fit" for where code lives, plus the section for the area you touch (saved records, town rules, layout, scene, or gallery and checks).
 
 The live scene stays calm: helpers move about and look busy, and the islands change only at check-ins.
 
@@ -17,6 +17,6 @@ The scene is decoration with no game clock. All progress comes from the saved ev
 
 ## Checking visual work
 
-- **Gallery page:** one page shows every model, item, outfit, and helper state. Add each new piece of art to it.
-- **Screenshot tour:** a fixed set of scenes (focus, break, break due, away, day done) captured with `scripts/dev-control.sh screenshot` from the Testing app. A covered window redraws only while being captured, so take one throwaway capture before the real one.
-- A visual change is done when the gallery and the tour show it and the screenshots have been shared with the user. Agents miss obvious problems in their own screenshots, so a person looks too.
+- **Gallery page:** one page shows every model, item, outfit, and helper state. Add each new piece of art to it. A gallery view can hold a camera pose or moment still, which is the quick way to check anything that moves.
+- **Screenshot tour:** a fixed set of scenes (focus, break, break due, away, day done) captured with `scripts/dev-control.sh screenshot` from the Testing app. A covered window redraws only while being captured, so take one throwaway capture before the real one. Run it once, after a scene or Today layout change is finished.
+- A visual change is done when a few cropped pictures of what changed (gallery or app) have been inspected and their paths are in the report. Agents miss obvious problems in their own screenshots, so a person looks too: list what you're unsure of.

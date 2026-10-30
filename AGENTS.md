@@ -1,6 +1,6 @@
 # Working on Focus Islands
 
-Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) for state ownership; game changes also require [game/AGENTS.md](game/AGENTS.md) and [game/BUILD_PLAN.md](game/BUILD_PLAN.md).
+Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) when changing state ownership. Game changes also require [game/AGENTS.md](game/AGENTS.md) and the sections of [game/BUILD_PLAN.md](game/BUILD_PLAN.md) that cover the change; it is too long to read whole, so list its headings with `grep -n '^#'`.
 
 ## Run safely
 
@@ -12,10 +12,16 @@ Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) for s
 
 ## Verify only what changed
 
-- Source: `npm run check:source`. Core: `scripts/test.sh`. Packaging: `scripts/build.sh`.
-- Small UI changes: exercise the affected flow and inspect its screenshot.
-- Guidance/timers: `scripts/today-smoke.sh`. Broad flows/relaunch: `scripts/ui-smoke.sh`. Demo: `scripts/demo-smoke.sh`.
+Size the checking to the change. You are done when the checks below for what you touched pass; the user reviews too, so stop there and list your doubts in the report.
+
+- Source: `npm run check:source`. Core: `scripts/test.sh` (`node --test <file>` while iterating). Packaging: `scripts/build.sh`.
+- Guidance/timers: `scripts/today-smoke.sh`. Broad flows/relaunch: `scripts/ui-smoke.sh`. Demo: `scripts/demo-smoke.sh`. Game scene: `scripts/game-tour.sh`.
 - Chrome: `scripts/chrome-smoke.sh` or `scripts/chrome-live-smoke.sh`; isolated profiles only. Extension pages in Chrome MCP require `--categoryExtensions`.
+- Run smoke scripts and the tour once, after the change is finished. Save the output and read its end: `scripts/demo-smoke.sh > .build/demo-smoke.log 2>&1; tail -5 .build/demo-smoke.log`. Smoke scripts end with a PASS line and the tour with its picture paths, or with the failure; to see more, reread the log.
+- Small UI changes: exercise the affected flow and inspect 1–3 pictures of what changed. Add a picture only for a state that looks different, such as another mood when colors change.
+- Every picture stays in context and slows each later step. Crop or shrink it first with the built-in `sips`: `sips --cropToHeightWidth H W --cropOffset Y X in.png --out crop.png`, or `sips -Z 1200 in.png --out small.png`. Window screenshots are 2400×1744; the Today island is about H 720, W 1200 at Y 170, X 1100.
+- Hold animations and timed views still in a test or gallery view; waiting for them in the running app costs minutes.
+- When handing work to another agent, start a fresh one per feature and ask for the checks this section sets, plus any the user asked for.
 - Use normal sandbox escalation if macOS blocks Electron/Chromium process access.
 
 ## Boundaries
