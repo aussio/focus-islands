@@ -546,7 +546,7 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
     - all four moods at day 180;
     - before and after a check-in that moves the camera;
     - a speed view showing triangles, draw calls, frame time and rebuild time.
-- **States:** `make-states.js` writes the steady planner at days 1, 7, 21, 30, 40, 60, 90, 130 and 180, plus day 180 for the other four people, all from the real rules.
+- **States:** `make-states.js` writes the steady planner at days 1, 7, 21, 30, 40, 60, 90, 130 and 180, plus day 180 for the other four people, all from the real rules. They go in `states/town/<person>-day-<n>.json` and reach views as `tools.data.town.states`; `--commit <ref>` makes them from the rules as committed at that point. The old `states/day-*.json` stay as version-1 files for the square sections until stage 2.
 - **Tour** (`scripts/game-tour.sh`): the same scenes. After the week check-in, it waits 3 s and adds `08b-after-check-in` to show where the camera settled.
 - **Long-run check:** `electron/renderer/game/town/long-run.test.js` checks that nothing moves from day 1 to day 180 on the real rules.
   - For each person in `PEOPLE`, `sim.run(person, 180, { snapshots })`: every day for the steady planner, every 7th day and day 180 for the others.
