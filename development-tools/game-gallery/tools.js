@@ -13,7 +13,7 @@
 //       - aim: world points [[x, y, z], ...] (or [[x, z], ...]) to frame instead of everything added.
 //       - yaw: turns the view about the vertical, in radians. 0 is Today's view from the south; π/2 looks
 //         from the east. The subject is turned, not the sun, so the light falls as it does on Today.
-//       - pitch: the camera's angle above the horizon, in radians. Left out, it is Today's angle (0.8).
+//       - pitch: the camera's angle above the horizon, in radians. Left out, it is Today's (ELEVATION, 0.8).
 //       - time: seconds handed to ctx.dynamic functions and the sky (clouds, fireflies), default 0.
 //       - log: a Map; every piece's vertices are recorded in it (see withPieces in scene/town/pieces.js).
 //       The image carries img.stats = { triangles, calls, buildMs, drawMs }. If build throws, the image
@@ -21,7 +21,7 @@
 //   worldShot(world, mood, { width, height }) => Promise<img>
 //       Draws a whole world through createIslandScene, the same way Today does: square worlds and town
 //       worlds (islands with a grid). If the scene can't build the world, the image says so. The image
-//       carries img.stats from the scene's stats() and img.problems (errors the scene logged but survived).
+//       carries img.stats from the scene's stats().
 //   card(title, note, images) => <figure>         a labelled card; append it yourself
 //   heading(text, note) => <h2>                   added to the section's host (and returned)
 //   grid(className) => <div class="gallery-grid">  a row of cards added to the host: cards sit side by side
@@ -35,7 +35,7 @@
 // there are none. data.states: the old square states for #state-day-<n>.
 import * as THREE from 'three';
 import { MOODS, createMaterials, moodMaterials, moodOf } from '../../electron/renderer/game/scene/style.js';
-import { createStage } from '../../electron/renderer/game/scene/stage.js';
+import { ELEVATION, createStage } from '../../electron/renderer/game/scene/stage.js';
 import { createIslandScene } from '../../electron/renderer/game/scene/index.js';
 import { makeBlobMaterial, makeModelContext } from '../../electron/renderer/game/scene/town/build.js';
 import { gridFor } from '../../electron/renderer/game/town/grid.js';
@@ -172,48 +172,6 @@ function contentPoints(object, limit = 4000) {
   return points;
 }
 
-// For `pitch`: the same fit as frameCamera in scene/stage.js (COPIED; stream E's file keeps the angle
-// fixed at 0.8), with the angle as a choice, around the points' middle the way fitView does it.
-function fitCamera(camera, points, aspect, elevation, margin = [0.9, 0.86]) {
-  camera.aspect = aspect;
-  camera.updateProjectionMatrix();
-  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-  for (const p of points) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]); }
-  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-  const fov = camera.fov, v = new THREE.Vector3();
-  let target = 0, distance = 20, side = 0;
-  const extentsAt = x => {
-    camera.position.set(cx + x, target + Math.sin(elevation) * distance, cz + Math.cos(elevation) * distance);
-    camera.lookAt(cx + x, target, cz);
-    camera.updateMatrixWorld();
-    let ex0 = Infinity, ex1 = -Infinity, ey0 = Infinity, ey1 = -Infinity;
-    for (const p of points) {
-      v.set(p[0], p[1], p[2]).project(camera);
-      if (v.z > 1 || v.z < -1) return { x0: -10, x1: 10, y0: -10, y1: 10 };
-      ex0 = Math.min(ex0, v.x); ex1 = Math.max(ex1, v.x); ey0 = Math.min(ey0, v.y); ey1 = Math.max(ey1, v.y);
-    }
-    return { x0: ex0, x1: ex1, y0: ey0, y1: ey1 };
-  };
-  for (let pass = 0; pass < 4; pass++) {
-    let lo = 0.2, hi = 400;
-    for (let i = 0; i < 36; i++) {
-      distance = (lo + hi) / 2;
-      const e = extentsAt(side);
-      if (e.x1 - e.x0 > margin[0] * 2 || e.y1 - e.y0 > margin[1] * 2) lo = distance; else hi = distance;
-    }
-    distance = hi;
-    const e = extentsAt(side);
-    const halfHeight = Math.tan(fov * Math.PI / 360) * distance;
-    target += (e.y0 + e.y1) / 2 * halfHeight * 0.9;
-    side += (e.x0 + e.x1) / 2 * halfHeight * aspect * 0.9;
-  }
-  extentsAt(side);
-  camera.near = Math.max(0.05, distance * 0.02);
-  camera.far = Math.max(400, distance * 4);
-  camera.updateProjectionMatrix();
-  return { distance, target, side };
-}
-
 const now = () => globalThis.performance?.now?.() ?? Date.now();
 
 export async function shot(build, options = {}) {
@@ -242,9 +200,8 @@ export async function shot(build, options = {}) {
     stage.setMood(mood);
     moodMaterials(materials, mood);
     for (const hook of moodHooks) hook(mood, MOODS[mood]);
-    // Today's town camera (aim: fixed yaw, looking at the points' middle), or the square one (frame).
-    if (typeof stage.aim === 'function') stage.aim(points, width / height); else stage.frame(points, width / height, []);
-    if (Number.isFinite(pitch)) fitCamera(stage.camera, points, width / height, pitch);
+    // Today's town camera: a fixed yaw, looking at the points' middle, at Today's angle unless pitch says.
+    stage.aim(points, width / height, { elevation: Number.isFinite(pitch) ? pitch : ELEVATION });
     for (const fn of ctx.dynamic) fn(time);
     stage.update(time);
     renderer.setSize(width, height, false);
@@ -277,38 +234,21 @@ function sharedScene() {
   return worldScene;
 }
 
-// The scene logs (and swallows) a world it can't build, then keeps showing the last one. Listen for that,
-// so a picture never shows the wrong world.
-function catchingErrors(fn) {
-  const errors = [], before = console.error;
-  console.error = (...args) => { errors.push(args.map(a => a?.message ?? String(a)).join(' ')); before.apply(console, args); };
-  try { fn(); } finally { console.error = before; }
-  return errors;
-}
-
-// A town world has islands with a grid (town/shape.js); a square world has islands with rows.
-export const isTownWorld = world => Boolean(world?.islands?.some(island => island.grid));
-
 export async function worldShot(world, mood = 'focus', { width = 330, height = 220 } = {}) {
-  // Until the scene draws towns, it would draw a town world as stray models on empty sky.
-  if (isTownWorld(world) && !data.townScene) return messageImage(width, height, 'The scene cannot draw town worlds yet (stream E\'s town path is not in scene/core.js).');
   const scene = sharedScene();
   worldStage.style.width = `${width}px`;
   worldStage.style.height = `${height}px`;
-  const errors = catchingErrors(() => { scene.setWorld(world); scene.setMood(moodOf(mood)); });
-  const fatal = errors.find(text => /^Island scene could not/.test(text));
-  if (fatal) {
-    // Clear the failed world so the next picture can't show it either.
+  // setWorld is false when the build failed (the scene logs why) or there's no WebGL. Then clear it, so
+  // neither this picture nor the next can show the last world that did build.
+  if (!scene.setWorld(world)) {
     scene.setWorld({});
-    return messageImage(width, height, fatal);
+    return messageImage(width, height, 'The scene could not draw this world (see the console).');
   }
+  scene.setMood(moodOf(mood));
   const canvas = await scene.capture();
   if (!canvas) return messageImage(width, height, 'Nothing could be drawn (no WebGL).');
   const img = await loaded(imageFrom(canvas.toDataURL('image/png'), width, height));
   img.stats = scene.stats?.() ?? null; // triangles, draw calls, frame and rebuild times (scene/index.js)
-  // Smaller problems (one model failing) still draw; they ride along for the view to show.
-  img.problems = errors;
-  if (errors.length) img.title = errors.join('\n');
   return img;
 }
 

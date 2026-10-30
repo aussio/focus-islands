@@ -152,7 +152,9 @@ capture("07-week")
 focus_then_break()
 capture("08-week-check-in")
 # Keep going (picking the first option) until a build choice shows, to check the larger card.
-for _ in range(5):
+# Eight tries: the build card can come as late as the fifth card, and each try may bring only one.
+BUILD_TRIES = 8
+for _ in range(BUILD_TRIES):
     card = game().get("checkIn")
     if card and (card.get("choice") or {}).get("kind") == "build":
         capture("09-build-choice")
@@ -160,6 +162,8 @@ for _ in range(5):
     if card:
         call("ui-click", "#today-check-in .check-in-option" if card.get("choice") else "#check-in-collect")
     focus_then_break()
+else:
+    print(f"09-build-choice: skipped, no build choice after {BUILD_TRIES} tries")
 
 # 8. A month of steady days.
 status("scenario", "game-month")

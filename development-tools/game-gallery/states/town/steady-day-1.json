@@ -25,6 +25,9 @@
       "size": "medium",
       "land": 50,
       "golden": false,
+      "ring": 0,
+      "angle": null,
+      "lift": 0,
       "buildings": [
         {
           "id": "b1",

@@ -149,11 +149,8 @@ async function main() {
   const { states, note } = await layoutStates();
   const town = await townStates();
   const { bundle, views, broken } = bundleViews();
-  // Whether the scene can draw town worlds yet: stream E's town path, imported by scene/core.js or index.js.
-  const sceneFile = name => { try { return fs.readFileSync(path.join(root, 'electron/renderer/game/scene', name), 'utf8'); } catch { return ''; } };
-  const townScene = /from '\.\/town\//.test(sceneFile('core.js') + sceneFile('index.js'));
   const css = fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8');
-  const data = JSON.stringify({ states, stateNote: note, town, townScene }).replace(/</g, '\\u003c');
+  const data = JSON.stringify({ states, stateNote: note, town }).replace(/</g, '\\u003c');
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cozy Focus Pet · Sky island gallery</title><style>${css}</style></head>
@@ -168,7 +165,7 @@ async function main() {
   console.log(`Views: ${views.length ? views.join(', ') : 'none'}${broken.length ? `; did not build: ${broken.map(b => b.file).join(', ')}` : ''}`);
   for (const { file, error } of broken) console.log(`  ${file}: ${error.split('\n')[0]}`);
   console.log(`Square states: ${states.length}${note ? ` (${note})` : ''}`);
-  console.log(`Town states: ${town.states.length}${town.note ? ` (${town.note})` : ''}; the scene ${townScene ? 'can' : 'cannot yet'} draw towns`);
+  console.log(`Town states: ${town.states.length}${town.note ? ` (${town.note})` : ''}`);
   for (const entry of town.states) if (entry.error) console.log(`  ${entry.id}: failed: ${entry.error}`);
 }
 
