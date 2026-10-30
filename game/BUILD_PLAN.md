@@ -4,8 +4,9 @@ The plan for building the sky-island game for real. [NOTES.md](NOTES.md) has the
 
 ## Where things stand
 
-- **Built** on `game/sky-island`: the rules (earning, check-ins, building, helpers, Starlight and wonders, more islands, surprises and firsts), a square-grid layout and scene, the gallery, the screenshot tour, and the island on Today with its check-in card.
-- **Next: the town** (decisions 5 and 6). Each island gets its own uneven grid. Houses grow block by block, special buildings sit on pads, paths become lanes, and the view follows the helpers. This replaces the square-grid layout (`electron/renderer/game/layout/`) and the square ground, paths and routes in the scene. The rules change a little: land is counted in grid points, and cottages become block houses. Islands grow at different speeds and float at different heights, and bridges join them in a network with loops, some of them fancy surprise bridges (decisions 8 and 9).
+- **Built** on `game/sky-island`: the rules (earning, check-ins, building, helpers, Starlight and wonders, more islands, surprises and firsts), the gallery, the screenshot tour, and the island on Today with its check-in card.
+- **The town is on Today** (stages 0 to 2 done; decisions 5 to 9). Each island has its own uneven grid. Houses grow block by block, special buildings sit on pads, paths are lanes, bridge feet sit at the end of piers, and the view follows the helpers. Islands grow at different speeds and float at different heights, and bridges join them in a network with loops, some of them fancy surprise bridges. The square-grid layout and scene are deleted.
+- **Next: stage 3, the look, with the user.** Speed work waits (decision 10). [LATER.md](LATER.md) lists what was left for later and why.
 
 ## How the pieces fit
 
@@ -408,7 +409,7 @@ All in `electron/renderer/game/town/`. Plain code with no Three.js and no DOM, s
 
 ## Scene
 
-The new drawing is in `electron/renderer/game/scene/town/`. It is ported from the prototype's `wonky/island.js` and `bent/paths.js`. Until stage 2 the scene draws either shape: a world whose islands have a `grid` goes the town way, anything else the square way.
+The new drawing is in `electron/renderer/game/scene/town/`. It is ported from the prototype's `wonky/island.js` and `bent/paths.js`. The scene draws only town worlds; anything else shows an empty sky.
 
 ### Ground, coast and underside
 
@@ -455,11 +456,10 @@ The new drawing is in `electron/renderer/game/scene/town/`. It is ported from th
   - Windmill sails keep the shared wind direction.
 - **Stay as models on pads:** garden, nursery, sawmill, workshop, windmill, orchard, tower, pond, great tree, grotto, quarry, beehives, forge, loom, and all five wonders.
 - **Stay as one-point things:** tree, rock, bush, flower, pile, fire, seat, mushroom, crystal, golden tree, lanterns. The flower bed sits on a pair.
-- **Become block houses:** the cottage. Its model and `townHouse` go in stage 2. The keeper's cottage inside the lighthouse and the kiosk on the airship dock stay as parts of those models.
+- **Became block houses:** the cottage (its model and `townHouse` were deleted in stage 2). The keeper's house inside the lighthouse and the kiosk on the airship dock stay as parts of those models.
 - **Model fixes:**
   - The edge models read `thing.coast` instead of looking at square cells (`coastFrame` in `wonders.js`).
   - The garden's gate and the orchard's rows use `yaw`, not quarter turns (`cameraSide`).
-  - Until stage 2, models still accept the old `facing` and the square-grid way of finding the coast, because the square scene still uses them.
 
 ### Bridges
 
@@ -553,7 +553,7 @@ All six types are in `scene/town/bridges.js`, built in code from simple shapes l
     - all four moods at day 180;
     - before and after a check-in that moves the camera;
     - a speed view showing triangles, draw calls, frame time and rebuild time.
-- **States:** `make-states.js` writes the steady planner at days 1, 7, 21, 30, 40, 60, 90, 130 and 180, plus day 180 for the other four people, all from the real rules. They go in `states/town/<person>-day-<n>.json` and reach views as `tools.data.town.states`; `--commit <ref>` makes them from the rules as committed at that point. The old `states/day-*.json` stay as version-1 files for the square sections until stage 2.
+- **States:** `make-states.js` writes the steady planner at days 1, 7, 21, 30, 40, 60, 90, 130 and 180, plus day 180 for the other four people, all from the real rules. They go in `states/town/<person>-day-<n>.json` and reach views as `tools.data.town.states`; `--commit <ref>` makes them from the rules as committed at that point. The old square `states/day-*.json` were deleted in stage 2.
 - **Tour** (`scripts/game-tour.sh`): the same scenes. After the week check-in, it waits 3 s and adds `08b-after-check-in` to show where the camera settled.
 - **Long-run check:** `electron/renderer/game/town/long-run.test.js` checks that nothing moves from day 1 to day 180 on the real rules.
   - For each person in `PEOPLE`, `sim.run(person, 180, { snapshots })`: every day for the steady planner, every 7th day and day 180 for the others.
