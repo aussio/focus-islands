@@ -63,7 +63,7 @@ export const JOB_HATS = {
   stone: { hat: 'hardhat', hatColor: '#ffcf2e' },
   planks: { hat: 'cap', hatColor: '#ff4f5e' },
   soil: { hat: 'straw', hatColor: '#ffe7a6' },
-  saplings: { hat: 'hood', hatColor: '#7be07b' },
+  saplings: { hat: 'hood', hatColor: '#5cb8ff' }, // the water carrier's blue rain hood
   none: { hat: 'beanie', hatColor: '#fff1d6' }, // cream, so it never melts into a shirt
 };
 export function lookFor(helper, index) {

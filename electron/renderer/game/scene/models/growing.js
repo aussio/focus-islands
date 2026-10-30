@@ -1,4 +1,4 @@
-// Growing places: the kinds that come from break-time growth. Garden, seed nursery, orchard, lily
+// Growing places: the kinds that come from break-time growth. Garden, rain catcher, orchard, lily
 // pond, great tree, mushroom grotto, beehive meadow, flower bed, lantern path and the golden sapling.
 // Same signature as every model: (ctx, thing, base), where base is the ground point at the middle of
 // the footprint, already turned to face the thing's way. Local +z is the front (towards the path).
@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { P, CELL } from '../style.js';
 import { Batch, hash01, hashString, place, taperedTube } from '../ground.js';
-import { chunk, gableGeometry, glowTexture, lump, rbox } from '../parts.js';
+import { chunk, glowTexture, lump, rbox } from '../parts.js';
 
 const R = 2; // rounded-box segments
 const E = 0.012; // edge rounding: a sliver, not pillowy
@@ -22,8 +22,8 @@ const cameraSide = thing => {
 // Colours only these models use. Everything else comes from the shared palette P.
 const G = {
   ridge: '#e39a62', furrow: '#c47d4e', bedSoil: '#b9744a',
-  pot: '#ef8a5b', potRim: '#f7a57a', potSoil: '#9a6242', tray: '#e2b47a', roofGlass: '#bfe6ff',
   can: '#5fb8ff', mulch: '#d99a66',
+  stave: '#c48a5f', staveTop: '#a8714a', hoop: '#3a98ec', rain: '#5cb8ff', stream: '#bfe9ff',
   water: '#3fa9ee', shallow: '#9fe2ff', pad: ['#4fbd5b', '#73d56a', '#5cc85d'], reed: '#5aa84e', cattail: '#a8673f',
   moss: ['#6fcf6a', '#5cc85d', '#82d870'], cave: '#4a3f7a', caveDeep: '#352f63',
   hives: ['#ffd23f', '#7cc8ff', '#ff9cc0', '#7fe0b0'], slot: '#6b4a3a',
@@ -76,23 +76,41 @@ function wateringCan(ctx, base, x, z, ry) {
   ctx.add(new THREE.TorusGeometry(0.036, 0.009, 5, 10, Math.PI), 'matte', G.can, place(-0.008, 0.094, 0), b, false);
 }
 
-// A terracotta pot with soil and a little faceted sapling.
-function pottedSapling(ctx, base, x, z, s, seed) {
-  const r = 0.062 * s, h = 0.1 * s;
-  ctx.add(new THREE.CylinderGeometry(r, r * 0.74, h, 10), 'matte', G.pot, place(x, h / 2, z), base);
-  ctx.add(new THREE.TorusGeometry(r * 1.02, 0.013 * s, 5, 14).rotateX(Math.PI / 2), 'matte', G.potRim, place(x, h, z), base, false);
-  ctx.add(new THREE.CylinderGeometry(r * 0.9, r * 0.95, 0.012, 10), 'matte', G.potSoil, place(x, h + 0.003, z), base, false);
-  ctx.add(new THREE.CylinderGeometry(0.009 * s, 0.013 * s, 0.13 * s, 5), 'facet', P.trunk, place(x, h + 0.065 * s, z), base, false);
-  const top = h + 0.17 * s;
-  ctx.add(chunk(0.075 * s, seed, [1, 0.9, 1], 0, 0.12), 'facet', P.leaf[Math.floor(seed) % 3], place(x, top, z, { ry: seed }), base, false, [top - 0.08 * s, top + 0.08 * s, 0.85, 1.1]);
+// A water barrel standing on the ground: bulging wooden staves (faceted, so each face reads as a
+// stave), two blue hoops, and a disc of water just under the rim.
+function barrel(ctx, base, x, z, r, h) {
+  const profile = [];
+  for (let i = 0; i <= 6; i++) {
+    const t = i / 6;
+    profile.push(new THREE.Vector2(r * (1 + 0.12 * Math.sin(t * Math.PI)), t * h));
+  }
+  ctx.add(new THREE.LatheGeometry(profile, 12), 'facet', G.stave, place(x, 0, z), base);
+  for (const t of [0.2, 0.8]) {
+    const hr = r * (1 + 0.12 * Math.sin(t * Math.PI)) + 0.004;
+    ctx.add(new THREE.TorusGeometry(hr, 0.012, 4, 16).rotateX(Math.PI / 2), 'matte', G.hoop, place(x, t * h, z), base, false);
+  }
+  ctx.add(new THREE.TorusGeometry(r, 0.011, 4, 16).rotateX(Math.PI / 2), 'matte', G.staveTop, place(x, h, z), base, false);
+  ctx.add(new THREE.CylinderGeometry(r * 0.95, r * 0.95, 0.012, 16), 'matte', G.rain, place(x, h - 0.012, z), base, false);
 }
 
-// A shallow wooden tray of soil with rows of seedlings.
-function seedTray(ctx, base, x, y, z, ry, seed) {
-  const b = base.clone().multiply(place(x, y, z, { ry }));
-  ctx.add(rbox(0.22, 0.04, 0.16, 0.006, 1), 'matte', G.tray, place(0, 0.02, 0), b, y > 0.05);
-  ctx.add(rbox(0.19, 0.012, 0.13, 0.004, 1), 'matte', G.potSoil, place(0, 0.04, 0), b, false);
-  for (let i = 0; i < 3; i++) for (let k = 0; k < 2; k++) sprout(ctx, b, -0.06 + i * 0.06, 0.045, -0.03 + k * 0.06, 0.6 + hash01(i, k, seed) * 0.3, i + k * 2 + seed);
+// A small wooden bucket with a blue hoop and a wire handle, full of water.
+function bucket(ctx, base, x, z, s = 1, ry = 0) {
+  const b = base.clone().multiply(place(x, 0, z, { ry, s }));
+  ctx.add(new THREE.CylinderGeometry(0.052, 0.04, 0.075, 10), 'facet', G.stave, place(0, 0.0375, 0), b);
+  ctx.add(new THREE.TorusGeometry(0.049, 0.007, 4, 12).rotateX(Math.PI / 2), 'matte', G.hoop, place(0, 0.055, 0), b, false);
+  ctx.add(new THREE.CylinderGeometry(0.046, 0.046, 0.008, 12), 'matte', G.rain, place(0, 0.068, 0), b, false);
+  ctx.add(new THREE.TorusGeometry(0.048, 0.005, 4, 10, Math.PI), 'matte', P.steel, place(0, 0.075, 0, { rz: -0.35 }), b, false);
+}
+
+// A low wooden trough of water, long along local x.
+function trough(ctx, base, x, z, len, ry) {
+  const b = base.clone().multiply(place(x, 0, z, { ry }));
+  const w = 0.17, h = 0.1, t = 0.025;
+  ctx.add(rbox(len, 0.025, w, 0.005, 1), 'matte', G.staveTop, place(0, 0.0125, 0), b);
+  for (const sz of [-1, 1]) ctx.add(rbox(len, h, t, 0.006, 1), 'matte', sz > 0 ? G.stave : P.post, place(0, h / 2, sz * (w - t) / 2), b);
+  for (const sx of [-1, 1]) ctx.add(rbox(t, h, w, 0.006, 1), 'matte', G.stave, place(sx * (len - t) / 2, h / 2, 0), b, false);
+  ctx.add(rbox(len - 2 * t, 0.01, w - 2 * t, 0.003, 1), 'matte', G.rain, place(0, h - 0.022, 0), b, false);
+  for (const sx of [-0.3, 0.3]) ctx.add(rbox(0.03, 0.02, w + 0.03, 0.005, 1), 'matte', G.hoop, place(sx * len, h * 0.55, 0), b, false);
 }
 
 // A big mushroom: pale stem, a red faceted cap with white spots and a pale rim underneath.
@@ -277,43 +295,47 @@ export const GROWING = {
     ctx.blob(base, W * 0.9, D * 0.9);
   },
 
-  // Seed nursery: a little glass greenhouse at the back, potted saplings and seedling trays in front.
-  // The front middle stays low, so a helper can stand at the edge and water the trays.
+  // Rain catcher (the nursery kind): sky islands have no rivers, so water is caught from the sky. A
+  // small wooden lean-to, high at the back and low at the front, whose white gutter along the front
+  // edge pours from its right end into a big barrel. A second barrel with a tap stands at the front
+  // middle, where a helper fills a bucket, and a trough of water sits at the front left.
   nursery(ctx, thing, base) {
     const [W, D] = footprint(thing);
-    const seed = seedOf(thing);
-    // Greenhouse: white kerb, a block of glass, a glass roof prism and a crisp white frame.
-    const gw = W - 0.3, gd = 0.44, gz = -D / 2 + 0.08 + gd / 2, wallH = 0.3, rise = 0.21, y0 = 0.06;
-    const gb = base.clone().multiply(place(0, 0, gz));
-    ctx.add(rbox(gw + 0.05, y0, gd + 0.05, E, R), 'matte', P.trim, place(0, y0 / 2, 0), gb);
-    ctx.add(rbox(gw - 0.02, wallH, gd - 0.02, 0.004, 1), 'glass', P.glass, place(0, y0 + wallH / 2, 0), gb, false);
-    const top = y0 + wallH, inner = gd - 0.02;
-    // The roof glass stays unlit, so at dusk only the walls glow, like windows.
-    ctx.add(gableGeometry(gw - 0.02, inner, rise), 'matte', G.roofGlass, place(0, top, 0), gb, false);
-    const f = 0.026;
-    for (const sz of [-1, 1]) {
-      for (let i = 0; i <= 4; i++) ctx.add(rbox(f, wallH, f, 0.004, 1), 'matte', P.trim, place(-gw / 2 + (gw / 4) * i, y0 + wallH / 2, sz * (gd / 2 - 0.005)), gb, false);
-      ctx.add(rbox(gw + 0.03, 0.03, 0.034, 0.005, 1), 'matte', P.trim, place(0, top, sz * (gd / 2 - 0.005)), gb, false);
-      ctx.add(rbox(gw, 0.02, 0.022, 0.004, 1), 'matte', P.trim, place(0, y0 + wallH * 0.5, sz * (gd / 2 - 0.006)), gb, false);
-      // Rafters down each roof slope.
-      const pitch = Math.atan2(rise, inner / 2), len = Math.hypot(rise, inner / 2);
-      for (let i = 0; i <= 4; i++) {
-        ctx.add(rbox(0.022, 0.02, len + 0.02, 0.004, 1), 'matte', P.trim,
-          place(-gw / 2 + (gw / 4) * i, top + rise / 2 + Math.cos(pitch) * 0.008, sz * (inner / 4 + Math.sin(pitch) * 0.008), { rx: sz * pitch }), gb, false);
-      }
+    // The lean-to: a plank back wall, two front posts, and a board roof sloping down to the front.
+    const back = -D / 2 + 0.1, front = 0.06, high = 0.78, low = 0.5, half = W / 2 - 0.1;
+    ctx.add(rbox(W - 0.16, high - 0.04, 0.05, E, R), 'matte', P.post, place(0, (high - 0.04) / 2, back), base);
+    for (let i = 0; i < 5; i++) ctx.add(rbox(0.012, high - 0.1, 0.012, 0.003, 1), 'matte', G.staveTop, place(-half + 0.1 + i * (2 * half - 0.2) / 4, (high - 0.1) / 2 + 0.02, back + 0.028), base, false);
+    for (const sx of [-1, 1]) {
+      ctx.add(rbox(0.06, low, 0.06, E, 1), 'matte', P.post, place(sx * (half - 0.02), low / 2, front), base);
+      ctx.add(rbox(0.05, 0.05, front - back, E, 1), 'matte', P.post, place(sx * (half - 0.02), low + (high - low) / 2 - 0.04, (front + back) / 2, { rx: Math.atan2(high - low, front - back) }), base, false);
     }
-    for (const sx of [-1, 1]) ctx.add(rbox(0.022, wallH, f, 0.004, 1), 'matte', P.trim, place(sx * (gw / 2 - 0.005), y0 + wallH / 2, 0), gb, false);
-    ctx.add(rbox(gw + 0.05, 0.034, 0.034, 0.005, 1), 'matte', P.trim, place(0, top + rise + 0.01, 0), gb, false);
-    // Front door of the greenhouse.
-    ctx.add(rbox(0.13, 0.22, 0.02, 0.004, 1), 'matte', P.door, place(gw / 4 + 0.005, y0 + 0.11, gd / 2 + 0.004), gb, false);
-    // Potted saplings on the left, seedling trays on the right and at the front.
-    const left = -W / 2 + 0.17;
-    pottedSapling(ctx, base, left - 0.01, 0.07, 1.3, seed);
-    pottedSapling(ctx, base, left + 0.24, 0.12, 1.0, seed + 3);
-    pottedSapling(ctx, base, left + 0.11, 0.4, 0.9, seed + 5);
-    seedTray(ctx, base, 0.28, 0, 0.12, -0.08, seed);
-    seedTray(ctx, base, 0.07, 0, 0.38, 0.06, seed + 2);
-    seedTray(ctx, base, 0.32, 0, 0.38, -0.03, seed + 4);
+    const slope = Math.atan2(high - low, front - back), run = Math.hypot(high - low, front - back) + 0.14;
+    const boards = 6, bw = (W - 0.04) / boards;
+    for (let i = 0; i < boards; i++) {
+      ctx.add(rbox(bw - 0.008, 0.035, run, 0.006, 1), 'matte', i % 2 ? P.plank : P.plankDark,
+        place(-W / 2 + 0.02 + bw * (i + 0.5), (high + low) / 2 + 0.035, (front + back) / 2 + 0.01, { rx: slope }), base, false);
+    }
+    // The gutter: a white half pipe under the front edge, a little water in it, running to a spout.
+    const gy = low + 0.02, gz = front + 0.09, gl = W - 0.06;
+    ctx.add(new THREE.CylinderGeometry(0.04, 0.04, gl, 10, 1, true, Math.PI / 2, Math.PI).rotateZ(Math.PI / 2), 'matte', P.trim, place(0, gy, gz), base, false);
+    ctx.add(rbox(gl - 0.02, 0.008, 0.05, 0.002, 1), 'matte', G.rain, place(0, gy - 0.012, gz), base, false);
+    const sx = W / 2 - 0.2, sz = gz + 0.02;
+    ctx.add(new THREE.CylinderGeometry(0.022, 0.026, 0.1, 8), 'matte', P.trim, place(W / 2 - 0.06, gy - 0.035, gz, { rz: -0.9 }), base, false);
+    // The big barrel under the spout, with the stream of water falling into it.
+    const r1 = 0.15, h1 = 0.3, bx = sx, bz = sz + 0.04;
+    barrel(ctx, base, bx, bz, r1, h1);
+    ctx.add(new THREE.CylinderGeometry(0.016, 0.022, gy - 0.07 - h1, 6), 'matte', G.stream, place(W / 2 - 0.1, (gy - 0.07 + h1) / 2, gz + 0.01, { rz: 0.12 }), base, false);
+    // The tap barrel at the front middle, a short pipe joining it to the big one, and its tap.
+    const r2 = 0.12, h2 = 0.24, tx = -0.02, tz = 0.32;
+    barrel(ctx, base, tx, tz, r2, h2);
+    const pipe = Math.hypot(bx - tx, bz - tz) - r1 - r2 + 0.04;
+    ctx.add(new THREE.CylinderGeometry(0.018, 0.018, pipe, 6).rotateZ(Math.PI / 2), 'matte', P.trim,
+      place((bx + tx) / 2, h2 * 0.8, (bz + tz) / 2, { ry: -Math.atan2(bz - tz, bx - tx) }), base, false);
+    ctx.add(rbox(0.03, 0.03, 0.07, 0.006, 1), 'matte', P.steel, place(tx, 0.15, tz + r2 + 0.02), base, false);
+    ctx.add(rbox(0.05, 0.016, 0.016, 0.004, 1), 'matte', G.hoop, place(tx, 0.175, tz + r2 + 0.03), base, false);
+    // The trough at the front left, and a spare bucket by the big barrel.
+    trough(ctx, base, -W / 2 + 0.25, 0.34, 0.34, 0.25);
+    bucket(ctx, base, bx + 0.05, bz + r1 + 0.1, 1.2, 0.6);
     ctx.blob(base, W * 0.92, D * 0.92);
   },
 

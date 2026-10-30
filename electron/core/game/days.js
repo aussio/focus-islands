@@ -27,7 +27,8 @@ function planFitOf(match, rules) {
 // - plannedSessions: focus sessions in the day's saved plan, or null without one.
 // - planMatch (0 to 1) and planFit: how closely the whole day matched its plan, saved once the day ended.
 //   Null before then, and for a day without a plan.
-// - checkIns, and happenings: what the day's check-ins did, in order, with names filled in:
+// - checkIns, and happenings: what the day's check-ins did, in order, with names filled in (buildings and
+//   jobs by their names today, so a renamed one reads the new way):
 //   { kind: 'built', name, island, between } · { kind: 'job', helper, job } · { kind: 'arrived', helper }
 //   · { kind: 'island', name, label } · { kind: 'surprise', text } · { kind: 'grew', island, amount }
 //   (one 'grew' for each island that got new land that day, at the end).
@@ -77,7 +78,7 @@ function summarizeDays(state, facts, dayKeys, env) {
     if (p.job) day.happenings.push({ kind: 'job', helper: helperName(p.job.helper), job: (R.JOBS[p.job.job] || {}).name || p.job.job });
     if (p.built) {
       const link = p.built.link;
-      day.happenings.push({ kind: 'built', name: p.built.name, island: p.built.island ? islandName(p.built.island) : null,
+      day.happenings.push({ kind: 'built', name: R.builtNameOf(p.built, blueprints), island: p.built.island ? islandName(p.built.island) : null,
         between: link ? [islandName(link.from), islandName(link.to)] : null });
     }
     for (const grown of p.newLand || []) day.grew.set(grown.island, (day.grew.get(grown.island) || 0) + grown.amount);

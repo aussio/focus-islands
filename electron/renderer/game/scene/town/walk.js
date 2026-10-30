@@ -28,7 +28,7 @@ export const WORK = {
   stone: { anim: 'mine', tool: 'pick', item: 'stone', dur: 4.8, reach: 0.2 },
   planks: { anim: 'saw', tool: 'saw', item: 'plank', dur: 5.0, reach: 0.05 },
   soil: { anim: 'hoe', tool: 'hoe', item: 'sack', dur: 5.6, reach: 0.06 },
-  saplings: { anim: 'water', tool: 'can', item: 'sapling', dur: 5.2, reach: 0.06 },
+  saplings: { anim: 'fill', tool: 'pail', item: 'bucket', dur: 5.2, reach: 0.06 }, // water: fill a bucket at the rain catcher
 };
 const LANE = 0.7; // a lane step costs this share of a grass step
 const MOVE_SPEED = { hop: 0.6, slide: 1.25, climb: 0.38 }; // walking is 0.5; the slide is 2.5 × that

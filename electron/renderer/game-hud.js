@@ -18,7 +18,7 @@ const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce
 // once you have some, some is arriving, or some came in today.
 const resources = [
   ['wood', 'wood', 'wood', true], ['stone', 'stone', 'stone', true], ['soil', 'soil', 'soil', true],
-  ['saplings', 'sapling', 'saplings', true], ['planks', 'plank', 'planks', false], ['starlight', 'Starlight', 'Starlight', false],
+  ['saplings', 'water', 'water', true], ['planks', 'plank', 'planks', false], ['starlight', 'Starlight', 'Starlight', false],
 ].map(([key, one, many, always]) => ({ key, one, many, always }));
 const resourceByKey = Object.fromEntries(resources.map(resource => [resource.key, resource]));
 const amountWords = (key, amount) => { const { one, many } = resourceByKey[key] || { one: key, many: key }; return `${amount} ${amount === 1 ? one : many}`; };
@@ -27,7 +27,7 @@ function amounts(values) {
   const keys = [...resources.map(({ key }) => key), ...Object.keys(values || {}).filter(key => !resourceByKey[key])];
   return keys.map(key => [key, whole(values?.[key])]).filter(([, amount]) => amount > 0);
 }
-// "40 wood", "1 sapling" ... for the demo panel and for words read aloud.
+// "40 wood", "12 water" ... for the demo panel and for words read aloud.
 export const amountList = values => amounts(values).map(([key, amount]) => amountWords(key, amount));
 const listWords = items => items.length < 3 ? items.join(' and ') : `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`;
 
@@ -41,8 +41,8 @@ const iconShapes = {
   planks: '<rect x="2.5" y="12.4" width="15" height="4.2" rx="1.2" fill="#e2b47a"/><rect x="3.5" y="8.2" width="14" height="4.2" rx="1.2" fill="#f0c98f"/><rect x="2" y="4" width="14.5" height="4.2" rx="1.2" fill="#f6d6a4"/><path d="M5 6.1h5M6.5 10.3h6M5.5 14.5h5" stroke="#d9a86c" stroke-width=".9" stroke-linecap="round"/>',
   // A dark mound of soil with a few crumbs.
   soil: '<path d="M1.8 16.4C2.6 10.6 6 7 10 7s7.4 3.6 8.2 9.4z" fill="#8a5a3b"/><path d="M5 10.6C6.3 8.6 8 7.6 10 7.6c1 0 2 .3 2.8.8-2.9.1-5.6 1-7.8 2.2z" fill="#a8714a"/><circle cx="7.4" cy="13" r=".9" fill="#6e452c"/><circle cx="12.6" cy="12" r=".8" fill="#6e452c"/><circle cx="10.6" cy="14.6" r=".8" fill="#6e452c"/><path d="M1.2 16.4h17.6" stroke="#6e452c" stroke-width="1.2" stroke-linecap="round"/>',
-  // A green sprout with two leaves.
-  saplings: '<path d="M10 17.4V9.6" stroke="#3f9a4c" stroke-width="1.8" stroke-linecap="round"/><path d="M10 10.4C9.6 6.6 6.8 4.6 2.8 4.8c.2 3.8 3 6 7.2 5.6z" fill="#5cc85d"/><path d="M10 9.4c.3-3.6 3-5.8 7.2-6-.1 4-2.9 6.2-7.2 6z" fill="#73d56a"/><path d="M10 10.2C8.8 8 6.8 6.6 4.6 6.2" fill="none" stroke="#3fa64d" stroke-width=".8" stroke-linecap="round"/><ellipse cx="10" cy="17.6" rx="4.4" ry="1.3" fill="#8a5a3b"/>',
+  // Water (the saplings key): a blue drop, darker on its right side, with a light glint on the left.
+  saplings: '<path d="M10 1.8C8.2 5 4.2 8.9 4.2 12.7a5.8 5.8 0 0 0 11.6 0C15.8 8.9 11.8 5 10 1.8z" fill="#5cb8ff"/><path d="M10 1.8c1.8 3.2 5.8 7.1 5.8 10.9a5.8 5.8 0 0 1-5.8 5.8c2-1.3 3.3-3.4 3.3-6.1 0-3.4-1.6-6.8-3.3-10.6z" fill="#3a98ec"/><path d="M7 12.4c0 1.8 1 3.3 2.6 3.8" fill="none" stroke="#e6f5ff" stroke-width="1.5" stroke-linecap="round"/>',
   // A soft gold star with rounded points.
   starlight: '<path d="m10 2.6 2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 7.9l5-.7z" fill="#ffd25e" stroke="#f5b52e" stroke-width="1.3" stroke-linejoin="round"/><path d="m10 6.2 1 2.2 2.3.3" fill="none" stroke="#fff3c4" stroke-width="1.1" stroke-linecap="round"/>',
   other: '<circle cx="10" cy="10" r="6" fill="#cfd8cc"/>',
@@ -61,7 +61,8 @@ const about = {
   stone: ['Stone', `Focus makes about ${perHour(rule.stonePerFocusMinute)} an hour.`, 'Used for most buildings and some wonders.'],
   planks: ['Planks', `Focus makes about ${perHour(rule.planksPerFocusMinute)} an hour once you have a Sawmill.`, 'Used for the bigger buildings.'],
   soil: ['Soil', perBreak(rule.soilPerRestMinute), 'Used for every building.'],
-  saplings: ['Saplings', perBreak(rule.saplingsPerRestMinute), 'Used for every building.'],
+  // The saplings key is shown as water: caught from the sky, since sky islands have no rivers.
+  saplings: ['Water', `Caught from the sky while you rest, about ${Math.round(rule.saplingsPerRestMinute * rule.restFullMinutes)} in a ${rule.restFullMinutes}-minute break.`, 'Most buildings need a little.'],
   starlight: ['Starlight', "Earned by sticking to your day's plan.", `Pays for Starlight wonders${firstWonder ? `, like the ${firstWonder}` : ''}.`],
 };
 // Helpers on a resource's job: "Pip and Wren are woodcutters", and each adds rule.helperBoost to what it makes.

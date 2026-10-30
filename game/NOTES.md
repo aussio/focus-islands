@@ -18,7 +18,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 **Focus makes things, breaks grow things:**
 
 - Focus time earns building materials (wood, stone, planks).
-- Break time earns growth (saplings, soil, new land, crops, flowers).
+- Break time earns growth (water, soil, new land, crops, flowers). Water is caught from the sky while you rest, and most buildings need a little. It starts a water theme that can grow later: waterfalls, rain clouds, fountains, bird baths.
 - Building needs both. Skipping breaks takes nothing away, but materials pile up with nowhere to put them. The islands only get bigger when you rest.
 - **Starlight** is a rare third resource earned by following the day's plan closely. It unlocks special things, such as a lighthouse, an airship dock, or a new island.
 
@@ -94,7 +94,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 
 **Fun, without extra interaction** (shown only at check-ins):
 
-- Occasional surprises, a few per week and a bit more likely after real breaks. For example, a traveller leaves seeds or a lost helper finds the island.
+- Occasional surprises, a few per week and a bit more likely after real breaks. For example, a small rain cloud stops over the island for a while, or a lost helper finds the island.
 - Celebrated firsts: the first helper, the first new island, the first wonder.
 - Each new island has its own kind (for example mossy, rocky, meadow, or crystal) and one special building found only there.
 - Starlight buys named wonders, such as a lighthouse, airship dock, or observatory. The first one takes about 2 or 3 weeks, then roughly one a month.

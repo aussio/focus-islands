@@ -13,7 +13,7 @@ const JOBS = {
   stone: { name: 'Stone gatherer', doing: 'stacking smooth stones from the big rock' },
   planks: { name: 'Sawyer', doing: 'sawing planks at the mill' },
   soil: { name: 'Gardener', doing: 'turning soil in the garden plot' },
-  saplings: { name: 'Seed keeper', doing: 'sorting seeds in the nursery' },
+  saplings: { name: 'Water carrier', doing: 'filling buckets at the rain catcher' },
 };
 const STARTING_JOBS = ['wood', 'stone'];
 const HELPER_NAMES = ['Pip', 'Wren', 'Moss', 'Tilly', 'Bram', 'Clover', 'Fennel', 'Juniper', 'Otto', 'Sorrel', 'Hazel',
@@ -138,7 +138,7 @@ const DEFAULT_BLUEPRINTS = deepFreeze([
   { id: 'floor', name: 'Upper floor', kind: 'homes', tier: 2, again: true, ground: 0, blocks: 0, storeys: 1, weight: 2, step: 0.06, cost: { stone: 14, planks: 18, soil: 8, saplings: 4 }, does: 'One more storey on a house, with a bed for 1 more helper.' },
   { id: 'flowers', name: 'Flower bed', kind: 'decor', tier: 1, again: true, perIsland: 2, fast: true, ground: 2, cost: { wood: 25, stone: 10, soil: 25, saplings: 15 }, does: 'Something pretty to look at.' },
   { id: 'garden', name: 'Garden plot', kind: 'growing', tier: 1, opensJob: 'soil', ground: 5, cost: { wood: 30, stone: 15, soil: 50, saplings: 25 }, does: 'A helper can work here as a Gardener, making soil.' },
-  { id: 'nursery', name: 'Seed nursery', kind: 'growing', tier: 1, opensJob: 'saplings', ground: 5, cost: { wood: 40, stone: 20, soil: 60, saplings: 35 }, does: 'A helper can work here as a Seed keeper, growing saplings.' },
+  { id: 'nursery', name: 'Rain catcher', kind: 'growing', tier: 1, opensJob: 'saplings', ground: 5, cost: { wood: 40, stone: 20, soil: 60, saplings: 35 }, does: 'A helper can work here as a Water carrier, catching rainwater.' },
   { id: 'sawmill', name: 'Sawmill', kind: 'making', tier: 1, opensJob: 'planks', ground: 5, cost: { wood: 110, stone: 60, soil: 60, saplings: 30 }, does: 'Focus makes planks too, and new buildings open up.' },
   { id: 'workshop', name: 'Workshop', kind: 'making', tier: 2, ground: 5, cost: { stone: 80, planks: 60, soil: 80, saplings: 40 }, does: 'Opens bigger buildings once you have 3 islands.' },
   { id: 'windmill', name: 'Windmill', kind: 'making', tier: 2, again: true, perIsland: 2, ground: 5, cost: { stone: 100, planks: 90, soil: 60, saplings: 35 }, does: 'Turns slowly in the wind.' },
@@ -238,9 +238,16 @@ function priceOf(bp, state, rules) {
   for (const r of Object.keys(bp.cost)) if (bp.cost[r] > 0) price[r] = Math.round(bp.cost[r] * factor);
   return price;
 }
+// The name a saved building shows today: its blueprint's name now, so a renamed building reads the new way,
+// or the name saved at build time when the blueprint is gone. The saved record is never changed.
+function builtNameOf(built, blueprints) {
+  const bp = (blueprints || []).find(b => b.id === built.blueprint);
+  return (bp && bp.name) || built.name;
+}
 
 module.exports = {
   RESOURCES, MATERIALS, GROWTH, KIND_NAMES, JOBS, STARTING_JOBS, HELPER_NAMES, FIRST_HELPER_WAY, LOST_HELPER_WAY,
   ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
-  islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, roomOf, maxLandOf, startGroundOf,
+  islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, builtNameOf, roomOf, maxLandOf,
+  startGroundOf,
 };

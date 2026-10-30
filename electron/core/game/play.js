@@ -480,7 +480,7 @@ function makeSurprise(work, draft, rules, key) {
     surprise.text = bridge.text;
   } else if (pick.id === 'seeds') {
     gifts.saplings = round2(2 * breakRest * rules.saplingsPerRestMinute); gifts.soil = round2(breakRest * rules.soilPerRestMinute);
-    surprise.text = 'A passing traveler rested here and left a pouch of seeds.';
+    surprise.text = 'A small rain cloud rested over the island for a while, leaving fresh water and soft soil.';
   } else if (pick.id === 'soil') {
     gifts.soil = round2(2 * breakRest * rules.soilPerRestMinute);
     surprise.text = 'A warm breeze carried in rich soil from somewhere far below.';
@@ -717,7 +717,7 @@ function viewState(state, facts, prepared, env) {
     activeDays: countActiveDays(facts),
     checkIns: state.checkIns,
     lastCheckIn: last ? { number: last.number, moments: (last.moments || []).slice(),
-      built: last.built ? { id: last.built.id, blueprint: last.built.blueprint, name: last.built.name, island: last.built.island } : null,
+      built: last.built ? { id: last.built.id, blueprint: last.built.blueprint, name: R.builtNameOf(last.built, blueprints), island: last.built.island } : null,
       job: last.job ? { helper: last.job.helper, job: last.job.job } : null } : null,
   };
 }

@@ -689,6 +689,28 @@ test('version-1 records still read: land × 7, a cottage is a house, islands get
   assert.equal(record.payload.rulesVersion, 2);
 });
 
+test('a building saved under an old name reads by its name today in History and the last check-in; the record keeps the old name', () => {
+  const history = MD.createHistory();
+  history.appendRecord({ kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: '2026-01-05T08:00:00.000Z',
+    payload: { rulesVersion: 2, startingLand: 40, startingSoil: 40, startingSaplings: 25 } });
+  history.appendRecord({ kind: 'gameCheckedIn', uniqueKey: 'game:checkin:1', occurredAt: '2026-01-05T09:10:00.000Z', payload: {
+    rulesVersion: 2, number: 1, token: 'old', covered: 1, dayKey: '2026-01-05', activeDays: 1,
+    collected: { wood: 0, stone: 0, planks: 0, soil: 0, saplings: 0, starlight: 0 }, restMinutes: 0, landProgress: 0,
+    newLand: [], surprise: null, islands: [], helpersQueued: [], helpersArrived: [], arrivals: [], moments: [], firsts: ['building'],
+    choice: { kind: 'build', options: [{ blueprint: 'nursery', island: 'home', price: {} }] }, picked: 'nursery', job: null,
+    built: { id: 'b1', blueprint: 'nursery', name: 'Seed nursery', kind: 'growing', island: 'home', price: {}, landWhenBuilt: 40, link: null },
+  } });
+  const saved = JSON.parse(JSON.stringify(history.events));
+  const ctx = { now: '2026-01-05T10:00:00.000Z', todayKey: '2026-01-05', dayKeyOf: MD.dayKeyOf, planFor: () => PLAN };
+  assert.equal(game.gameState(history.events, ctx).lastCheckIn.built.name, 'Rain catcher');
+  const [day] = game.daySummaries(history.events, ctx, ['2026-01-05']);
+  assert.deepEqual(day.happenings.filter(item => item.kind === 'built').map(item => item.name), ['Rain catcher']);
+  assert.deepEqual(history.events, saved, 'the saved records are unchanged');
+  assert.equal(history.events.find(e => e.uniqueKey === 'game:checkin:1').payload.built.name, 'Seed nursery');
+  // A blueprint that is gone falls back to the name saved at build time.
+  assert.equal(R.builtNameOf({ blueprint: 'gone', name: 'Old thing' }, R.DEFAULT_BLUEPRINTS), 'Old thing');
+});
+
 test('the simulated player: a wonder, homes for a bed, a bridge to an unjoined island, homes on every third offer, else something new', () => {
   const blueprints = R.DEFAULT_BLUEPRINTS;
   const opt = id => ({ blueprint: id, kind: blueprints.find(b => b.id === id).kind });

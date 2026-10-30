@@ -1,5 +1,6 @@
 // Tiny helpers: a simple rounded figure with a strong coloured silhouette (shirt + hat), a tool for
-// each job, an item for each resource they carry, and break extras (fishing lines, sleepy Zs).
+// each job, an item for each resource they carry (a full bucket for water), and break extras (fishing
+// lines, sleepy Zs).
 // Adding a job = one tool here, one entry in town/walk.js WORK, and a pose in motion.js if it moves differently.
 import * as THREE from 'three';
 import { createRig, toolMount } from './motion.js';
@@ -113,20 +114,16 @@ function addTools(rig, M) {
     blade.position.set(0, -0.05, 0.5);
     mount.add(handle(0.6), blade);
   });
-  toolMount(rig, 'can', mount => {
-    const tin = M('#5fb8ff');
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.085, 0.13, 12), tin);
-    body.position.set(0, -0.08, 0.06);
-    const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.2, 6), tin);
-    spout.position.set(0, -0.05, 0.17);
-    spout.rotation.x = 1.0;
-    const rose = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.02, 0.03, 8), tin);
-    rose.position.set(0, -0.0, 0.25);
-    rose.rotation.x = 1.0;
-    const bail = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.01, 4, 10, Math.PI), tin);
-    bail.position.set(0, -0.02, 0.06);
-    bail.rotation.y = Math.PI / 2;
-    mount.add(body, spout, rose, bail);
+  // The water carrier's bucket, held by its handle. motion.js hangs it straight down from the hand and
+  // raises the water in it (rig.pailWater) while it fills at the rain catcher; it walks back empty.
+  toolMount(rig, 'pail', mount => {
+    const { group, water } = woodenBucket(M);
+    group.position.y = -0.125;
+    water.visible = false;
+    water.userData.low = BUCKET.bottom + 0.012;
+    water.userData.high = BUCKET.top - 0.012;
+    mount.add(group);
+    rig.pailWater = water;
   });
   // The fishing rod is held in both hands at the chest and points out to the helper's right and a
   // little up. (Held straight out in front it would point at the raised camera and vanish.)
@@ -145,6 +142,29 @@ function addTools(rig, M) {
   rig.tools.rod = rodMount;
 }
 
+// A small wooden bucket for the water carrier: light honey staves (so it stands out against the rain
+// catcher's darker barrels), two blue hoops, a wire handle and the water inside.
+// Its middle is at y = 0; the handle's arc rises from the rim. Returns the parts the callers move.
+const BUCKET = { top: 0.065, bottom: -0.065, rimRadius: 0.085 };
+function woodenBucket(M) {
+  const group = new THREE.Group();
+  const staves = new THREE.Mesh(new THREE.CylinderGeometry(BUCKET.rimRadius, 0.066, BUCKET.top - BUCKET.bottom, 10), M('#e0a96d', { flatShading: true }));
+  const hoopGeometry = new THREE.TorusGeometry(0.083, 0.011, 4, 14).rotateX(Math.PI / 2);
+  const hoop = new THREE.Mesh(hoopGeometry, M('#3a98ec'));
+  hoop.position.y = 0.03;
+  const lowHoop = new THREE.Mesh(hoopGeometry, M('#3a98ec'));
+  lowHoop.scale.setScalar(0.85);
+  lowHoop.position.y = -0.04;
+  const water = new THREE.Mesh(new THREE.CylinderGeometry(0.078, 0.07, 0.012, 12), M('#5cb8ff'));
+  water.position.y = BUCKET.top - 0.012;
+  const bail = new THREE.Group();
+  bail.position.y = BUCKET.top;
+  const wire = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.008, 4, 12, Math.PI), M('#e3e7ef'));
+  bail.add(wire);
+  group.add(staves, hoop, lowHoop, water, bail);
+  return { group, water, bail };
+}
+
 // Things a helper can carry (one per resource).
 function addItems(rig, M) {
   const items = {
@@ -161,15 +181,12 @@ function addItems(rig, M) {
       group.add(bag, neck, soil);
       return group;
     },
-    sapling: () => {
-      const group = new THREE.Group();
-      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.055, 0.1, 10), M('#ef8a5b'));
-      const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(0.06, 0), M(P.leaf[1], { flatShading: true }));
-      leaf.position.y = 0.12;
-      const leaf2 = leaf.clone();
-      leaf2.scale.setScalar(0.7);
-      leaf2.position.set(0.04, 0.17, 0);
-      group.add(pot, leaf, leaf2);
+    // A full bucket of water, hugged in front with both hands, its handle laid back.
+    bucket: () => {
+      const { group, water, bail } = woodenBucket(M);
+      water.position.y = BUCKET.top - 0.012;
+      bail.rotation.x = -1.1;
+      group.scale.setScalar(1.15);
       return group;
     },
   };

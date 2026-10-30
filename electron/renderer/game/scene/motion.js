@@ -85,6 +85,7 @@ function resetPose(rig) {
   for (const limb of [rig.armL, rig.armR, rig.legL, rig.legR]) limb.rotation.set(0, 0, 0);
   for (const tool of Object.values(rig.tools)) tool.visible = false;
   for (const item of Object.values(rig.items)) item.visible = false;
+  if (rig.pailWater) rig.pailWater.visible = false;
 }
 
 function sitPose(rig, amount, seatHeight, legAngle) {
@@ -152,16 +153,30 @@ export function pose(rig, segment, local, p, t, seatHeight = 0.11) {
     rig.body.rotation.y = s * 0.05;
     rig.legL.rotation.x = -0.2; rig.legR.rotation.x = 0.2;
     show(segment.tool);
-  } else if (a === 'water') {
-    // Saplings: tip the can over the seedlings, sway along the row, look up now and then.
-    const tip = Math.sin(local * 0.9) * 0.5 + 0.5;
-    rig.armR.rotation.x = -1.0 - tip * 0.35;
-    rig.armR.rotation.z = 0.1;
-    rig.armL.rotation.x = -0.25;
-    rig.body.rotation.x = 0.16 + tip * 0.06;
-    rig.figure.rotation.y = Math.sin(local * 0.45) * 0.35;
-    if (Math.floor(local / 3) % 3 === 2) rig.head.rotation.x = -0.25;
+  } else if (a === 'fill') {
+    // Water: hold the bucket under the rain catcher's tap, turn it on, wait while it fills (looking up at
+    // the sky with a hand out for rain partway through), then turn it off. p runs once over the step.
+    const reachIn = smooth(clamp01(p / 0.1)) * (1 - smooth(clamp01((p - 0.95) / 0.05)));
+    const turning = (p > 0.06 && p < 0.16) || (p > 0.84 && p < 0.94);
+    const atTap = smooth(clamp01((p - 0.02) / 0.06)) * (1 - smooth(clamp01((p - 0.16) / 0.06)))
+      + smooth(clamp01((p - 0.78) / 0.06)) * (1 - smooth(clamp01((p - 0.94) / 0.04)));
+    const up = smooth(clamp01((p - 0.4) / 0.06)) * (1 - smooth(clamp01((p - 0.6) / 0.06)));
+    // The bucket is held up in front of the belly, where it shows from the side.
+    rig.armR.rotation.x = lerp(-0.2, -1.05, reachIn);
+    rig.armR.rotation.z = 0.32 * reachIn;
+    rig.armL.rotation.x = lerp(lerp(0.1, -1.3, up), -1.2, atTap);
+    rig.armL.rotation.z = lerp(lerp(0.45, 0.3, up), -0.12 + (turning ? Math.sin(local * 16) * 0.14 : 0), atTap);
+    rig.body.rotation.x += 0.12 * reachIn;
+    rig.head.rotation.x = lerp(0.26 * reachIn, -0.45, up);
+    rig.figure.position.y = Math.abs(Math.sin(local * 1.6)) * 0.008 * (1 - atTap);
     show(segment.tool);
+    const water = rig.pailWater;
+    if (water) {
+      const fill = smooth(clamp01((p - 0.14) / 0.72));
+      water.visible = fill > 0.03;
+      water.position.y = lerp(water.userData.low, water.userData.high, fill);
+      water.scale.x = water.scale.z = lerp(0.86, 1, fill);
+    }
   } else if (a === 'hammer') {
     const c = (local % 0.55) / 0.55;
     rig.armR.rotation.x = c < 0.6 ? lerp(-1.25, -2.2, smooth(c / 0.6)) : lerp(-2.2, -1.15, (c - 0.6) / 0.4);
@@ -253,6 +268,13 @@ export function pose(rig, segment, local, p, t, seatHeight = 0.11) {
     rig.head.rotation.y = Math.sin(t * 0.8 + rig.seed) * 0.3;
     show(segment.tool);
     carry(segment.carry);
+  }
+  // The water carrier's bucket hangs straight down from the hand whatever the arm and body are doing.
+  // Walking, it is held a little out to the side so it clears the legs.
+  const pail = rig.tools.pail;
+  if (pail?.visible) {
+    if (a === 'walk' || a === 'climb') { rig.armR.rotation.z = -0.22; rig.armR.rotation.x *= 0.6; }
+    pail.quaternion.copy(rig.figure.quaternion).multiply(rig.body.quaternion).multiply(rig.armR.quaternion).invert();
   }
 }
 

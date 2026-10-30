@@ -2,8 +2,10 @@
 // Never ships.
 //
 //   #helpers          every section
-//   #helpers-work     chop, mine, saw, hoe and water at their things (focus)
-//   #helpers-carry    walking with each item, and dropping a log at the pile (focus)
+//   #helpers-work     chop, mine, saw, hoe, and filling a bucket at the rain catcher (turning the tap,
+//                     then half full) at their things (focus)
+//   #helpers-carry    walking with each item, walking back with the empty bucket, and dropping a log at
+//                     the pile (focus)
 //   #helpers-rest     sitting, stretching, napping, fishing and strolling (break), looking about (away),
 //                     asleep (day done), and sitting against a tree with no job (focus)
 //
@@ -117,7 +119,8 @@ const WORK = [
   ['Mine (stone)', 'stone', 'rock', { anim: 'mine', tool: 'pick' }, 0.2],
   ['Saw (planks)', 'planks', 'sawmill', { anim: 'saw', tool: 'saw' }, 0.05],
   ['Hoe (soil)', 'soil', 'garden', { anim: 'hoe', tool: 'hoe' }, 0.06],
-  ['Water (saplings)', 'saplings', 'nursery', { anim: 'water', tool: 'can' }, 0.06],
+  ['Turn on the tap (water)', 'saplings', 'nursery', { anim: 'fill', tool: 'pail', local: 1.1 }, 0.06],
+  ['Fill a bucket (water)', 'saplings', 'nursery', { anim: 'fill', tool: 'pail', local: 5 }, 0.06],
 ];
 
 function workPose([label, job, kind, pose, reach]) {
@@ -128,7 +131,7 @@ function workPose([label, job, kind, pose, reach]) {
 }
 
 const CARRY = [
-  ['Log', 'wood', 'log'], ['Stone', 'stone', 'stone'], ['Plank', 'planks', 'plank'], ['Soil sack', 'soil', 'sack'], ['Sapling', 'saplings', 'sapling'],
+  ['Log', 'wood', 'log'], ['Stone', 'stone', 'stone'], ['Plank', 'planks', 'plank'], ['Soil sack', 'soil', 'sack'], ['Water bucket', 'saplings', 'bucket'],
 ];
 
 function carryPoses() {
@@ -138,12 +141,17 @@ function carryPoses() {
     label, note: `walking with a ${carry}`, mood: 'focus',
     world: poseTown({ things: [pile], focus: [spot, pile.points[0]], job, pose: { anim: 'walk', carry, at: spot, yaw: 1.1, local: 0.3 } }),
   }));
+  // The water carrier walks back to the rain catcher swinging the empty bucket.
+  const empty = {
+    label: 'Empty bucket', note: 'walking back with the pail', mood: 'focus',
+    world: poseTown({ things: [pile], focus: [spot, pile.points[0]], job: 'saplings', pose: { anim: 'walk', tool: 'pail', at: spot, yaw: 1.1, local: 0.3 } }),
+  };
   const q = sideSpots(pile)[0];
   const drop = {
     label: 'Drop at the pile', note: 'a log onto the pile', mood: 'focus',
     world: poseTown({ things: [pile], focus: [pile.points[0], q], job: 'wood', pose: { anim: 'drop', carry: 'log', at: standAt(pile, q, 0.12), face: middle(pile), local: 0.3 } }),
   };
-  return [...walking, drop];
+  return [...walking, empty, drop];
 }
 
 function restPoses() {
