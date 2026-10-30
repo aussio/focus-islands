@@ -3,8 +3,8 @@
 //
 //   node development-tools/game-gallery/build.js .build/game-gallery.html
 //
-// Open a section by hash: #index, #<view>, #<view>-<section>, #kinds, #helpers, #worlds,
-// #world-grown-break, #state-day-7 (see client.js). The page reads no app data and never ships.
+// Open a section by hash: #index, #<view> or #<view>-<section> (see client.js). The page reads no app
+// data and never ships.
 //
 // - Views: every development-tools/game-gallery/views/*.js is found here and bundled through a small
 //   generated entry, which loads each one inside try/catch and hands the list to client.js. A view
@@ -12,8 +12,7 @@
 // - Town states: states/town/<person>-day-<n>.json (from make-states.js) are laid out here in Node with
 //   buildTown from electron/renderer/game/town/index.js. Each island's grid is left out of the page data
 //   (it is big) and put back in the page with gridFor(id, size), which gives the same grid every time.
-// - Square states: states/day-<n>.json through layout/index.js's buildWorld, for #state-day-<n>.
-// Missing states or layouts are fine: those parts are skipped with a note.
+//   Missing states are fine: the views that need them say so.
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -22,31 +21,6 @@ const { buildSync } = require('esbuild');
 const root = path.resolve(__dirname, '../..');
 const statesDir = path.join(__dirname, 'states');
 const viewsDir = path.join(__dirname, 'views');
-
-async function layoutStates() {
-  const layoutFile = path.join(root, 'electron/renderer/game/layout/index.js');
-  const files = fs.existsSync(statesDir) ? fs.readdirSync(statesDir).filter(name => /^day-\d+\.json$/.test(name)) : [];
-  if (!files.length) return { states: [], note: 'No layout states yet (development-tools/game-gallery/states/day-*.json).' };
-  if (!fs.existsSync(layoutFile)) return { states: [], note: 'No layout yet (electron/renderer/game/layout/index.js).' };
-  let layout;
-  try { layout = await import(pathToFileURL(layoutFile).href); } catch (error) { return { states: [], note: `The layout failed to load: ${error.message}` }; }
-  if (typeof layout.buildWorld !== 'function') return { states: [], note: 'The layout does not export buildWorld yet.' };
-  files.sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]));
-  const states = files.map(file => {
-    const name = `state-${file.replace(/\.json$/, '')}`;
-    try {
-      const source = JSON.parse(fs.readFileSync(path.join(statesDir, file), 'utf8'));
-      // A state file may hold the game state itself, or wrap it as { state } or { game }.
-      const state = source.islands ? source : source.state ?? source.game ?? source;
-      const world = layout.buildWorld(state);
-      const summary = `${world.islands?.length ?? 0} islands · ${world.things?.length ?? 0} things · ${world.helpers?.length ?? 0} helpers`;
-      return { name, world, summary };
-    } catch (error) {
-      return { name, error: error.message };
-    }
-  });
-  return { states, note: '' };
-}
 
 // ---------- Town states ----------
 const PEOPLE = (() => { try { return require('../../electron/core/game/made-up-days').PEOPLE; } catch { return []; } })();
@@ -146,14 +120,13 @@ async function main() {
     console.error('Usage: node development-tools/game-gallery/build.js gallery.html');
     process.exit(2);
   }
-  const { states, note } = await layoutStates();
   const town = await townStates();
   const { bundle, views, broken } = bundleViews();
   const css = fs.readFileSync(path.join(__dirname, 'styles.css'), 'utf8');
-  const data = JSON.stringify({ states, stateNote: note, town }).replace(/</g, '\\u003c');
+  const data = JSON.stringify({ town }).replace(/</g, '\\u003c');
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cozy Focus Pet · Sky island gallery</title><style>${css}</style></head>
+<title>Focus Islands · Sky island gallery</title><style>${css}</style></head>
 <body><header class="gallery-header"><a class="gallery-title" href="#index">Sky island gallery</a><nav id="gallery-nav"></nav></header>
 <main id="gallery-main"></main>
 <script>window.GALLERY = ${data};</script><script>${bundle.replace(/<\/script/gi, '<\\/script')}</script></body></html>`;
@@ -164,7 +137,6 @@ async function main() {
   console.log(`Wrote ${output} (${kb(html.length)}: script ${kb(bundle.length)}, data ${kb(data.length)})`);
   console.log(`Views: ${views.length ? views.join(', ') : 'none'}${broken.length ? `; did not build: ${broken.map(b => b.file).join(', ')}` : ''}`);
   for (const { file, error } of broken) console.log(`  ${file}: ${error.split('\n')[0]}`);
-  console.log(`Square states: ${states.length}${note ? ` (${note})` : ''}`);
   console.log(`Town states: ${town.states.length}${town.note ? ` (${town.note})` : ''}`);
   for (const entry of town.states) if (entry.error) console.log(`  ${entry.id}: failed: ${entry.error}`);
 }

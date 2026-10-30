@@ -10,7 +10,7 @@
 //     builder.landSpots(id)       [x, z, y] grass spots for fireflies
 //     builder.moodHooks(), builder.update... see below
 //   makeModelContext({ materials, blobMaterial, blobPlane, model, root, log }) => { ctx, ... }
-//     the model context every drawing function gets (as in scene/build.js), plus piece(key) and island.
+//     the model context every drawing function gets, with piece(key) and island.
 //
 // Each island is its own group at [at[0], lift, at[1]], drawn in island units with y = 0 at the grass top.
 // Its parts are drawn in this order, each into the island's Batch (one mesh per material):
@@ -40,7 +40,7 @@ export function makeBlobMaterial() {
   return new THREE.MeshBasicMaterial({ map: blobTexture(), color: '#3a4a7a', transparent: true, opacity: 0.28, depthWrite: false, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 }
 
-// The model context, as scene/build.js makes it for the square island, plus piece(key) and island.
+// The model context every drawing function gets (models/index.js describes it), plus piece(key) and island.
 //   finish() merges the batch into one mesh per material under root and returns the meshes.
 export function makeModelContext({ materials, blobMaterial, blobPlane, model = null, island = null, root = new THREE.Group(), log = null }) {
   const batch = new Batch();

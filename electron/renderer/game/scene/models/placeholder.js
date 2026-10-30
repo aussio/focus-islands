@@ -27,8 +27,7 @@ export function placeholderColour(kind) {
 
 export function placeholder(ctx, thing, base) {
   const colour = new THREE.Color().setStyle(placeholderColour(thing.kind)).getStyle();
-  // A deeper shade of the kind's colour for roofs and signs, so each placeholder reads as one colour
-  // and none of them look like the red-roofed cottage.
+  // A deeper shade of the kind's colour for roofs and signs, so each placeholder reads as one colour.
   const hsl = new THREE.Color().setStyle(colour).getHSL({}, THREE.SRGBColorSpace);
   const deep = new THREE.Color().setHSL(hsl.h, Math.min(0.75, hsl.s * 0.6 + 0.1), Math.max(0.42, hsl.l * 0.74), THREE.SRGBColorSpace).getStyle();
   const W = thing.fw * CELL, D = thing.fd * CELL;
@@ -70,8 +69,8 @@ export function placeholder(ctx, thing, base) {
   ctx.add(rbox(w + 0.06, 0.07, d + 0.06, 0.012, 2), 'matte', P.trim, place(0, 0.035, 0), base);
   ctx.add(rbox(w, wallH, d, 0.012, 2), 'matte', colour, place(0, wallH / 2 + 0.02, 0), base);
   ctx.add(rbox(w + 0.03, 0.045, d + 0.03, 0.008, 2), 'matte', P.trim, place(0, wallH - 0.005, 0), base, false);
-  // The gable always faces the front, like the cottage. Wide footprints get a flatter pitch so the
-  // roof never towers over the walls.
+  // The gable always faces the front. Wide footprints get a flatter pitch so the roof never towers
+  // over the walls.
   const pitch = Math.min(0.7, Math.atan(0.62 / (w / 2)));
   const rise = addRoof(ctx, base, { w, d, top: wallH + 0.02, roof, wall: colour, pitch, chimney: false, gableWindow: true });
   if (w >= 0.5) addDoor(ctx, base, -Math.min(0.18, w * 0.2), d / 2);

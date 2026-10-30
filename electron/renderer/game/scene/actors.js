@@ -1,9 +1,10 @@
-// The set of helpers on the island: builds their figures, plans their routines for a mood, and moves
-// them each frame. The helpers hold nothing worth keeping: a new plan or a fresh clock restarts them.
+// The set of helpers in the town: builds their figures, plans their routines for a mood (on the town
+// grid, scene/town/walk.js), and moves them each frame. The helpers hold nothing worth keeping: a new
+// plan or a fresh clock restarts them.
 import * as THREE from 'three';
 import { lookFor } from './style.js';
 import { buildHelper, helperMaterials, restExtras, HELPER_SCALE } from './helpers.js';
-import { planHelpers } from './routes.js';
+import { planHelpers } from './town/walk.js';
 import { driveHelper } from './motion.js';
 
 export function createActors(scene) {
@@ -42,11 +43,14 @@ export function createActors(scene) {
         return rig;
       });
     },
-    // Plans routines for the mood. Needs the island built first (for routes and the fishing depth).
-    // planner: the town passes its own (town/walk.js), so Today never loads the town's code.
-    plan(model, mood, { bottomY = -1.5, planner = planHelpers } = {}) {
+    // Plans routines for the mood, for parseTown's model. bottomY: how far a fishing line hangs when a plan
+    // doesn't say (walk.js gives each fishing plan its own, from its island's lift). If planning throws,
+    // the helpers are left standing with no plan.
+    plan(model, mood, { bottomY = -1.5 } = {}) {
       extras?.dispose();
-      plans = planner(model, mood);
+      extras = null;
+      plans = [];
+      plans = planHelpers(model, mood);
       extras = restExtras(group, rigs, plans, { bottomY });
     },
     setScale(k) {

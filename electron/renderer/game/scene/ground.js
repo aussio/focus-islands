@@ -1,13 +1,8 @@
-// Builds island ground from grid cells.
-// Top: the island outline is traced through the midpoints of its outer cell edges. Points that lie on
-// one straight line are merged, so a one-cell staircase becomes one straight diagonal, and only the
-// real turns are left. Those are then rounded (outer corners wide, inner corners small) and the
-// result is extruded as one smooth slab with a soft bevel.
-// Underside: the same outline, shrunk ring by ring towards a point with a little noise.
-// Static meshes go into a Batch and are merged per material, so the whole island is a few draw calls.
+// Shared drawing helpers: the Batch that merges static meshes per material (so a whole island is a few
+// draw calls), place() for a matrix, smooth noise and hashes for rolls, slab and underside geometry, and
+// tapered tubes (roots, ropes). The town ground itself is drawn in scene/town/ground.js.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { CELL } from './style.js';
 
 // ---------- Static mesh batching ----------
 const tmpColor = new THREE.Color();
@@ -90,118 +85,6 @@ export function hashString(text) {
   for (const ch of String(text)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
   return (h >>> 0) / 4294967295;
 }
-
-const cross = (a, b) => a[0] * b[1] - a[1] * b[0];
-const dir = e => [e.b[0] - e.a[0], e.b[1] - e.a[1]];
-const unit = v => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
-
-// Traces the outer edges of a set of cells into closed loops of cell-corner points (cell c spans c..c+1).
-function traceCorners(cells, isLand) {
-  const starts = new Map();
-  const add = (a, b) => { const k = `${a[0]},${a[1]}`; if (!starts.has(k)) starts.set(k, []); starts.get(k).push({ a, b, used: false }); };
-  for (const { c, r } of cells) {
-    if (!isLand(c, r - 1)) add([c + 1, r], [c, r]);
-    if (!isLand(c, r + 1)) add([c, r + 1], [c + 1, r + 1]);
-    if (!isLand(c - 1, r)) add([c, r], [c, r + 1]);
-    if (!isLand(c + 1, r)) add([c + 1, r + 1], [c + 1, r]);
-  }
-  const loops = [];
-  for (const list of starts.values()) for (const first of list) {
-    if (first.used) continue;
-    const corners = [];
-    let edge = first;
-    while (edge && !edge.used) {
-      edge.used = true;
-      corners.push(edge.a);
-      const d1 = dir(edge);
-      const options = (starts.get(`${edge.b[0]},${edge.b[1]}`) ?? []).filter(e => !e.used);
-      // At a pinch point (cells touching only diagonally) take the tightest turn towards the land.
-      options.sort((p, q) => cross(d1, dir(p)) - cross(d1, dir(q)));
-      edge = options[0];
-    }
-    if (corners.length >= 4) loops.push(corners);
-  }
-  return loops;
-}
-
-// Drops every point that lies on the straight line between its neighbours.
-export function mergeStraight(points, epsilon = 1e-6) {
-  const n = points.length;
-  if (n < 4) return points.slice();
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const prev = points[(i - 1 + n) % n], cur = points[i], next = points[(i + 1) % n];
-    const a = [cur[0] - prev[0], cur[1] - prev[1]], b = [next[0] - cur[0], next[1] - cur[1]];
-    const straight = Math.abs(cross(a, b)) <= epsilon * Math.hypot(...a) * Math.hypot(...b) && a[0] * b[0] + a[1] * b[1] > 0;
-    if (!straight) out.push(cur);
-  }
-  return out;
-}
-
-// ---------- Outline tracing with straight diagonals and rounded turns ----------
-// cells: [{c, r}], isLand(c, r). Returns loops of [x, y] points in cell units (cell centres at integers).
-export function outlineLoops(cells, isLand, { convex = 0.5, concave = 0.28, wobble = 0.05, seed = 3, spacing = 0.3 } = {}) {
-  const loops = [];
-  for (const corners of traceCorners(cells, isLand)) {
-    // Midpoint of each unit edge, shifted so cell centres sit on whole numbers.
-    const n = corners.length;
-    const mids = corners.map((p, i) => {
-      const q = corners[(i + 1) % n];
-      return [(p[0] + q[0]) / 2 - 0.5, (p[1] + q[1]) / 2 - 0.5];
-    });
-    const keepPoints = mergeStraight(mids);
-    if (keepPoints.length < 3) continue;
-    // Area sign tells outer loops from holes (holes are skipped; islands have none).
-    let area = 0;
-    keepPoints.forEach((p, i) => { const q = keepPoints[(i + 1) % keepPoints.length]; area += p[0] * q[1] - q[0] * p[1]; });
-    if (area > 0) continue;
-    const K = keepPoints.length;
-    const keep = keepPoints.map((p, i) => {
-      const prev = keepPoints[(i - 1 + K) % K], next = keepPoints[(i + 1) % K];
-      return { p, convex: cross([p[0] - prev[0], p[1] - prev[1]], [next[0] - p[0], next[1] - p[1]]) < 0 };
-    });
-    // Corner radius: the style's maximum, but never more than half of either neighbouring edge, so a
-    // long straight coast gets a wide soft corner and short steps become a gentle wave.
-    const radii = keep.map((corner, i) => {
-      const prev = keep[(i - 1 + K) % K].p, next = keep[(i + 1) % K].p, v = corner.p;
-      const half = Math.min(Math.hypot(v[0] - prev[0], v[1] - prev[1]), Math.hypot(next[0] - v[0], next[1] - v[1])) / 2;
-      return Math.min(corner.convex ? convex : concave, half);
-    });
-    const points = [];
-    keep.forEach((corner, i) => {
-      const prev = keep[(i - 1 + K) % K].p, next = keep[(i + 1) % K].p, v = corner.p;
-      const din = unit([v[0] - prev[0], v[1] - prev[1]]), dout = unit([next[0] - v[0], next[1] - v[1]]);
-      const radius = radii[i];
-      const p0 = [v[0] - din[0] * radius, v[1] - din[1] * radius], p1 = [v[0] + dout[0] * radius, v[1] + dout[1] * radius];
-      const steps = Math.max(3, Math.round(radius * 12));
-      for (let s = 0; s <= steps; s++) {
-        const t = s / steps, u = 1 - t;
-        points.push([u * u * p0[0] + 2 * u * t * v[0] + t * t * p1[0], u * u * p0[1] + 2 * u * t * v[1] + t * t * p1[1]]);
-      }
-      // Straight run to the next corner, split so the wobble has points to move.
-      const nextRadius = radii[(i + 1) % K];
-      const q0 = p1, q1 = [next[0] - dout[0] * nextRadius, next[1] - dout[1] * nextRadius];
-      const length = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]);
-      const pieces = Math.max(1, Math.round(length / spacing));
-      for (let s = 1; s < pieces; s++) points.push([q0[0] + (q1[0] - q0[0]) * s / pieces, q0[1] + (q1[1] - q0[1]) * s / pieces]);
-    });
-    // Remove points closer than a hair, which would make thin slivers in the extrusion.
-    const clean = points.filter((p, i) => { const q = points[(i + 1) % points.length]; return Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-4; });
-    // Gentle wobble along the outward normal so straight edges do not look ruled.
-    const m = clean.length;
-    const wobbled = clean.map((p, i) => {
-      const a = clean[(i - 1 + m) % m], b = clean[(i + 1) % m];
-      const t = unit([b[0] - a[0], b[1] - a[1]]);
-      const k = wobble * noise2(p[0] * 0.9, p[1] * 0.9, seed);
-      return [p[0] - t[1] * k, p[1] + t[0] * k];
-    });
-    loops.push(wobbled);
-  }
-  return loops;
-}
-
-// Loop in cell units -> world [x, z].
-export const loopToWorld = (loop, centre) => loop.map(([x, y]) => [(x - centre[0]) * CELL, (y - centre[1]) * CELL]);
 
 // ---------- Slabs (grass tops, raised levels) ----------
 export function slabGeometry(loop, { top = 0, depth = 0.16, bevel = 0.08, segments = 3, smooth = true }) {
@@ -315,30 +198,4 @@ export function taperedTube(points, r0, r1, radial = 6) {
   g.setIndex(index);
   g.computeVertexNormals();
   return g;
-}
-
-// ---------- Paths ----------
-// One stepping stone on each path cell and one between joined path cells, evenly spaced.
-export function pathStones(model, { y = 0.012 } = {}) {
-  const list = [];
-  const stone = (x, yy, z, c, r, k) => {
-    const jx = (hash01(c, r, 11 + k) - 0.5) * 0.06, jz = (hash01(c, r, 21 + k) - 0.5) * 0.06;
-    const s = 0.88 + hash01(c, r, 31 + k) * 0.24;
-    list.push(place(x + jx, yy, z + jz, { ry: hash01(c, r, 41 + k) * 3, s }));
-  };
-  const isPath = (c, r) => { const cell = model.get(c, r); return cell?.type === 'path' && !cell.thing; };
-  for (const cell of model.cells.values()) {
-    if (!isPath(cell.c, cell.r)) continue;
-    const [x, z] = model.toWorld(cell.c, cell.r);
-    const yy = y + cell.height * model.level;
-    stone(x, yy, z, cell.c, cell.r, 0);
-    for (const [dc, dr] of [[1, 0], [0, 1], [1, 1], [1, -1]]) {
-      const next = model.get(cell.c + dc, cell.r + dr);
-      if (!isPath(cell.c + dc, cell.r + dr) || next.height !== cell.height) continue;
-      if (dc && dr && (isPath(cell.c + dc, cell.r) || isPath(cell.c, cell.r + dr))) continue;
-      const [nx, nz] = model.toWorld(cell.c + dc, cell.r + dr);
-      stone((x + nx) / 2, yy, (z + nz) / 2, cell.c + dc * 0.5, cell.r + dr * 0.5, 1);
-    }
-  }
-  return list;
 }

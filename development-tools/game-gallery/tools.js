@@ -19,9 +19,9 @@
 //       The image carries img.stats = { triangles, calls, buildMs, drawMs }. If build throws, the image
 //       shows the error instead.
 //   worldShot(world, mood, { width, height }) => Promise<img>
-//       Draws a whole world through createIslandScene, the same way Today does: square worlds and town
-//       worlds (islands with a grid). If the scene can't build the world, the image says so. The image
-//       carries img.stats from the scene's stats().
+//       Draws a whole town world (islands with a grid) through createIslandScene, the same way Today does,
+//       with Today's follow camera (it frames world.view). If the scene can't build the world, the image
+//       says so. The image carries img.stats from the scene's stats().
 //   card(title, note, images) => <figure>         a labelled card; append it yourself
 //   heading(text, note) => <h2>                   added to the section's host (and returned)
 //   grid(className) => <div class="gallery-grid">  a row of cards added to the host: cards sit side by side
@@ -32,7 +32,7 @@
 // data.town.states: [{ id, person, personName, day, summary, game, world, problems, error }], the town
 // states from make-states.js laid out by buildTown in Node. Grids are stripped from the page data and put
 // back here with gridFor(id, size), so each island.grid is the real shared grid. data.town.note says why
-// there are none. data.states: the old square states for #state-day-<n>.
+// there are none.
 import * as THREE from 'three';
 import { MOODS, createMaterials, moodMaterials, moodOf } from '../../electron/renderer/game/scene/style.js';
 import { ELEVATION, createStage } from '../../electron/renderer/game/scene/stage.js';
@@ -47,8 +47,6 @@ export const TODAY_SIZE = [591, 357]; // the island's size on Today
 const raw = globalThis.GALLERY ?? {};
 export const data = {
   ...raw,
-  states: raw.states ?? [],
-  stateNote: raw.stateNote ?? '',
   town: { states: [], note: '', ...(raw.town ?? {}) },
 };
 // Put each town island's grid back. gridFor gives the same frozen grid every time.

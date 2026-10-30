@@ -1,5 +1,5 @@
-// The sky-island scene. createIslandScene(host) draws a World (from the layout) in style D and returns
-// { setWorld(world), setMood(mood), capture(), dispose() }.
+// The sky-island scene. createIslandScene(host) draws a town world (town/index.js buildTown) in style D
+// and returns { setWorld(world), setMood(mood), capture(), stats(), dispose() }.
 //
 // - setWorld rebuilds geometry only when the world data changed. setMood (focus | break | away | done)
 //   changes only the sky, the light, what glows and what the helpers do.
@@ -8,9 +8,9 @@
 // - With reduced motion, it draws one still frame per change with helpers standing at their spots.
 // - capture() draws one fresh frame right away (even while paused), with any camera move finished
 //   first, and resolves with the canvas (or null when nothing can be drawn).
-// - Town worlds (islands with a grid): the camera moves slowly to where a new world should be seen. It
-//   jumps instead on the first world, on resize, with reduced motion, and while hidden or off screen.
-//   After a lost drawing context comes back, every island is built again.
+// - The camera moves slowly to where a new world should be seen. It jumps instead on the first world, on
+//   resize, with reduced motion, and while hidden or off screen. After a lost drawing context comes back,
+//   every island is built again. A world that isn't a town draws as an empty sky (scene/core.js).
 // - stats() is a speed readout for the gallery: triangles, draw calls, frame time and rebuild time.
 // - If WebGL cannot start, the host gets a soft sky-coloured background instead, and nothing throws.
 // The canvas fills the host (width and height 100%), so the host needs a size of its own.
@@ -143,7 +143,7 @@ export function createIslandScene(host) {
   const onRestored = () => {
     lost = false;
     if (core) {
-      // Town islands are built again from the model; the square island is kept as it was.
+      // Every island and bridge is built again from the model.
       try { core.rebuild(); } catch (error) { console.error('Island scene could not rebuild:', error); }
       core.takeChanged();
     }

@@ -1,7 +1,8 @@
 // Stream C's view: the ground and lane pieces (scene/town/ground.js, lanes.js), on made-up islands and on
 // real states. Sections: grid lines on each grid size, every lane piece (from above and at Today's angle),
 // where lanes reach (a door, a pad front, a bridge deck), whole islands at Today's size, the underside,
-// and a bridge foot at the head of an inlet.
+// a bridge foot moving out along its pier as the island grows, and the bay of sky kept in front of a coast
+// building.
 import * as THREE from 'three';
 import { gridFor } from '../../../electron/renderer/game/town/grid.js';
 import { parseTown } from '../../../electron/renderer/game/scene/town/world.js';
@@ -88,8 +89,8 @@ function gridLines(ctx, island, { y = 0.035, colour = '#2d6a3a', opacity = 0.45 
   ctx.root.add(new THREE.LineSegments(geometry, material));
 }
 // Small dots on chosen points (lane points, a foot), to show which points a picture is about.
-function dots(ctx, island, points, colour = '#e9553f') {
-  const geometry = new THREE.SphereGeometry(0.035, 8, 6);
+function dots(ctx, island, points, colour = '#e9553f', radius = 0.035) {
+  const geometry = new THREE.SphereGeometry(radius, 8, 6);
   const material = new THREE.MeshBasicMaterial({ color: colour });
   ctx.track(material, geometry);
   for (const p of points) {
@@ -121,6 +122,41 @@ function realIslands(tools) {
   if (!day180) return null;
   const model = parseTown(day180.world);
   return { label: `${day180.personName ?? day180.person}, day ${day180.day}`, model, entries };
+}
+
+// One bridge end through the steady planner's days: the end facing the camera most whose foot moved
+// most. { end: { island, bridge }, steps: [{ day, model, island, foot }] } or null. Each step's island is
+// that day's, drawn in island units, so the pictures line up.
+function pierFilm(tools) {
+  const days = tools.data.town.states.filter(e => e.person === 'steady' && e.world?.islands?.some(i => i.grid?.points)).sort((a, b) => a.day - b.day)
+    .map(entry => ({ day: entry.day, model: parseTown(entry.world) }));
+  const ends = new Map(); // `${island}|${bridge}` -> [{ day, model, island, foot }]
+  for (const { day, model } of days) for (const island of model.islands) for (const foot of island.feet) {
+    const key = `${island.id}|${foot.bridge}`;
+    if (!ends.has(key)) ends.set(key, []);
+    ends.get(key).push({ day, model, island, foot });
+  }
+  const moves = list => new Set(list.map(step => step.foot.point)).size;
+  const best = [...ends.entries()].sort(([ka, a], [kb, b]) => (b[0].foot.out[1] > -0.3) - (a[0].foot.out[1] > -0.3) || moves(b) - moves(a) || a[0].day - b[0].day || ka.localeCompare(kb))[0];
+  if (!best) return null;
+  const [island, bridge] = best[0].split('|');
+  // Each day the foot moved, plus the first and the last day.
+  const steps = best[1].filter((step, i, all) => i === 0 || i === all.length - 1 || step.foot.point !== all[i - 1].foot.point);
+  return { end: { island, bridge }, steps };
+}
+
+// A coast building and its bay: steady day 180 first, then any state. { label, island, thing, bay } or null.
+function coastBay(tools) {
+  const entries = tools.data.town.states.filter(e => e.world?.islands?.some(i => i.grid?.points))
+    .sort((a, b) => (b.person === 'steady') - (a.person === 'steady') || b.day - a.day);
+  for (const entry of entries) {
+    const model = parseTown(entry.world);
+    for (const island of model.islands) {
+      const thing = island.things.find(t => t.coast && t.pad);
+      if (thing && island.kept.size) return { label: `${entry.personName ?? entry.person}, day ${entry.day}`, island, thing, bay: [...island.kept] };
+    }
+  }
+  return null;
 }
 
 // ---------- Lane cases ----------
@@ -266,26 +302,55 @@ export default {
       },
     },
     {
-      id: 'inlet', title: 'An inlet with a bridge foot',
+      id: 'pier', title: 'A bridge foot at the end of its pier, moving out as the island grows',
       async render(host, tools) {
-        const real = realIslands(tools);
-        if (!real) { tools.note('No real town states.'); return; }
-        const islands = [...real.model.islands].sort((a, b) => b.land.size - a.land.size);
-        const nextToKept = (i, f) => i.grid.neighbours[f.point].some(q => i.kept.has(q));
-        const inletIsland = islands.find(i => i.feet.some(f => nextToKept(i, f))) ?? islands.find(i => i.feet.length);
-        if (!inletIsland) { tools.note('No island with a bridge foot in this state.'); return; }
-        const foot = inletIsland.feet.find(f => nextToKept(inletIsland, f)) ?? inletIsland.feet[0];
-        const bridge = real.model.bridges.find(b => b.id === foot.bridge);
-        tools.note(`${real.label}, ${inletIsland.id}, foot ${foot.point} (${foot.type} bridge). The coast goes round the kept sky by the foot; the lane runs out past the grass onto the deck.`);
-        const inlet = tools.grid('gallery-medium');
-        const aim = aimAt(inletIsland, [foot.point], 1.3);
-        inlet.append(tools.card('With houses, things and the bridge', 'Today\'s angle', [await tools.shot(ctx => { drawIsland(ctx, inletIsland, { blocks: true, things: true }); if (bridge) drawBridgeHere(ctx, bridge, real.model, inletIsland); }, { width: MEDIUM[0], height: MEDIUM[1], aim })]));
-        inlet.append(tools.card('Ground and lanes, from above', 'red dots: the kept sky points; lines: grid sides', [await tools.shot(ctx => { drawIsland(ctx, inletIsland, { lines: true }); dots(ctx, inletIsland, [...inletIsland.kept].filter(p => dist(inletIsland.grid.points[p], inletIsland.grid.points[foot.point]) < 1.8)); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 1.2, aim })]));
-        // Looking back up the inlet from the sky outside it: the camera sits out along the foot's way out.
-        const [fx, fz] = inletIsland.grid.points[foot.point];
-        const along = [0, 0.8, 1.6].map(k => [fx + foot.out[0] * k, 0, fz + foot.out[1] * k]);
-        const lookIn = along.flatMap(([x, , z]) => [[x - 0.8, 0, z - 0.8], [x + 0.8, 0.3, z + 0.8], [x, -1.6, z]]);
-        inlet.append(tools.card('Looking up the inlet', 'from the sky outside it, ground and lanes only: the coast and underside on both sides', [await tools.shot(ctx => { drawIsland(ctx, inletIsland); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 0.4, yaw: Math.atan2(foot.out[0], foot.out[1]), aim: lookIn })]));
+        const film = pierFilm(tools);
+        if (!film) { tools.note('No real states with a bridge yet.'); return; }
+        const { end, steps } = film;
+        const last = steps.at(-1);
+        const types = [...new Set(steps.map(step => step.foot.type))].join(', then ');
+        tools.note(`Steady planner, ${end.island}'s end of ${end.bridge} (${types} bridge). The foot is the outermost land point of a straight strip of points along its fixed way out (its pier, town/sky.js pierOf). Land may grow onto the pier only in order, each new point becomes a lane, and the foot moves out onto it, so the bridge always leaves from the end of a straight lane. Land near the deck's line ahead of the foot waits until the foot has passed. Red dot: the foot that day; orange: where it stood before.`);
+        const aim = aimAt(last.island, [...new Set(steps.map(step => step.foot.point))], 1.1)
+          .concat([[...last.island.grid.points[last.foot.point]]].map(([x, z]) => [x + last.foot.out[0] * 1.2, 0, z + last.foot.out[1] * 1.2]));
+        const row = tools.grid('gallery-medium');
+        steps.forEach(step => { step.before = steps.filter(other => other.day < step.day && other.foot.point !== step.foot.point).map(other => other.foot.point); });
+        for (const step of steps) {
+          const { island, foot, model, day, before } = step;
+          const bridge = model.bridges.find(b => b.id === foot.bridge);
+          const img = await tools.shot(ctx => {
+            drawIsland(ctx, island, { blocks: true, things: true });
+            if (bridge) drawBridgeHere(ctx, bridge, model, island);
+            dots(ctx, island, [...new Set(before)], '#f0a33a', 0.08);
+            dots(ctx, island, [foot.point], '#e9553f', 0.08);
+          }, { width: SMALL[0], height: SMALL[1], aim });
+          row.append(tools.card(`day ${day}`, `foot at point ${foot.point}${before.length ? `, ${new Set(before).size} earlier` : ', the first'} · ${island.land.size} land`, [img]));
+        }
+        row.append(tools.card(`day ${last.day} from above`, 'ground and lanes only, with grid lines: the pier is the straight lane out to the foot', [await tools.shot(ctx => {
+          drawIsland(ctx, last.island, { lines: true });
+          dots(ctx, last.island, [...new Set(last.before)], '#f0a33a', 0.07);
+          dots(ctx, last.island, [last.foot.point], '#e9553f', 0.07);
+        }, { width: SMALL[0], height: SMALL[1], pitch: 1.2, aim })]));
+      },
+    },
+    {
+      id: 'bay', title: "A coast building's bay of kept sky",
+      async render(host, tools) {
+        const found = coastBay(tools);
+        if (!found) { tools.note('No real state with a coast building yet.'); return; }
+        const { label, island, thing, bay } = found;
+        tools.note(`${label}, ${island.id}: the ${thing.kind} (a coast building). In front of its sea side, a bay of sky is kept open for good: 0.4 wider than that side at the mouth, widening at 35° on each side (BAY_ANGLE in town/pads.js) to at most 1.6 either side of its middle line. Land grows around the bay, never into it, so the building stays on the coast as the island grows. Red dots: the bay's kept points.`);
+        const pts = thing.points.map(p => island.grid.points[p]);
+        const [mx, mz] = [pts.reduce((a, q) => a + q[0], 0) / pts.length, pts.reduce((a, q) => a + q[1], 0) / pts.length];
+        const near = bay.filter(p => dist(island.grid.points[p], [mx, mz]) < 2.6);
+        const aim = aimAt(island, [...thing.points, ...near], 0.5);
+        const row = tools.grid('gallery-medium');
+        row.append(tools.card("Today's angle", 'with houses and things', [await tools.shot(ctx => { drawIsland(ctx, island, { blocks: true, things: true }); }, { width: MEDIUM[0], height: MEDIUM[1], aim })]));
+        row.append(tools.card('From above', 'ground, lanes and grid lines; red dots: the bay', [await tools.shot(ctx => { drawIsland(ctx, island, { lines: true }); dots(ctx, island, near, '#e9553f', 0.06); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 1.2, aim })]));
+        // Looking in from the sky the building faces: the camera sits out along its way out.
+        const yaw = thing.coast?.yaw ?? thing.yaw ?? 0;
+        const out = [Math.sin(yaw), Math.cos(yaw)];
+        const lookIn = [0, 0.8, 1.6].flatMap(k => [[mx + out[0] * k - 0.8, 0, mz + out[1] * k - 0.8], [mx + out[0] * k + 0.8, 0.6, mz + out[1] * k + 0.8], [mx + out[0] * k, -1.4, mz + out[1] * k]]);
+        row.append(tools.card('From the sky in front', 'the bay from outside: the coast and underside on both sides of it', [await tools.shot(ctx => { drawIsland(ctx, island, { blocks: true, things: true }); }, { width: MEDIUM[0], height: MEDIUM[1], pitch: 0.4, yaw, aim: lookIn })]));
       },
     },
   ],

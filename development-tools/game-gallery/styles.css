@@ -16,13 +16,8 @@ h2 { margin: 14px 0 6px; font-size: 15px; }
 .gallery-section-title { font-size: 16px; }
 .gallery-section-body > h2 { font-size: 14px; }
 
-/* Card rows: cards sit side by side at their pictures' size and wrap to the next line.
-   The older sections use the fixed grids below. */
+/* Card rows: cards sit side by side at their pictures' size and wrap to the next line. */
 .gallery-grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; margin-bottom: 6px; }
-.gallery-kinds, .gallery-poses, .gallery-moods { display: grid; }
-.gallery-moods { grid-template-columns: repeat(4, 330px); }
-.gallery-kinds { grid-template-columns: repeat(auto-fill, minmax(410px, 1fr)); }
-.gallery-poses { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 .gallery-card { margin: 0; padding: 6px; background: #fffaf2; border-radius: 10px; box-shadow: 0 1px 0 #0000000f, 0 0 0 1px #0000000d; }
 .gallery-card figcaption { margin: 0 2px 4px; }
 .gallery-card figcaption span { color: #7a7482; }
@@ -36,4 +31,3 @@ h2 { margin: 14px 0 6px; font-size: 15px; }
 .gallery-view-list { list-style: none; padding: 0; display: grid; gap: 8px; }
 .gallery-view-list li { background: #fffaf2; border-radius: 8px; padding: 6px 10px; box-shadow: 0 0 0 1px #0000000d; }
 .gallery-stage { position: fixed; left: -10000px; top: 0; width: 200px; height: 160px; }
-.gallery-live { width: 100%; height: calc(100vh - 90px); border-radius: 8px; overflow: hidden; }

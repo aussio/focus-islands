@@ -1,6 +1,6 @@
 // Tiny helpers: a simple rounded figure with a strong coloured silhouette (shirt + hat), a tool for
 // each job, an item for each resource they carry, and break extras (fishing lines, sleepy Zs).
-// Adding a job = one tool here, one entry in routes.js WORK, and a pose in motion.js if it moves differently.
+// Adding a job = one tool here, one entry in town/walk.js WORK, and a pose in motion.js if it moves differently.
 import * as THREE from 'three';
 import { createRig, toolMount } from './motion.js';
 import { P } from './style.js';

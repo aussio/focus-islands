@@ -1,141 +1,23 @@
-// Gallery page for the sky-island scene. Bundled with three and the scene by build.js. Never ships.
+// Gallery page for the sky-island town. Bundled with three and the scene by build.js. Never ships.
 // build.js writes a small entry that loads every views/*.js and calls start(views).
 //
 // Views (development-tools/game-gallery/views/<file>.js) export
 //   default { id, title, sections: [{ id, title, render: async (host, tools) => {} }] }
-// and are picked by the hash, before the older sections below:
+// and are picked by the hash:
 //   #<viewId>                                                    every section of a view
 //   #<viewId>-<sectionId>                                        one section
+//   #index (or anything else)                                    the list of views and town states
 // tools are in tools.js. A view that fails to load, or a section that throws, shows its error in its
-// place and leaves the others working.
-//
-// The older sections:
-//   #kinds (or #kinds-nature, #kinds-buildings, #kinds-wonders)  a portrait of every kind, focus and break
-//   #kind-<kind>                                                 one kind, large
-//   #helpers                                                     work, carry and rest poses
-//   #worlds                                                      sample worlds in every mood
-//   #world-<name>-<mood>                                         one sample world, large
-//   #live-<name>-<mood>                                          one sample world, animated
-//   #state-day-<n>                                               a made-up game state through the real layout
-// Every portrait is drawn by one hidden scene and copied into an image, because a page can only hold a
-// few WebGL canvases. window.galleryReady turns true when the chosen sections have finished drawing.
-import { KINDS } from '../../electron/renderer/game/kinds.js';
-import { createIslandScene } from '../../electron/renderer/game/scene/index.js';
-import { hasModel } from '../../electron/renderer/game/scene/models/index.js';
-import { SAMPLE_WORLDS, kindWorld, poseWorld } from '../../electron/renderer/game/scene/sample-worlds.js';
-import { MOOD_NAMES as MOODS, card, data as DATA, escape, heading as headingEl, toolsFor, worldShot } from './tools.js';
-const NATURE = ['tree', 'rock', 'bush', 'flower', 'pile', 'fire', 'seat', 'mushroom', 'crystal'];
-const WONDERS = ['lighthouse', 'airship', 'observatory', 'skyfall', 'aurora'];
-const BUILDINGS = Object.keys(KINDS).filter(kind => !NATURE.includes(kind) && !WONDERS.includes(kind));
-const KIND_GROUPS = { nature: NATURE, buildings: BUILDINGS, wonders: WONDERS };
-
-const POSES = [
-  { group: 'Work', label: 'Chop (wood)', mood: 'focus', pose: { anim: 'chop', tool: 'axe', job: 'wood', prop: 'tree', at: [2.8, 1.35] } },
-  { group: 'Work', label: 'Mine (stone)', mood: 'focus', pose: { anim: 'mine', tool: 'pick', job: 'stone', prop: 'rock', at: [2.8, 1.35] } },
-  { group: 'Work', label: 'Saw (planks)', mood: 'focus', pose: { anim: 'saw', tool: 'saw', job: 'planks', prop: 'sawmill', at: [2.75, 1.15] } },
-  { group: 'Work', label: 'Hoe (soil)', mood: 'focus', pose: { anim: 'hoe', tool: 'hoe', job: 'soil', prop: 'garden', at: [2.75, 1.15] } },
-  { group: 'Work', label: 'Water (saplings)', mood: 'focus', pose: { anim: 'water', tool: 'can', job: 'saplings', prop: 'nursery', at: [2.75, 1.15] } },
-  { group: 'Carry', label: 'Log', mood: 'focus', pose: { anim: 'walk', carry: 'log', job: 'wood', yaw: 1.1 } },
-  { group: 'Carry', label: 'Stone', mood: 'focus', pose: { anim: 'walk', carry: 'stone', job: 'stone', yaw: 1.1 } },
-  { group: 'Carry', label: 'Plank', mood: 'focus', pose: { anim: 'walk', carry: 'plank', job: 'planks', yaw: 1.1 } },
-  { group: 'Carry', label: 'Soil sack', mood: 'focus', pose: { anim: 'walk', carry: 'sack', job: 'soil', yaw: 1.1 } },
-  { group: 'Carry', label: 'Sapling', mood: 'focus', pose: { anim: 'walk', carry: 'sapling', job: 'saplings', yaw: 1.1 } },
-  { group: 'Carry', label: 'Drop at pile', mood: 'focus', pose: { anim: 'drop', carry: 'log', job: 'wood', prop: 'pile', local: 0.3 } },
-  { group: 'Rest', label: 'Sit on a log', mood: 'break', pose: { anim: 'sit', prop: 'seat', seat: 0.11, yaw: 0.75 } },
-  { group: 'Rest', label: 'Sit by the fire', mood: 'break', pose: { anim: 'sit', prop: 'fire', seat: 0.02, at: [2.95, 1.05] } },
-  { group: 'Rest', label: 'Stretch', mood: 'break', pose: { anim: 'stretch', local: 5, yaw: 0.3 } },
-  { group: 'Rest', label: 'Nap', mood: 'break', pose: { anim: 'nap' } },
-  { group: 'Rest', label: 'Fish off the edge', mood: 'break', pose: { anim: 'fish', at: [2, 4.42], yaw: 0 } },
-  { group: 'Rest', label: 'Stroll', mood: 'break', pose: { anim: 'walk', yaw: 1.5 } },
-  { group: 'Rest', label: 'Look around', mood: 'away', pose: { anim: 'look', local: 1.0, yaw: 0.25 } },
-  { group: 'Rest', label: 'Asleep (day done)', mood: 'done', pose: { anim: 'sleep' } },
-];
+// place and leaves the others working. window.galleryReady turns true when the chosen sections have
+// finished drawing.
+import { data as DATA, escape, heading as headingEl, toolsFor } from './tools.js';
 
 const $ = selector => document.querySelector(selector);
 const main = $('#gallery-main');
 let VIEWS = []; // [{ file, id, view, error }]
 
-const portrait = (world, mood, width, height) => worldShot(world, mood, { width, height });
-
 function heading(text, note = '') {
   main.append(headingEl(text, note));
-}
-
-function gridEl(className = '') {
-  const el = document.createElement('div');
-  el.className = `gallery-grid ${className}`;
-  main.append(el);
-  return el;
-}
-
-async function showKinds(group) {
-  const groups = group ? { [group]: KIND_GROUPS[group] ?? [] } : KIND_GROUPS;
-  for (const [name, kinds] of Object.entries(groups)) {
-    heading(name[0].toUpperCase() + name.slice(1), 'focus, then break');
-    const grid = gridEl('gallery-kinds');
-    for (const kind of kinds) {
-      const world = kindWorld(kind);
-      const size = KINDS[kind].size;
-      const images = [await portrait(world, 'focus', 200, 170), await portrait(world, 'break', 200, 170)];
-      grid.append(card(kind, `${size[0]}×${size[1]}${hasModel(kind) ? '' : ' · placeholder'}`, images));
-    }
-  }
-}
-
-async function showKind(kind) {
-  if (!KINDS[kind]) { heading(`Unknown kind: ${kind}`); return; }
-  heading(kind, hasModel(kind) ? 'model' : 'placeholder');
-  const grid = gridEl('gallery-large');
-  const world = kindWorld(kind);
-  for (const mood of MOODS) grid.append(card(mood, '', [await portrait(world, mood, 640, 440)]));
-}
-
-async function showHelpers() {
-  let group = '';
-  let grid = null;
-  for (const item of POSES) {
-    if (item.group !== group) { group = item.group; heading(group); grid = gridEl('gallery-poses'); }
-    const world = poseWorld(item.pose);
-    grid.append(card(item.label, item.mood, [await portrait(world, item.mood, 250, 220)]));
-  }
-}
-
-async function showWorlds() {
-  for (const [key, { name, world }] of Object.entries(SAMPLE_WORLDS)) {
-    heading(name, `#world-${key}-<mood> for a large view`);
-    const grid = gridEl('gallery-moods');
-    for (const mood of MOODS) grid.append(card(mood, '', [await portrait(world, mood, 330, 220)]));
-  }
-}
-
-async function showWorld(key, mood) {
-  const sample = SAMPLE_WORLDS[key];
-  if (!sample) { heading(`Unknown world: ${key}`); return; }
-  heading(`${sample.name} · ${mood}`);
-  const width = Math.max(320, window.innerWidth - 32), height = Math.max(240, window.innerHeight - 90);
-  main.append(await portrait(sample.world, MOODS.includes(mood) ? mood : 'focus', width, height));
-}
-
-async function showLive(key, mood) {
-  const sample = SAMPLE_WORLDS[key];
-  if (!sample) { heading(`Unknown world: ${key}`); return; }
-  heading(`${sample.name} · ${mood} · live`);
-  const host = document.createElement('div');
-  host.className = 'gallery-live';
-  main.append(host);
-  const live = createIslandScene(host);
-  live.setWorld(sample.world);
-  live.setMood(mood);
-  await new Promise(resolve => setTimeout(resolve, 1500));
-}
-
-async function showState(name) {
-  const entry = DATA.states.find(state => state.name === name);
-  if (!entry) { heading(`No state named ${name}`, DATA.stateNote); return; }
-  heading(`${name} (through the real layout)`, entry.summary ?? '');
-  if (entry.error) { main.insertAdjacentHTML('beforeend', `<p class="gallery-note">The layout failed: ${escape(entry.error)}</p>`); return; }
-  const grid = gridEl('gallery-large');
-  for (const mood of ['focus', 'break', 'done']) grid.append(card(mood, '', [await portrait(entry.world, mood, 640, 420)]));
 }
 
 // ---------- Views ----------
@@ -155,9 +37,8 @@ function checkView(entry) {
   return { ...entry, id };
 }
 
-// #<viewId> or #<viewId>-<sectionId>. View ids are checked before the older sections; the longest
-// matching view id wins. A hash whose rest is not one of the view's sections falls through to the older
-// sections, so #kind-tree still works even if a view is called "kind".
+// #<viewId> or #<viewId>-<sectionId>. The longest matching view id wins, so a view called "pads" and one
+// called "pads-extra" can both be reached. A hash that matches nothing shows the index.
 function pickView(hash) {
   const byLength = [...VIEWS].sort((a, b) => b.id.length - a.id.length);
   for (const entry of byLength) {
@@ -209,12 +90,6 @@ async function showIndex() {
     });
     main.insertAdjacentHTML('beforeend', `<ul class="gallery-view-list">${items.join('')}</ul>`);
   }
-  heading('Sections');
-  const links = ['#kinds', '#kinds-nature', '#kinds-buildings', '#kinds-wonders', '#helpers', '#worlds',
-    ...Object.keys(SAMPLE_WORLDS).flatMap(key => MOODS.map(mood => `#world-${key}-${mood}`)),
-    ...DATA.states.map(state => `#${state.name}`)];
-  main.insertAdjacentHTML('beforeend', `<ul class="gallery-links">${links.map(link => `<li><a href="${link}">${link}</a></li>`).join('')}</ul>`);
-  if (!DATA.states.length) main.insertAdjacentHTML('beforeend', `<p class="gallery-note">${escape(DATA.stateNote || 'No layout states.')}</p>`);
   heading('Town states', DATA.town.note || `${DATA.town.states.length} states from states/town/, for the views in data.town.states`);
   if (DATA.town.states.length) {
     main.insertAdjacentHTML('beforeend', `<ul class="gallery-links">${DATA.town.states.map(entry =>
@@ -224,10 +99,8 @@ async function showIndex() {
 
 function nav(hash) {
   const current = pickView(hash)?.entry.id;
-  const old = ['#kinds', '#helpers', '#worlds', ...DATA.states.map(state => `#${state.name}`)].map(link =>
-    `<a href="${link}" ${`#${hash}` === link ? 'aria-current="page"' : ''}>${link.slice(1)}</a>`);
   const views = VIEWS.map(entry => `<a href="#${escape(entry.id)}" class="gallery-nav-view${entry.error ? ' gallery-nav-failed' : ''}" ${current === entry.id ? 'aria-current="page"' : ''} title="${escape(entry.error ? `Failed: ${entry.error}` : entry.view?.title ?? '')}">${escape(entry.id)}</a>`);
-  $('#gallery-nav').innerHTML = [...views, ...old, `<a href="#index" ${hash === 'index' ? 'aria-current="page"' : ''}>index</a>`].join('');
+  $('#gallery-nav').innerHTML = [...views, `<a href="#index" ${hash === 'index' ? 'aria-current="page"' : ''}>index</a>`].join('');
 }
 
 async function render() {
@@ -237,16 +110,8 @@ async function render() {
   // Whatever fails below, the page still says it's done, so a screenshot shows the failure.
   try {
     nav(hash);
-    let match, view;
-    if ((view = pickView(hash))) await showView(view);
-    else if (hash === 'kinds') await showKinds();
-    else if ((match = hash.match(/^kinds-(\w+)$/))) await showKinds(match[1]);
-    else if ((match = hash.match(/^kind-(\w+)$/))) await showKind(match[1]);
-    else if (hash === 'helpers') await showHelpers();
-    else if (hash === 'worlds') await showWorlds();
-    else if ((match = hash.match(/^world-(\w+)-(\w+)$/))) await showWorld(match[1], match[2]);
-    else if ((match = hash.match(/^live-(\w+)-(\w+)$/))) await showLive(match[1], match[2]);
-    else if (hash.startsWith('state-')) await showState(hash);
+    const view = pickView(hash);
+    if (view) await showView(view);
     else await showIndex();
   } catch (error) {
     console.error(error);

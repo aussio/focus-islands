@@ -19,8 +19,6 @@ globalThis.document ??= { createElement: element, createElementNS: (_, tag) => e
 const { SAMPLE_NAMES, sampleTown, sampleFilm } = await import('../../town/samples.js');
 const { parseTown, isTownWorld, drawKey } = await import('./world.js');
 const { createSceneCore } = await import('../core.js');
-const { createIslandScene } = await import('../index.js');
-const { SAMPLE_WORLDS } = await import('../sample-worlds.js');
 const { AIM_SECONDS, ELEVATION, createStage } = await import('../stage.js');
 
 test('parseTown reads every sample town', () => {
@@ -108,7 +106,7 @@ test('parseTown keeps out and clear from the layout, and copes with odd worlds',
     assert.equal(m.islands.length, 0);
     assert.equal(m.view.island, null);
   }
-  assert.equal(isTownWorld({ islands: [{ id: 'home', origin: [0, 0], rows: ['g'] }] }), false, 'a square world is not a town');
+  assert.equal(isTownWorld({ islands: [{ id: 'home', origin: [0, 0], rows: ['g'] }] }), false, 'a world without grids is not a town');
   assert.equal(isTownWorld(null), false);
 });
 
@@ -209,17 +207,22 @@ test('only changed islands rebuild; a drifting island moves; an upgrade rebuilds
   core.dispose();
 });
 
-test('town and square worlds take turns cleanly', () => {
+test('a town and the empty sky take turns cleanly', () => {
   const { core } = clockedCore();
-  core.setWorld(sampleTown('village'));
-  assert.ok(core.town);
-  core.setWorld(SAMPLE_WORLDS.grown.world);
-  assert.equal(core.town, null, 'the town is gone');
-  assert.equal(core.scene.getObjectByName('town'), undefined);
-  core.setWorld(sampleTown('village'));
-  assert.ok(core.town && core.scene.getObjectByName('town'));
-  assert.equal(core.scene.getObjectByName('island'), undefined, 'the square island is gone');
-  for (const world of [{}, { islands: [] }]) { core.setWorld(world); core.update(1); }
+  const village = sampleTown('village');
+  core.setWorld(village);
+  const islandGroups = () => core.town.root.children.filter(node => node.name.startsWith('island-')).length;
+  assert.equal(islandGroups(), village.islands.length);
+  for (const world of [{}, { islands: [] }, { islands: [{ id: 'home', origin: [0, 0], rows: ['g'] }] }]) {
+    core.setWorld(world);
+    assert.equal(core.town.root.children.length, 0, 'every island and bridge is gone');
+    assert.equal(core.actors.rigs.length, 0, 'and every helper');
+    assert.equal(core.setWorld({}), false, 'one empty sky is like another');
+    core.update(1);
+  }
+  core.setWorld(village);
+  assert.equal(islandGroups(), village.islands.length, 'the town comes back whole');
+  assert.equal(core.actors.rigs.length, village.helpers.length);
   core.dispose();
 });
 
@@ -310,16 +313,6 @@ test('every island\'s pieces can be logged', () => {
   for (const island of world.islands) assert.ok(log.get(island.id) instanceof Map, `${island.id} has a piece log`);
   for (const bridge of world.bridges) assert.ok(log.get(`bridge:${bridge.id}`) instanceof Map);
   core.dispose();
-});
-
-test('createIslandScene falls back quietly without WebGL for a town too', async () => {
-  const host = element('div');
-  const scene = createIslandScene(host);
-  assert.equal(scene.setWorld(sampleTown('village')), false, 'without WebGL, no world is shown');
-  assert.equal(await scene.capture(), null);
-  assert.equal(scene.stats(), null);
-  assert.ok(host.children.find(child => child.className === 'cozy-island-fallback'));
-  scene.dispose();
 });
 
 test('the gallery can tilt the camera; the scene keeps Today\'s angle', () => {

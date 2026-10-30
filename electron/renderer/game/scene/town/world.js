@@ -49,7 +49,7 @@ const round4 = v => Math.round(v * 1e4) / 1e4 + 0;
 const finite = v => typeof v === 'number' && Number.isFinite(v);
 const list = v => (Array.isArray(v) ? v : []);
 
-// A world goes the town way when its islands carry grids; anything else is the square layout's world.
+// A town world's islands carry grids; the scene draws anything else as an empty sky.
 export const isTownWorld = world => list(world?.islands).some(island => island?.grid && Array.isArray(island.grid.points));
 
 export function parseTown(world) {

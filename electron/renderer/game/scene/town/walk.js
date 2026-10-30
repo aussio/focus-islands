@@ -1,5 +1,5 @@
-// Helper routes on the town grid. Stream D owns this. Plans have the same shape as routes.js: one per
-// helper, in helper order, each { job | rest, line } (plus target, still and fishBottom where they apply),
+// Helper routes on the town grid. Stream D owns this. Plans come one per helper, in helper order, each
+// { job | rest, line } (plus target, still and fishBottom where they apply),
 // where line is a motion.js timeline whose steps carry heights (y), so helpers stand at their island's
 // lift and follow each bridge up and down.
 //
@@ -11,7 +11,7 @@
 // - Every bridge joins its two feet, whatever its type (bridges.js bridgeWays): crossing costs the deck's
 //   length; on a water slide, sliding down costs 0.5 × and climbing the stair 1.5 ×. Cloud steps are hops;
 //   the slide is sit down, slide, splash, stand up; the stair is a climb.
-// - Routes over land get today's corner rounding (routes.js smoothRoute).
+// - Routes over land get their corners rounded (smoothRoute).
 // - focus: work at the nearest job spot (kinds.js JOB_SPOTS), on the helper's own island first; carry to
 //   a pile on the job's island, else a house door there, and only then the nearest pile elsewhere by
 //   route. break and away: sit by a fire, fish off a coast, stroll or nap. done: sleep. No job: sit
@@ -22,7 +22,7 @@ import { JOB_SPOTS, KINDS, MODEL_SCALE } from '../../kinds.js';
 import { timeline, yawTo } from '../motion.js';
 import { bridgeWays } from './bridges.js';
 
-// What each job does at its spot, and what it carries to the pile (as routes.js WORK).
+// What each job does at its spot, and what it carries to the pile.
 export const WORK = {
   wood: { anim: 'chop', tool: 'axe', item: 'log', dur: 5.4, reach: 0.02 },
   stone: { anim: 'mine', tool: 'pick', item: 'stone', dur: 4.8, reach: 0.2 },
@@ -152,7 +152,7 @@ function nodePath(found, goal) {
   return path;
 }
 
-// Rounds the corners of a walking route so helpers don't move like chess pieces (routes.js).
+// Rounds the corners of a walking route so helpers don't move like chess pieces.
 function smoothRoute(points) {
   let pts = points.filter((p, i) => i === 0 || Math.hypot(p[0] - points[i - 1][0], p[1] - points[i - 1][1]) > 1e-4);
   for (let pass = 0; pass < 2; pass++) {

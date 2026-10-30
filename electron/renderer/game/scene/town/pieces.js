@@ -245,7 +245,7 @@ export function wallFrame(p, q, y, out) {
 }
 
 // ---------- Piece keys ----------
-// Gives a model context (scene/build.js) ctx.piece(key). Everything added to ctx.batch after piece(key),
+// Gives a model context (town/build.js) ctx.piece(key). Everything added to ctx.batch after piece(key),
 // directly or through ctx.add, belongs to that piece. With a log (a Map), each piece's vertices are
 // recorded as text rounded to 4 decimals, so the stability check can compare pieces between states.
 export function withPieces(ctx, log = null) {

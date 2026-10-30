@@ -3,9 +3,8 @@
 // is the lighthouse beam turning, the airship bobbing and a faint shimmer on the waterfall, all slow.
 //
 // Edge kinds (lighthouse, airship, skyfall) put their outward or hanging part on the side that faces open
-// sky (coastFrame). On the town grid the layout says which way that is (thing.coast); on the square grid
-// they look at the cells around their footprint. With no sky next to them (the gallery's small portrait
-// island), they draw a version that stays on the grass.
+// sky (coastFrame). The layout says which way that is (thing.coast). With no coast (an inland pad, or the
+// gallery's small portrait island), they draw a version that stays on the grass.
 import * as THREE from 'three';
 import { CELL, P } from '../style.js';
 import { Batch, place, taperedTube } from '../ground.js';
@@ -22,15 +21,13 @@ const at = (frame, x, y, z) => new THREE.Vector3(x, y, z).applyMatrix4(frame);
 const evening = name => name !== 'focus';
 
 // ---------- Finding the coast ----------
-const SIDES = [[0, 1], [1, 0], [0, -1], [-1, 0]]; // grid steps: south (toward the camera), east, north, west
-const SEEN = [0.3, 0.15, 0, 0.15]; // on a tie, prefer a side the camera can see
 
 // A frame on the thing's ground point whose local +z points out to open sky, and where along that side
 // the open sky is. { frame, coast, yaw (world yaw of +z), half (half the side's length), depth (centre to
-// that side), along (middle of the open cells along the side, in frame x), span }.
-// With no sky next to the footprint, +z is the thing's back and coast is false.
-// Town things carry coast: { yaw, width } from the layout, and coastDepth (middle to the island's edge, in
-// island units) and modelScale from scene/town/pads.js. Sizes come back in the model's own units.
+// that side), along (middle of the open side, in frame x), span }.
+// Coast things carry coast: { yaw, width } from the layout, and coastDepth (middle to the island's edge,
+// in island units) and modelScale from scene/town/pads.js. Sizes come back in the model's own units.
+// Without a coast, +z is the thing's back and coast is false.
 export function coastFrame(ctx, thing, base) {
   const ry = Number.isFinite(thing.yaw) ? thing.yaw : (thing.facing ?? 0) * Math.PI / 2;
   if (thing.coast && Number.isFinite(thing.coast.yaw)) {
@@ -39,38 +36,9 @@ export function coastFrame(ctx, thing, base) {
     const depth = (Number.isFinite(thing.coastDepth) ? thing.coastDepth : 0.6) / k;
     return { frame: base.clone().multiply(place(0, 0, 0, { ry: yaw - ry })), coast: true, yaw, half, depth, along: 0, span: half * 2 };
   }
-  const get = ctx.model?.get;
-  let best = null;
-  if (get && Number.isFinite(thing.c0) && Number.isFinite(thing.r0)) {
-    const inside = (c, r) => c >= thing.c0 && c < thing.c0 + thing.w && r >= thing.r0 && r < thing.r0 + thing.h;
-    SIDES.forEach(([dc, dr], s) => {
-      const open = [];
-      let reach = 0;
-      for (let a = 0; a < thing.w; a++) for (let b = 0; b < thing.h; b++) {
-        const c = thing.c0 + a, r = thing.r0 + b;
-        if (inside(c + dc, r + dr) || get(c + dc, r + dr)) continue;
-        open.push([c, r]);
-        let k = 1;
-        while (k < 4 && !get(c + dc * (k + 1), r + dr * (k + 1))) k++;
-        reach += k;
-      }
-      if (!open.length) return;
-      const score = open.length * 10 + reach + SEEN[s];
-      if (!best || score > best.score) best = { score, dc, dr, open };
-    });
-  }
-  const yaw = best ? Math.atan2(best.dc, best.dr) : ry + Math.PI;
-  const frame = base.clone().multiply(place(0, 0, 0, { ry: yaw - ry }));
-  const alongCells = best ? (best.dr ? thing.w : thing.h) : thing.fw;
-  const acrossCells = best ? (best.dr ? thing.h : thing.w) : thing.fd;
-  let along = 0, span = alongCells * CELL;
-  if (best) {
-    const cos = Math.cos(yaw), sin = Math.sin(yaw);
-    const xs = best.open.map(([c, r]) => (c - thing.c) * CELL * cos - (r - thing.r) * CELL * sin);
-    along = (Math.min(...xs) + Math.max(...xs)) / 2;
-    span = Math.max(...xs) - Math.min(...xs) + CELL;
-  }
-  return { frame, coast: Boolean(best), yaw, half: alongCells * CELL / 2, depth: acrossCells * CELL / 2, along, span };
+  const yaw = ry + Math.PI;
+  const frame = base.clone().multiply(place(0, 0, 0, { ry: Math.PI }));
+  return { frame, coast: false, yaw, half: thing.fw * CELL / 2, depth: thing.fd * CELL / 2, along: 0, span: thing.fw * CELL };
 }
 
 // ---------- Small shared pieces ----------
@@ -156,8 +124,8 @@ function beamGeometry(length, spread, colour, strength) {
   return g;
 }
 
-// The keeper's cottage, door on its +z side.
-function keeperCottage(ctx, frame) {
+// The keeper's house, door on its +z side.
+function keeperHouse(ctx, frame) {
   const w = 0.5, d = 0.36, h = 0.34, wall = P.walls[1];
   ctx.add(rbox(w + 0.05, 0.05, d + 0.05, 0.01, R), 'matte', P.trim, place(0, 0.025, 0), frame);
   ctx.add(rbox(w, h, d, E, R), 'matte', wall, place(0, h / 2 + 0.03, 0), frame);
@@ -215,8 +183,8 @@ function lighthouse(ctx, thing, base) {
   ctx.add(new THREE.CylinderGeometry(0.012, 0.012, 0.1, 6), 'matte', P.trim, place(0, deck + 0.53, 0), tower, false);
   ctx.add(new THREE.SphereGeometry(0.035, 12, 8), 'matte', BRASS, place(0, deck + 0.58, 0), tower, false);
 
-  // The keeper's cottage leans on the tower's landward side, door facing inland.
-  keeperCottage(ctx, cf.frame.clone().multiply(place(tx, 0, tz - 0.5, { ry: Math.PI })));
+  // The keeper's house leans on the tower's landward side, door facing inland.
+  keeperHouse(ctx, cf.frame.clone().multiply(place(tx, 0, tz - 0.5, { ry: Math.PI })));
   ctx.blob(cf.frame, 0.85, 0.85, tx, tz);
   ctx.blob(cf.frame, 0.75, 0.55, tx, tz - 0.5);
 

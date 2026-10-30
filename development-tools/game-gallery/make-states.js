@@ -2,8 +2,6 @@
 // Writes made-up game states for the gallery and for layout work, from the real game rules:
 //
 //   node development-tools/game-gallery/make-states.js            the town states (below)
-//   node development-tools/game-gallery/make-states.js --square [person]
-//                                                                  the old square states (states/day-<n>.json)
 //   --commit <ref>   use the rules as committed at <ref> (say HEAD) instead of the working tree, for when
 //                    the rules are half-way through a change. Reads git only; changes nothing.
 //
@@ -41,7 +39,6 @@ const { PEOPLE } = require(path.join(dir, 'made-up-days'));
 
 const FILM_DAYS = [1, 7, 21, 30, 40, 60, 90, 130, 180];
 const OTHERS_DAY = 180;
-const SQUARE_DAYS = [1, 7, 30, 90, 180];
 
 function describe(state) {
   const buildings = state.islands.reduce((n, island) => n + island.buildings.length, 0);
@@ -69,17 +66,5 @@ function townStates() {
   for (const [name, state] of files) write(path.join(out, name), state);
 }
 
-function squareStates(person = 'steady') {
-  if (!PEOPLE.some(p => p.id === person)) {
-    console.error(`Unknown person "${person}". Try one of: ${PEOPLE.map(p => p.id).join(', ')}.`);
-    process.exit(1);
-  }
-  const out = path.join(__dirname, 'states');
-  fs.mkdirSync(out, { recursive: true });
-  const states = simulate(person, SQUARE_DAYS);
-  for (const day of SQUARE_DAYS) write(path.join(out, `day-${day}.json`), states[day]);
-}
-
-if (args[0] === '--square') squareStates(args[1]);
-else if (args[0]) { console.error('Usage: make-states.js [--commit <ref>] [--square [person]]'); process.exit(2); }
-else townStates();
+if (args[0]) { console.error('Usage: make-states.js [--commit <ref>]'); process.exit(2); }
+townStates();

@@ -205,7 +205,7 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
     // elevation: the camera's angle above the horizon (gallery only; the scene keeps Today's).
     frame(points, aspect, land = [], { elevation = ELEVATION } = {}) {
       spots = land;
-      look = target = move = null; // the square scene never moves the camera
+      look = target = move = null; // a framed view never moves the camera
       const fit = frameCamera(camera, points, aspect, undefined, { elevation });
       distance = fit.distance;
       camera.far = Math.max(400, distance * 4);

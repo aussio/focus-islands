@@ -1,5 +1,5 @@
 #!/bin/bash
-# Screenshot tour of the sky island on Today, taken from a hidden Testing app with its own instance.
+# Screenshot tour of the sky-island town on Today, taken from a hidden Testing app with its own instance.
 # Pictures are copied to .build/game-tour/<name>.png. Never touches Personal data or other instances.
 #
 #   scripts/game-tour.sh
@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -151,6 +152,10 @@ settle_return()
 capture("07-week")
 focus_then_break()
 capture("08-week-check-in")
+# A check-in can change where the camera should look; it moves there over 2.5 s (and jumps while the
+# window is hidden). Wait a little longer, then show where it settled.
+time.sleep(3)
+capture("08b-after-check-in")
 # Keep going (picking the first option) until a build choice shows, to check the larger card.
 # Eight tries: the build card can come as late as the fifth card, and each try may bring only one.
 BUILD_TRIES = 8

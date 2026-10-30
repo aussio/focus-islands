@@ -12,10 +12,10 @@
 //   (kinds.js `scale`, if a kind ever needs one) × thing.scale.
 // - One-point things (trees, rocks, the pile, seats...) and the flower bed on a pair stand on the grass
 //   without a pad, at thing.scale.
-// - Models keep the square scene's signature (models/index.js). They get the square fields they read,
-//   worked out here: footprint in cells (fw, fd), facing in quarter turns (any fraction, so windmill sails
-//   keep the shared wind), and for coast buildings `coast` with how far the island's edge is
-//   (coastDepth), which coastFrame in wonders.js reads instead of looking at square cells.
+// - Models share one signature (models/index.js). They get the fields they read, worked out here: the
+//   footprint they were designed for in cells (fw, fd, from the kind's foot), facing in quarter turns
+//   (any fraction, so windmill sails keep the shared wind), and for coast buildings `coast` with how far
+//   the island's edge is (coastDepth), which coastFrame in wonders.js reads.
 // - Each pad corner piece is tagged pad:<cell>:<corner>, and each model thing:<id>, so the drawing check
 //   can see that a thing's pieces change only when its own points do.
 import { KINDS, MODEL_SCALE } from '../../kinds.js';
@@ -25,6 +25,8 @@ import { modelFor } from '../models/index.js';
 import { addPiece, piecesAt, slabPiece } from './pieces.js';
 
 export const COAST_EDGE = 0.3; // how far the grass reaches past the coast points (half a step, less rounding)
+// The footprint each foot's models were designed for, in cells [across, front to back].
+const DESIGN_CELLS = { point: [1, 1], pair: [2, 1], cell: [2, 2], cells: [3, 2], ring: [3, 3] };
 const QUARTER = Math.PI / 2;
 const PAD_AO = { ao: { ground: 0, height: 0.2, min: 0.85 } };
 
@@ -83,8 +85,8 @@ function placeModel(ctx, island, thing, old) {
   const s = modelScale(thing);
   const y = thing.pad ? TOWN.padRise : 0;
   const base = place(x, y, z, { ry: yaw, s });
-  // The footprint the model was designed for, in square cells, in its own frame.
-  let [fw, fd] = kind.size ?? [1, 1];
+  // The footprint the model was designed for, in cells, in its own frame.
+  let [fw, fd] = DESIGN_CELLS[kind.foot] ?? [1, 1];
   if (kind.foot === 'pair' && thing.points.length === 2) {
     const [a, b] = thing.points.map(p => island.grid.points[p]);
     fw = (Math.hypot(b[0] - a[0], b[1] - a[1]) + 0.4) / CELL;

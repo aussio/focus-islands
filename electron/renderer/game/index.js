@@ -4,11 +4,11 @@
 //
 // - mount(host) remembers the island slot. The scene itself starts on the first show() that has a game,
 //   so until then (and whenever anything fails) the slot keeps its plain CSS sky.
-// - show() lays the world out again only when game.change (or the profile) moves, and changes the mood only
-//   when it changes.
+// - show() lays the town out again (town/index.js buildTown) only when game.change (or the profile) moves,
+//   and changes the mood only when it changes.
 // - capture() asks the scene for one fresh frame and resolves true when it drew one, false otherwise.
 // Nothing here ever throws into the page.
-import { buildWorld } from './layout/index.js';
+import { buildTown } from './town/index.js';
 import { createIslandScene } from './scene/index.js';
 
 let host = null, stage = null, scene = null, failed = false;
@@ -54,10 +54,10 @@ function apply() {
   if (change !== shownChange) {
     shownChange = change;
     try {
-      scene.setWorld(buildWorld(game));
+      scene.setWorld(buildTown(game));
     } catch (error) {
       // Keep whatever was drawn before; try again when the game changes.
-      report('could not lay out this island.', error);
+      report('could not lay out the town.', error);
     }
   }
   if (mood !== shownMood) {

@@ -1,14 +1,11 @@
-// Building models, one function per blueprint kind, all with the signature (ctx, thing, base).
-// The cottage lives here with the shared wall, door, window and roof helpers; other buildings have
-// their own files (making.js...). Any kind without a model falls back to the placeholder in
-// placeholder.js.
+// Shared building parts: framed windows, arched doors and pitched roofs, used by the building models
+// (making.js, wonders.js) and the placeholder. Houses are block houses now (scene/town/blocks.js).
 import * as THREE from 'three';
 import { P } from '../style.js';
-import { hashString, place } from '../ground.js';
+import { place } from '../ground.js';
 import { gableGeometry, rbox } from '../parts.js';
 
 const R = 2; // rounded-box segments
-const E = 0.012; // edge rounding: a sliver, not pillowy
 
 // A white-framed window with a cross, recessed glass and a sill, on the wall plane z.
 export function addWindow(ctx, base, x, y, z, size = 0.22) {
@@ -75,39 +72,3 @@ export function addRoof(ctx, base, { w, d, top, roof, wall, pitch = 0.5, over = 
   }
   return rise;
 }
-
-// The town house from the art prototype: plinth, tall bright walls with white corner boards, a white
-// band, a low pitched roof with a white ridge, chimney, arched door and framed windows that glow in
-// the evening. The walls are tall and the roof low, so from the high camera the walls, door and
-// windows show below the roof whichever way the house faces.
-export function townHouse(ctx, thing, base, { wall, roof, storeys = 1, w = 0.9, d = 0.92 }) {
-  const wallH = 0.8 + (storeys - 1) * 0.38;
-  ctx.add(rbox(w + 0.06, 0.07, d + 0.06, E, R), 'matte', P.trim, place(0, 0.035, 0), base);
-  ctx.add(rbox(w, wallH, d, E, R), 'matte', wall, place(0, wallH / 2 + 0.02, 0), base);
-  // White corner boards outline the walls, so they read apart from the roof above.
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) ctx.add(rbox(0.05, wallH - 0.04, 0.05, 0.008, R), 'matte', P.trim, place(sx * w / 2, wallH / 2 + 0.03, sz * d / 2), base, false);
-  // White band where the wall meets the roof.
-  ctx.add(rbox(w + 0.03, 0.045, d + 0.03, 0.008, R), 'matte', P.trim, place(0, wallH - 0.005, 0), base, false);
-  addRoof(ctx, base, { w, d, top: wallH + 0.02, roof, wall });
-  addDoor(ctx, base, -0.18, d / 2);
-  for (let level = 0; level < storeys; level++) {
-    const y = 0.42 + level * 0.38;
-    for (const x of level === 0 ? [0.2] : [-0.2, 0.2]) addWindow(ctx, base, x, y, d / 2);
-  }
-  // Side and back windows too, so a house turned any way still reads as a house.
-  for (const turn of [1, -1]) {
-    const side = base.clone().multiply(place(0, 0, 0, { ry: turn * Math.PI / 2 }));
-    for (let level = 0; level < storeys; level++) addWindow(ctx, side, 0, 0.42 + level * 0.38, w / 2, 0.2);
-  }
-  const back = base.clone().multiply(place(0, 0, 0, { ry: Math.PI }));
-  for (let level = 0; level < storeys; level++) addWindow(ctx, back, 0, 0.42 + level * 0.38, d / 2, 0.2);
-  ctx.blob(base, 1.3, 1.2, 0, 0.04);
-}
-
-export const BUILDINGS = {
-  cottage(ctx, thing, base) {
-    const k = hashString(thing.id);
-    const look = [[P.walls[0], P.roofs[0]], [P.walls[1], P.roofs[1]], [P.walls[2], P.roofs[2]]][Math.floor(k * 3) % 3];
-    townHouse(ctx, thing, base, { wall: look[0], roof: look[1], storeys: hashString(`${thing.id}:storeys`) < 0.3 ? 2 : 1 });
-  },
-};

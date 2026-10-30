@@ -3,7 +3,7 @@
 //
 //   #pads                  every section
 //   #pads-lineup, #pads-lineup-break   every special model on its pad beside a 1- and a 2-storey block
-//                                      and a helper; #pads-points: the one-point things, no pads
+//                                      and a helper; #pads-points: every kind without a pad
 //   #pads-coast            coast buildings on the south, east and west coasts
 //   #pads-bridge-<type>    one bridge type, level, sloping by 1.0 and bent, in focus and break
 //   #pads-crossing, #pads-crossing-2   a helper crossing each type there and back (the slide: down,
@@ -240,30 +240,34 @@ function lineUp(kind, samples) {
   };
 }
 
-// The one-point things and the flower bed in a row, without pads, beside a block.
-function pointRow(ctx) {
+// Every kind drawn without a pad: the one-point things, the flower bed and the lanterns.
+const POINT_KINDS = Object.keys(KINDS).filter(k => ['point', 'pair'].includes(KINDS[k].foot));
+const ROW = 6; // kinds per picture
+const LINE_Z = 1.0; // the free line across the sample island used for the row: seven free spots a step apart
+
+// Some of those kinds in a row, beside a block on the row's first spot.
+const pointRow = kinds => ctx => {
   const model = sampleModel('village');
   const island = model.byId.get('home');
-  const kinds = Object.keys(KINDS).filter(k => ['point', 'pair'].includes(KINDS[k].foot) && k !== 'cottage');
-  const row = [...island.land].filter(p => !island.floors.has(p) && !island.taken.has(p) && !island.lanes.has(p))
-    .sort((a, b) => island.grid.points[a][1] - island.grid.points[b][1] || island.grid.points[a][0] - island.grid.points[b][0]);
+  const at = p => island.grid.points[p];
+  const free = [...island.land].filter(p => !island.floors.has(p) && !island.taken.has(p) && !island.lanes.has(p));
   // Points along one line across the island, about a step apart.
-  const line = row.filter(p => Math.abs(island.grid.points[p][1] - 0.4) < 0.35).sort((a, b) => island.grid.points[a][0] - island.grid.points[b][0]);
+  const line = free.filter(p => Math.abs(at(p)[1] - LINE_Z) < 0.35).sort((a, b) => at(a)[0] - at(b)[0]);
   const picked = [];
-  for (const p of line) if (!picked.length || island.grid.points[p][0] - island.grid.points[picked.at(-1)][0] > 0.55) picked.push(p);
+  for (const p of line) if (!picked.length || at(p)[0] - at(picked.at(-1))[0] > 0.55) picked.push(p);
+  const [block, ...spots] = picked;
   const things = [];
   kinds.forEach((kind, i) => {
-    const p = picked[i];
+    const p = spots[i];
     if (p === undefined) return;
     const points = KINDS[kind].foot === 'pair' ? [p, island.grid.neighbours[p].find(q => !picked.includes(q) && island.land.has(q)) ?? p] : [p];
     things.push({ id: `row:${kind}`, kind, island: island.id, points, yaw: 0, scale: 1, pad: false });
   });
-  const on = standInGround(ctx, island, [...island.land].filter(p => Math.abs(island.grid.points[p][1] - 0.4) < 1.3 && things.some(t => Math.abs(island.grid.points[t.points[0]][0] - island.grid.points[p][0]) < 1)));
+  const xs = [block, ...things.map(t => t.points[0])].map(p => at(p)[0]);
+  const on = standInGround(ctx, island, [...island.land].filter(p => Math.abs(at(p)[1] - LINE_Z) < 1.3 && xs.some(x => Math.abs(x - at(p)[0]) < 1)));
   buildThings(ctx, island, things.filter(t => t.points.every(p => on.has(p))));
-  const first = island.grid.points[picked[0]];
-  box(ctx, first[0] - 0.9, first[1], 0, 0.55, 0);
-  return things.map(t => t.kind);
-}
+  box(ctx, ...at(block), 0, 0.55, 0);
+};
 
 // ---------- Coast buildings ----------
 
@@ -430,10 +434,14 @@ export default {
     lineupSection('focus'),
     lineupSection('break'),
     {
-      id: 'points', title: 'Without pads: one-point things and the flower bed, beside a 1-storey block',
+      id: 'points', title: 'Without pads: one-point things, the flower bed and the lanterns, beside a 1-storey block',
       async render(host, tools) {
+        tools.note(`Every kind without a pad (${POINT_KINDS.length}), ${ROW} to a picture, left to right. The special models on pads are in the line-up.`);
         const row = tools.grid('gallery-medium');
-        for (const mood of ['focus', 'break']) row.append(tools.card(mood, '', [await tools.shot(pointRow, { mood, width: 640, height: 300 })]));
+        for (let i = 0; i < POINT_KINDS.length; i += ROW) {
+          const kinds = POINT_KINDS.slice(i, i + ROW);
+          for (const mood of ['focus', 'break']) row.append(tools.card(mood, kinds.join(', '), [await tools.shot(pointRow(kinds), { mood, width: 540, height: 250 })]));
+        }
       },
     },
     {
