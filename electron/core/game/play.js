@@ -184,11 +184,14 @@ function homesFit(bp, island, rules, land) {
   return houses > 0;
 }
 // Where it would go: an island index, -1 for things that need no spot, or null if there is no room.
-// It picks the island with the most room that has enough room for the blueprint's ground (ties: the
-// later island). landOf(island) can stand in for each island's land, to look ahead.
+// Of the islands with enough room for the blueprint's ground, it picks the one with the fewest buildings
+// for its land (buildings ÷ land, homes included), so every island fills up alike and a young island gets
+// the next things until it runs out of room. Ties go to the most room, then the earlier island.
+// (Room ÷ land would count the coast, which takes most of a small young island, so new islands would
+// look full while still nearly empty.) landOf(island) can stand in for each island's land, to look ahead.
 function placeFor(bp, state, rules, landOf = null) {
   if (bp.noSpot) return -1;
-  let best = null, bestRoom = -Infinity;
+  let best = null, bestCrowd = Infinity, bestRoom = -Infinity;
   state.islands.forEach((island, i) => {
     const land = landOf ? landOf(island) : island.land;
     const room = roomOn(island, rules, land);
@@ -197,7 +200,9 @@ function placeFor(bp, state, rules, landOf = null) {
     if (bp.kind === 'homes' && !homesFit(bp, island, rules, land)) return;
     // A repeatable item may fill at most a set share of an island's pad buildings (never less than its small base cap).
     if (bp.perIsland && (island.counts[bp.id] || 0) >= Math.max(bp.perIsland, Math.floor(island.pads * rules.maxShareOfIsland))) return;
-    if (best === null || room >= bestRoom) { best = i; bestRoom = room; }
+    const crowd = island.buildings.length / Math.max(1, land);
+    const better = best === null || crowd < bestCrowd - EPSILON || (crowd < bestCrowd + EPSILON && room > bestRoom + EPSILON);
+    if (better) { best = i; bestCrowd = crowd; bestRoom = room; }
   });
   return best;
 }

@@ -57,6 +57,19 @@ test('steady planner: by day 180 the islands read as a town, with at least 20 bl
   assert.ok(count('room') >= 2 * count('house') && count('floor') >= count('house'), 'houses grow by rooms and floors more than they start');
 });
 
+test('steady planner: by day 180 every island feels lived in, and home holds at most 60% of the blocks', t => {
+  const result = runFor('steady'), state = result.states[DAYS];
+  const arrivedOn = k => (k ? result.timeline.find(day => day.islands > k).day : 0);
+  const rows = state.islands.map((island, k) => ({ id: island.id, age: DAYS - arrivedOn(k), land: island.land,
+    buildings: island.buildings.filter(b => b.blueprint !== 'flowers').length, blocks: blocksOn(island) }));
+  t.diagnostic(JSON.stringify(rows));
+  for (const row of rows) {
+    if (row.age >= 30) assert.ok(row.buildings >= 3, `${row.id}, ${row.age} days old: ${row.buildings} buildings besides flower beds`);
+  }
+  const total = rows.reduce((n, row) => n + row.blocks, 0);
+  assert.ok(rows[0].blocks <= 0.6 * total, `home has ${rows[0].blocks} of ${total} blocks`);
+});
+
 test('every person: home has the most land on every day', () => {
   for (const person of MD.PEOPLE) {
     for (const day of runFor(person.id).timeline) {

@@ -500,7 +500,7 @@ test("priceOf reads a blueprint's own step before the shared ones", () => {
   assert.deepEqual(price('windmill', 1), { stone: 140, planks: 126, soil: 84, saplings: 49 });
 });
 
-test('homes: a house first, rooms before another house, floors under the blocks, on the island with the most room', () => {
+test('homes: a house first, rooms before another house, floors under the blocks, each island on its own', () => {
   const { state, build, island } = bareState(R.DEFAULT_RULES, 100);
   assert.equal(placeOf('house', state), 'home', 'the first house is always allowed');
   assert.equal(placeOf('room', state), null, 'a room needs a house');
@@ -514,12 +514,18 @@ test('homes: a house first, rooms before another house, floors under the blocks,
   build('floor'); build('floor'); build('floor');
   assert.equal(placeOf('floor', state), null, 'three floors on three blocks: no more until the house grows');
   assert.equal(play.beds(state, R.DEFAULT_RULES), 3 + 6, 'one bed per block storey: 2 for the house, 1 for the room, 1 per floor');
-  // Rooms and floors only go where a house is; everything else goes to the island with the most room.
+  // Rooms and floors only go where a house is; everything else goes to the island with the fewest buildings for its land.
   island('isle-1', 'large', 300);
   assert.equal(placeOf('garden', state), 'isle-1');
   assert.equal(placeOf('room', state), 'home');
   assert.equal(placeOf('house', state), 'isle-1');
   assert.equal(placeOf('bridge', state), 'none');
+  // The second-house rule counts each island's own houses and rooms: home has 2 houses and 1 room, so no
+  // third house there, but a new island still gets its first.
+  build('house');
+  const homeOnly = { ...state, islands: state.islands.slice(0, 1) };
+  assert.equal(placeOf('house', homeOnly), null, 'home: fewer rooms than houses');
+  assert.equal(placeOf('house', state), 'isle-1', 'a new island can always start its first house');
   // Not enough room for the ground: nowhere.
   const small = bareState();
   small.build('garden');
@@ -531,6 +537,23 @@ test('homes: a house first, rooms before another house, floors under the blocks,
   tiny.build('house'); tiny.build('room'); tiny.build('room'); tiny.build('room'); tiny.build('room');
   assert.equal(tiny.state.islands[0].blocks, 6);
   assert.equal(placeOf('room', tiny.state, open), null, '7 blocks would cover 35% of 20 points');
+});
+
+test('placeFor: the island with the fewest buildings for its land that has room, so young islands fill up too', () => {
+  const { state, build, island } = bareState(R.DEFAULT_RULES, 300);
+  for (const id of ['garden', 'nursery', 'sawmill', 'workshop', 'flowers']) build(id);
+  island('isle-1', 'small', 40);
+  // Home has far more room (about 136 against 8), but 5 buildings on 300 points; the young island has none.
+  assert.equal(placeOf('windmill', state), 'isle-1');
+  build('windmill', 'isle-1');
+  assert.equal(placeOf('orchard', state), 'home', 'isle-1 has no room left for a cell pad');
+  assert.equal(placeOf('flowers', state), 'home', '1 building on 40 points is more crowded than 5 on 300');
+  // Ties: the most room, then the earlier island.
+  const even = bareState(R.DEFAULT_RULES, 100);
+  even.island('isle-1', 'large', 100);
+  assert.equal(placeOf('garden', even.state), 'isle-1', 'both empty: isle-1 starts with less ground used');
+  even.state.islands[1].used = even.state.islands[0].used;
+  assert.equal(placeOf('garden', even.state), 'home', 'a full tie goes to the earlier island');
 });
 
 test('the homes slot shows the affordable homes blueprint with the lowest number owned ÷ weight', () => {
