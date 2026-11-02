@@ -10,7 +10,7 @@ target_app="$application_dir/Focus Islands.app"
 # The app used to be called Cozy Focus Pet. Both names open the same Personal data, so the old copy
 # is removed once the new one is in place. The data folder is not inside the app and is not touched.
 old_name_app="$application_dir/Cozy Focus Pet.app"
-stage_dir="$(mktemp -d "$application_dir/.cozy-focus-install.XXXXXX")"
+stage_dir="$(mktemp -d "$application_dir/.focus-islands-install.XXXXXX")"
 staged_app="$stage_dir/Focus Islands.app"
 previous_app="$stage_dir/previous.app"
 cleanup() {

@@ -1,10 +1,10 @@
 #!/bin/bash
 # Checks the game demo end to end: a hidden Testing app in its own fresh instance (demo-smoke unless
-# COZY_FOCUS_INSTANCE says otherwise), driven only through the demo panel's buttons and the check-in card.
+# FOCUS_ISLANDS_INSTANCE says otherwise), driven only through the demo panel's buttons and the check-in card.
 # Screenshots are copied to .build/demo-smoke/<instance>/. Any failed check stops the script with an error.
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-export COZY_FOCUS_INSTANCE="${COZY_FOCUS_INSTANCE:-demo-smoke}"
+export FOCUS_ISLANDS_INSTANCE="${FOCUS_ISLANDS_INSTANCE:-demo-smoke}"
 trap '"$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || true' EXIT
 "$repo_root/scripts/run-dev.sh" --reset --demo --hidden-window
 REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'
@@ -18,7 +18,7 @@ from pathlib import Path
 
 root = Path(os.environ["REPO_ROOT"])
 control = root / "scripts/dev-control.sh"
-shots = root / ".build/demo-smoke" / os.environ["COZY_FOCUS_INSTANCE"]
+shots = root / ".build/demo-smoke" / os.environ["FOCUS_ISLANDS_INSTANCE"]
 shots.mkdir(parents=True, exist_ok=True)
 for old in shots.glob("*.png"):
     old.unlink()

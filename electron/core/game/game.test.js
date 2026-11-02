@@ -383,7 +383,7 @@ test('game records survive the store unchanged, including a real SQLite round tr
     assert.deepEqual(JSON.parse(encodePayload(event.payload)), event.payload, event.uniqueKey);
     assert.deepEqual(decodePayload({ kind: event.kind, payloadJSON: encodePayload(event.payload) }), event.payload);
   }
-  const store = openStore(join(tempFolder('cozy-game-'), 'events.sqlite'));
+  const store = openStore(join(tempFolder('focus-islands-game-'), 'events.sqlite'));
   try {
     const ctx = () => ({ now: new Date().toISOString(), todayKey: '2099-01-01', dayKeyOf: iso => iso.slice(0, 10), planFor: () => PLAN });
     const write = record => store.append(record.kind, record.payload, { occurredAt: record.occurredAt, source: 'system', uniqueKey: record.uniqueKey });

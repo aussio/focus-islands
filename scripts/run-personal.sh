@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-build_app="$repo_root/.build/ElectronBuild/CozyFocusPet-darwin-$(uname -m)/CozyFocusPet.app"
+build_app="$repo_root/.build/ElectronBuild/FocusIslands-darwin-$(uname -m)/FocusIslands.app"
 app="/Applications/Focus Islands.app"
 old_app="$HOME/Applications/Cozy Focus Pet.app"
 # The app used to be called Cozy Focus Pet. install-personal-bundle.sh removes this copy after installing the new one.
@@ -9,7 +9,7 @@ old_name_app="/Applications/Cozy Focus Pet.app"
 case "${1:-}" in ''|--watch|--hot-reload) ;; *) echo "Usage: $0 [--watch|--hot-reload]" >&2; exit 2 ;; esac
 if [[ $# -gt 1 ]]; then echo "Usage: $0 [--watch|--hot-reload]" >&2; exit 2; fi
 for running_app in "$app" "$old_name_app" "$old_app" "$build_app"; do
-  if pgrep -f "$running_app/Contents/MacOS/CozyFocusPet" >/dev/null; then
+  if pgrep -f "$running_app/Contents/MacOS/(FocusIslands|CozyFocusPet)" >/dev/null; then
     echo "Focus Islands is already running from $running_app. Right-click its menu bar icon and choose Quit." >&2
     exit 1
   fi

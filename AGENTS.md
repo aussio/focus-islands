@@ -5,7 +5,7 @@ Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) when 
 ## Run safely
 
 - Never use `run-personal.sh` or `run-game-demo.sh` for agent checks. Never modify or reset Personal data (`~/Library/Application Support/CozyFocusPet/events.sqlite`). Keep the legacy folder name.
-- Launch only with `COZY_FOCUS_INSTANCE=<name> scripts/run-dev.sh --hidden-window`; add `--reset` for disposable fresh Testing data, `--demo` for game scenarios, or `--packaged` for packaging checks. State stays in `.build/dev-instances/<name>/`. Use the same instance for every control/smoke command.
+- Launch only with `FOCUS_ISLANDS_INSTANCE=<name> scripts/run-dev.sh --hidden-window`; add `--reset` for disposable fresh Testing data, `--demo` for game scenarios, or `--packaged` for packaging checks. State stays in `.build/dev-instances/<name>/`. Use the same instance for every control/smoke command.
 - Before interactions, `scripts/dev-control.sh status` must report `profile=testing`, `appActive=false`. Never steal focus. If `activations` is nonempty, quit that instance and report it.
 - Use `dev-control.sh` for named actions and app-scoped `ui-click`, `ui-fill`, `ui-read`, `ui-drag`. It controls an already running app; never launch Electron directly. Avoid `show-window`.
 - Capture with `dev-control.sh screenshot`, inspect the PNG, verify inactivity, and stop with `dev-control.sh quit`. Never use whole-screen capture. Dev day-path dragging advances simulated time; demo controls exercise real action paths.

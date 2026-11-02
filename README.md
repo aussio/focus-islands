@@ -24,4 +24,6 @@ This builds and installs `/Applications/Focus Islands.app`. Open it from Spotlig
 
 To try the game without waiting through real sessions: `scripts/run-game-demo.sh`.
 
+Developer instance commands use `FOCUS_ISLANDS_INSTANCE=<name>`. The repository folder is `focus-islands`. Existing installations retain their legacy data folder and integration IDs for compatibility.
+
 For development, see [AGENTS.md](AGENTS.md). State ownership is documented in [STATE_PLAN.md](STATE_PLAN.md).

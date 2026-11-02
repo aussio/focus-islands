@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-export COZY_FOCUS_INSTANCE="${COZY_FOCUS_INSTANCE:-ui-smoke}"
+export FOCUS_ISLANDS_INSTANCE="${FOCUS_ISLANDS_INSTANCE:-ui-smoke}"
 trap '"$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || true' EXIT
 "$repo_root/scripts/run-dev.sh" --reset --hidden-window
 REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'
@@ -171,7 +171,7 @@ assert restored["savedReflection"] == "A pause helped yesterday."
 assert restored["dayPlans"][restored["todayKey"]]["current"]["meetings"]
 assert restored["game"]["checkIns"] == 1 and restored["game"]["helpers"][0]["job"] == job
 
-instance = os.environ.get("COZY_FOCUS_INSTANCE", "default")
+instance = os.environ.get("FOCUS_ISLANDS_INSTANCE", "default")
 state = root / ".build/dev-state" if instance == "default" else root / ".build/dev-instances" / instance
 with sqlite3.connect(state / "events.sqlite") as database:
     events = [(kind, json.loads(payload)) for kind, payload in database.execute("SELECT kind, payload FROM events ORDER BY seq")]

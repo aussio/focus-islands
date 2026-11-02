@@ -6,7 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 const [portText, statusFile, manifestFile, liveControl] = process.argv.slice(2);
 const port = Number(portText);
 const extensionId = 'gpomofinaopfjfpieooejmlpjaiadfnp';
-const destination = 'https://www.reddit.com/cozy-focus-smoke';
+const destination = 'https://www.reddit.com/focus-islands-smoke';
 
 function publish(phase, stale = false) {
   if (liveControl) {

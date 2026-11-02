@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-instance="${COZY_FOCUS_INSTANCE:-default}"
-if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid COZY_FOCUS_INSTANCE." >&2; exit 2; fi
+instance="${FOCUS_ISLANDS_INSTANCE:-default}"
+if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid FOCUS_ISLANDS_INSTANCE." >&2; exit 2; fi
 if [[ "$instance" == default ]]; then state="$repo_root/.build/dev-state"
 else state="$repo_root/.build/dev-instances/$instance"; fi
 control_dir="$state/control"

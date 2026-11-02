@@ -24,7 +24,7 @@ def parse_time(value):
 
 
 def current_status():
-    path = Path(os.environ.get("COZY_FOCUS_STATUS_FILE", DEFAULT_STATUS))
+    path = Path(os.environ.get("FOCUS_ISLANDS_STATUS_FILE", DEFAULT_STATUS))
     try:
         if path.stat().st_size > 16_384:
             raise ValueError("status too large")

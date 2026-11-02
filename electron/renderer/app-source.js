@@ -27,7 +27,7 @@ islandSlot.className = 'today-island';
 islandSlot.id = 'today-island';
 islandSlot.setAttribute('aria-hidden', 'true');
 // The sky island scene (game.js) mounts inside the slot once. If it is missing or fails, the slot keeps its CSS sky.
-try { window.cozyGame?.mount(islandSlot); } catch (error) { console.error('Sky island could not mount:', error); }
+try { window.focusIslandsGame?.mount(islandSlot); } catch (error) { console.error('Sky island could not mount:', error); }
 let islandShownKey = null;
 // The check-in card (or, after a tap, one short note) sits over the island. It lives for the whole window too,
 // and is redrawn only when its card token (or the last check-in) changes, so it stays put through the
@@ -234,7 +234,7 @@ async function runDemoStep(step) {
   updateDemoPanel(state().status);
   try { await state().command('dev-demo', step); }
   catch (error) {
-    demoError = (error.message || String(error)).replace(/^Error invoking remote method 'cozy:action': Error: /, '');
+    demoError = (error.message || String(error)).replace(/^Error invoking remote method 'focus-islands:action': Error: /, '');
     state().setUI({ error: null });
   } finally {
     demoBusy = null;
@@ -380,7 +380,7 @@ function showIsland(status, mood) {
   const key = `${database}|${game?.change ?? 'none'}|${mood}`;
   if (key === islandShownKey) return;
   islandShownKey = key;
-  try { window.cozyGame?.show({ game, mood, profile: database }); } catch (error) { console.error('Sky island could not update:', error); }
+  try { window.focusIslandsGame?.show({ game, mood, profile: database }); } catch (error) { console.error('Sky island could not update:', error); }
 }
 function navigation() {
   const s = state().status;
@@ -793,7 +793,7 @@ async function savePreferences() {
     showSettingsSaveFeedback('Saved');
     if (state().page === 'settings') render();
   } catch (error) {
-    const message = (error.message || String(error)).replace(/^Error invoking remote method 'cozy:action': Error: /, '');
+    const message = (error.message || String(error)).replace(/^Error invoking remote method 'focus-islands:action': Error: /, '');
     showSettingsSaveFeedback(message, true);
   } finally {
     settingsSavePending = false;
@@ -1046,5 +1046,5 @@ document.addEventListener('pointercancel', () => {
   updateDayPathTime(state().status);
 });
 appStore.subscribe(acceptStatus);
-window.cozy.onStatus(snapshot => state().receive(snapshot));
+window.focusIslands.onStatus(snapshot => state().receive(snapshot));
 state().refresh();

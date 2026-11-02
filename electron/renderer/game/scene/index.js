@@ -58,7 +58,7 @@ export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearT
     try {
       fallback = doc.createElement('div');
       fallback.setAttribute?.('aria-hidden', 'true');
-      fallback.className = 'cozy-island-fallback';
+      fallback.className = 'focus-islands-fallback';
       if (fallback.style) fallback.style.cssText = `display:block;width:100%;height:100%;background:${MOODS[mood].fallback};`;
       host.appendChild?.(fallback);
     } catch { /* nothing more we can do; the page stays as it was */ }
@@ -67,7 +67,7 @@ export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearT
   try {
     canvas = doc.createElement('canvas');
     canvas.setAttribute('aria-hidden', 'true');
-    canvas.className = 'cozy-island-canvas';
+    canvas.className = 'focus-islands-canvas';
     canvas.style.cssText = 'display:block;width:100%;height:100%;';
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
     renderer.setPixelRatio(Math.min(view.devicePixelRatio || 1, MAX_PIXEL_RATIO));

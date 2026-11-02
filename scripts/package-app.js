@@ -7,7 +7,7 @@ const { packager } = require('@electron/packager');
 const root = path.resolve(__dirname, '..');
 const build = path.join(root, '.build');
 const source = path.join(build, 'package-source');
-const output = path.join(build, process.env.COZY_FOCUS_STAGE_BUILD === '1' ? 'ElectronBuild-next' : 'ElectronBuild');
+const output = path.join(build, process.env.FOCUS_ISLANDS_STAGE_BUILD === '1' ? 'ElectronBuild-next' : 'ElectronBuild');
 const manifest = require(path.join(root, 'package.json'));
 const electronCache = path.join(os.homedir(), 'Library', 'Caches', 'electron');
 
@@ -40,7 +40,7 @@ async function main() {
     name: manifest.name, version: manifest.version, main: manifest.main,
   }));
   const bundles = await packager({
-    dir: source, out: output, name: 'CozyFocusPet', executableName: 'CozyFocusPet',
+    dir: source, out: output, name: 'FocusIslands', executableName: 'FocusIslands',
     platform: 'darwin', arch: process.arch, electronVersion: manifest.devDependencies.electron,
     electronZipDir: cachedElectronZip(manifest.devDependencies.electron),
     appBundleId: 'local.cozyfocuspet.app', overwrite: true,
@@ -48,9 +48,8 @@ async function main() {
     icon: path.join(root, 'assets', 'app-icon.icns'),
     extendInfo: { LSUIElement: true },
   });
-  const app = path.join(bundles[0], 'CozyFocusPet.app');
-  // The name people see. The bundle file, executable and CFBundleName stay CozyFocusPet: Electron finds its
-  // helper apps (CozyFocusPet Helper.app) by CFBundleName, and run-dev.sh and pgrep checks use the executable name.
+  const app = path.join(bundles[0], 'FocusIslands.app');
+  // Keep the packaged executable and helper names consistent; use spaces in the display name.
   const displayName = spawnSync('/usr/libexec/PlistBuddy',
     ['-c', 'Set :CFBundleDisplayName Focus Islands', path.join(app, 'Contents', 'Info.plist')], { stdio: 'inherit' });
   if (displayName.status !== 0) throw new Error('Could not set the app display name.');

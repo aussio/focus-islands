@@ -125,7 +125,7 @@ Thing kinds, their footprints, which job works at each, and pad and coast flags 
 
 **Scene** (`electron/renderer/game/scene/`): `createIslandScene(host)` returns `{ setWorld(world), setMood(mood), capture(), dispose() }`. Mood is `focus`, `break`, `away`, or `done`. `capture()` resolves after a fresh frame is drawn, with any camera move finished first. It stops drawing when the page is hidden or the host is off screen, and puts helpers back at their starting spots when it's shown again.
 
-**Page glue** (`electron/renderer/game/index.js`, built as `electron/renderer/game.js`): sets `window.cozyGame = { mount(host), show({ game, mood }), capture() }`. It runs the layout and hands the world to the scene.
+**Page glue** (`electron/renderer/game/index.js`, built as `electron/renderer/game.js`): sets `window.focusIslandsGame = { mount(host), show({ game, mood }), capture() }`. It runs the layout and hands the world to the scene.
 
 ## Town rules
 

@@ -1,6 +1,6 @@
 // Page glue for the sky island, built as electron/renderer/game.js and loaded before app.js.
 //
-//   window.cozyGame = { mount(host), show({ game, mood, profile }), capture() }
+//   window.focusIslandsGame = { mount(host), show({ game, mood, profile }), capture() }
 //
 // - mount(host) remembers the island slot. The scene itself starts on the first show() that has a game,
 //   so until then (and whenever anything fails) the slot keeps its plain CSS sky.
@@ -29,7 +29,7 @@ function start() {
   if (scene || failed || !host) return Boolean(scene);
   try {
     stage = host.ownerDocument.createElement('div');
-    stage.className = 'cozy-island-stage';
+    stage.className = 'focus-islands-stage';
     stage.setAttribute('aria-hidden', 'true');
     stage.style.cssText = 'position:absolute;inset:0;overflow:hidden;';
     host.appendChild(stage);
@@ -66,7 +66,7 @@ function apply() {
   }
 }
 
-window.cozyGame = {
+window.focusIslandsGame = {
   mount(target) {
     try {
       if (!target || host === target) return;

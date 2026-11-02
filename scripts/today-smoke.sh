@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-export COZY_FOCUS_INSTANCE="${COZY_FOCUS_INSTANCE:-today-smoke}"
+export FOCUS_ISLANDS_INSTANCE="${FOCUS_ISLANDS_INSTANCE:-today-smoke}"
 trap '"$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || true' EXIT
 "$repo_root/scripts/run-dev.sh" --reset --hidden-window
 REPO_ROOT="$repo_root" /usr/bin/python3 - <<'PY'

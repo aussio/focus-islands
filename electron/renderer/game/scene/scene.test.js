@@ -264,7 +264,7 @@ test('createIslandScene falls back quietly without WebGL', async () => {
   scene.setMood('break');
   assert.equal(await scene.capture(), null);
   assert.equal(scene.stats(), null);
-  const fallback = host.children.find(child => child.className === 'cozy-island-fallback');
+  const fallback = host.children.find(child => child.className === 'focus-islands-fallback');
   assert.ok(fallback, 'a soft sky background stands in for the scene');
   assert.match(fallback.style.background, /gradient/);
   assert.equal(fallback.attributes['aria-hidden'], 'true');
@@ -276,7 +276,7 @@ test('createIslandScene falls back quietly without WebGL', async () => {
 test('the page glue lays out the town and never throws into the page', async () => {
   globalThis.window ??= globalThis;
   await import('../index.js');
-  const glue = globalThis.window.cozyGame;
+  const glue = globalThis.window.focusIslandsGame;
   const host = element('div');
   host.ownerDocument = globalThis.document;
   const watch = watchErrors();
@@ -284,7 +284,7 @@ test('the page glue lays out the town and never throws into the page', async () 
     glue.mount(host);
     assert.equal(host.children.length, 0, 'the slot keeps its plain sky until there is a game');
     glue.show({ game: STATES[30], mood: 'focus', profile: 'testing' });
-    const stage = host.children.find(child => child.className === 'cozy-island-stage');
+    const stage = host.children.find(child => child.className === 'focus-islands-stage');
     assert.ok(stage, 'the scene gets its own box');
     assert.equal(stage.attributes['aria-hidden'], 'true');
     for (const game of [STATES[7], null, {}, { islands: 'x' }, { islands: [null, { id: 7 }] }, { change: 3, islands: [{ id: 'home', land: 'lots', buildings: [null] }] }]) {

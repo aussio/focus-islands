@@ -21,7 +21,7 @@ const { openStore } = require('./store');
 const game = require('./game');
 
 function temporaryCore() {
-  const directory = tempFolder('cozy-core-game-test-');
+  const directory = tempFolder('focus-islands-core-game-test-');
   const dbPath = join(directory, 'events.sqlite');
   return { dbPath, core: createCore({ dbPath, profile: 'testing', development: true }) };
 }
@@ -155,7 +155,7 @@ test('the check-in action saves one check-in, ignores a repeated tap, and refuse
 });
 
 test('status.game is null while the island cannot start, and the start is retried after the next change', () => {
-  const dbPath = join(tempFolder('cozy-core-game-start-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-core-game-start-'), 'events.sqlite');
   openStore(dbPath).close();
   const database = new DatabaseSync(dbPath);
   database.exec("CREATE TRIGGER reject_game BEFORE INSERT ON events WHEN NEW.kind = 'gameStarted' BEGIN SELECT RAISE(ABORT, 'write rejected'); END");
@@ -233,7 +233,7 @@ test('the day grant is saved at End day, and a check-in follows', () => {
 });
 
 test('the event cache returns exactly what a full read returns', () => {
-  const dbPath = join(tempFolder('cozy-event-cache-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-event-cache-'), 'events.sqlite');
   const store = openStore(dbPath);
   assert.deepEqual(store.allEvents(), []);
   const day = new Date(2026, 9, 29);
@@ -366,7 +366,7 @@ test('focus that starts by itself and is stopped at once does not use up the day
 });
 
 test('opening the same history in another time zone writes no second day grant', () => {
-  const dbPath = join(tempFolder('cozy-core-game-tz-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-core-game-tz-'), 'events.sqlite');
   const script = `
     const { createCore } = require(${JSON.stringify(join(__dirname, 'index.js'))});
     const [dbPath, step] = process.argv.slice(1);

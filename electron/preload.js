@@ -1,11 +1,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('cozy', {
-  status: () => ipcRenderer.invoke('cozy:status'),
-  action: (name, value) => ipcRenderer.invoke('cozy:action', name, value),
+contextBridge.exposeInMainWorld('focusIslands', {
+  status: () => ipcRenderer.invoke('focus-islands:status'),
+  action: (name, value) => ipcRenderer.invoke('focus-islands:action', name, value),
   onStatus: (callback) => {
     const listener = (_event, status) => callback(status);
-    ipcRenderer.on('cozy:status-changed', listener);
-    return () => ipcRenderer.removeListener('cozy:status-changed', listener);
+    ipcRenderer.on('focus-islands:status-changed', listener);
+    return () => ipcRenderer.removeListener('focus-islands:status-changed', listener);
   },
 });

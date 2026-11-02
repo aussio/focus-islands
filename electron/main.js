@@ -6,14 +6,14 @@ const { createCore } = require('./core');
 const { createActivityDetector } = require('./activity');
 const { createBreakReminder } = require('./break-reminders');
 
-const development = process.env.COZY_FOCUS_DEV === '1';
+const development = process.env.FOCUS_ISLANDS_DEV === '1';
 // The game demo (scripts/run-game-demo.sh, or scripts/run-dev.sh --demo): a development app whose Today has demo
 // buttons. It treats you as present the whole time; only its Step away button takes you away.
 const demo = development && process.argv.includes('--demo');
 const support = path.join(os.homedir(), 'Library', 'Application Support', 'CozyFocusPet');
-const repository = fs.realpathSync(development && process.env.COZY_FOCUS_DEV_REPOSITORY
-  ? process.env.COZY_FOCUS_DEV_REPOSITORY : path.resolve(__dirname, '..'));
-const devInstance = process.argv.find(argument => argument.startsWith('--cozy-instance='))?.slice('--cozy-instance='.length) || 'default';
+const repository = fs.realpathSync(development && process.env.FOCUS_ISLANDS_DEV_REPOSITORY
+  ? process.env.FOCUS_ISLANDS_DEV_REPOSITORY : path.resolve(__dirname, '..'));
+const devInstance = process.argv.find(argument => argument.startsWith('--focus-islands-instance='))?.slice('--focus-islands-instance='.length) || 'default';
 if (development && !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(devInstance)) throw new Error('Invalid development instance name.');
 const devState = devInstance === 'default'
   ? path.join(repository, '.build', 'dev-state')
@@ -143,7 +143,7 @@ function showReminderEffect(effect) {
 function publish() {
   publicationNumber++;
   const state = appStatus();
-  if (window && !window.isDestroyed()) window.webContents.send('cozy:status-changed', state);
+  if (window && !window.isDestroyed()) window.webContents.send('focus-islands:status-changed', state);
   if (state.returnPrompt?.since && state.returnPrompt.since !== lastReturnPromptSince && !development) showWindow('the are-you-back prompt');
   lastReturnPromptSince = state.returnPrompt?.since || null;
   if (tray) {
@@ -380,7 +380,7 @@ async function processControl() {
         // Ask the sky island for one fresh frame first, since a covered or hidden window may not be drawing.
         // A missing scene, an error, or a slow answer just means the picture is taken without it.
         const islandDrew = await Promise.race([
-          window.webContents.executeJavaScript('Promise.resolve(window.cozyGame?.capture?.()).then(drew => drew === true, () => false)')
+          window.webContents.executeJavaScript('Promise.resolve(window.focusIslandsGame?.capture?.()).then(drew => drew === true, () => false)')
             .catch(() => false),
           new Promise(resolve => setTimeout(() => resolve(false), 1500)),
         ]);
@@ -487,8 +487,8 @@ app.whenReady().then(() => {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', event => event.preventDefault());
   makeTray();
-  ipcMain.handle('cozy:status', () => appStatus());
-  ipcMain.handle('cozy:action', (_event, name, value) => {
+  ipcMain.handle('focus-islands:status', () => appStatus());
+  ipcMain.handle('focus-islands:action', (_event, name, value) => {
     if (!rendererActions.has(name)) throw new Error('Unknown action');
     if (name.startsWith('dev-') && !development) throw new Error('Development action unavailable');
     return execute(name, value);

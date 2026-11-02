@@ -16,7 +16,7 @@ const inputs = Array.isArray(source) ? source : [source];
 if (!inputs.length) throw new Error('Provide at least one scenario.');
 const scenarios = inputs.map(input => ({ input, ...run(input), nowISO: clock(input.now, input.date) }));
 const component = buildSync({ entryPoints: [resolve(root, 'electron/renderer/day-path.js')],
-  bundle: true, platform: 'browser', format: 'iife', globalName: 'CozyDayPath',
+  bundle: true, platform: 'browser', format: 'iife', globalName: 'FocusIslandsDayPath',
   target: 'chrome120', write: false }).outputFiles[0].text;
 const appCSS = readFileSync(resolve(root, 'electron/renderer/styles.css'), 'utf8');
 const reviewCSS = readFileSync(resolve(__dirname, 'styles.css'), 'utf8');
@@ -24,9 +24,9 @@ const client = readFileSync(resolve(__dirname, 'client.js'), 'utf8');
 const data = JSON.stringify(scenarios).replace(/</g, '\\u003c');
 const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cozy Focus Pet · Forecast preview</title><style>${appCSS}\n${reviewCSS}</style></head>
+<title>Focus Islands · Forecast preview</title><style>${appCSS}\n${reviewCSS}</style></head>
 <body><div class="review-shell"><aside class="review-nav">
-  <div class="brand"><span class="leaf">✦</span> cozy focus</div>
+  <div class="brand"><span class="leaf">✦</span> focus islands</div>
   <div class="review-nav-title">Forecast scenarios <span id="scenario-count"></span></div>
   <label class="search-label" for="scenario-search">Find a scenario</label>
   <input id="scenario-search" type="search" placeholder="Search examples">

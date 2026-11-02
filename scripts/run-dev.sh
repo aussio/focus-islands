@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-instance="${COZY_FOCUS_INSTANCE:-default}"
-if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid COZY_FOCUS_INSTANCE." >&2; exit 2; fi
+instance="${FOCUS_ISLANDS_INSTANCE:-default}"
+if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid FOCUS_ISLANDS_INSTANCE." >&2; exit 2; fi
 if [[ "$instance" == default ]]; then state="$repo_root/.build/dev-state"
 else state="$repo_root/.build/dev-instances/$instance"; fi
 electron="$repo_root/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
@@ -27,8 +27,8 @@ done
 open_options=(-g -n)
 if [[ "$window_mode" == visible ]]; then open_options=(-n); fi
 if [[ "$packaged" == true ]]; then
-  launcher="${COZY_FOCUS_PACKAGED_APP:-$repo_root/.build/ElectronBuild/CozyFocusPet-darwin-$(uname -m)/CozyFocusPet.app}"
-  executable="$launcher/Contents/MacOS/CozyFocusPet"
+  launcher="${FOCUS_ISLANDS_PACKAGED_APP:-$repo_root/.build/ElectronBuild/FocusIslands-darwin-$(uname -m)/FocusIslands.app}"
+  executable="$launcher/Contents/MacOS/FocusIslands"
 else
   launcher="$electron_app"
   executable="$electron"
@@ -46,9 +46,12 @@ for path in (os.path.join(root, ".build"), os.path.dirname(state), state, os.pat
     if os.path.islink(path):
         raise SystemExit(f"Development state contains a symbolic link: {path}")
 PY
-for pid in $(pgrep -f "$executable.*--(background|hidden|visible)-window( --demo)? --cozy-instance=$instance$" || true); do
+# Recognize processes launched before the repository/executable rename too.
+executable_pattern="${executable//focus-islands/(focus-islands|cozy-focus-pet)}"
+executable_pattern="${executable_pattern//FocusIslands/(FocusIslands|CozyFocusPet)}"
+for pid in $(pgrep -f "$executable_pattern.*--(background|hidden|visible)-window( --demo)? --(focus-islands|cozy)-instance=$instance$" || true); do
   if kill -0 "$pid" 2>/dev/null; then
-    COZY_FOCUS_INSTANCE="$instance" "$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || kill "$pid" 2>/dev/null || true
+    FOCUS_ISLANDS_INSTANCE="$instance" "$repo_root/scripts/dev-control.sh" quit >/dev/null 2>&1 || kill "$pid" 2>/dev/null || true
     for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
     if kill -0 "$pid" 2>/dev/null; then echo "Development app did not stop; database left intact." >&2; exit 1; fi
   fi
@@ -73,11 +76,11 @@ if [[ "$packaged" == false && ! -x "$electron" ]]; then
 fi
 if [[ ! -x "$executable" ]]; then echo "Development app executable is missing." >&2; exit 1; fi
 if [[ "$packaged" == true ]]; then
-  open "${open_options[@]}" -a "$launcher" --env "COZY_FOCUS_DEV=1" --env "COZY_FOCUS_DEV_REPOSITORY=$repo_root" \
-    --args "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--cozy-instance=$instance"
+  open "${open_options[@]}" -a "$launcher" --env "FOCUS_ISLANDS_DEV=1" --env "FOCUS_ISLANDS_DEV_REPOSITORY=$repo_root" \
+    --args "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--focus-islands-instance=$instance"
 else
-  open "${open_options[@]}" -a "$launcher" --env "COZY_FOCUS_DEV=1" \
-    --args "$repo_root" "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--cozy-instance=$instance"
+  open "${open_options[@]}" -a "$launcher" --env "FOCUS_ISLANDS_DEV=1" \
+    --args "$repo_root" "--$window_mode-window" ${app_options[@]+"${app_options[@]}"} "--focus-islands-instance=$instance"
 fi
 kind=''
 if [[ ${#app_options[@]} -gt 0 ]]; then kind=' (game demo)'; fi

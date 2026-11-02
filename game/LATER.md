@@ -67,12 +67,7 @@ At day 180 the scene draws about 590,000 triangles, about twice the old budget o
 
 ## The rename to Focus Islands
 
-The app, icon, menu bar and docs say Focus Islands. Some inside names still say Cozy Focus Pet on purpose, because changing them would lose the saved history or break the Chrome extension link. The list and the safe order to change them are in `.build/agent-plans/rename-later.md`:
-
-- the data folder `~/Library/Application Support/CozyFocusPet` (holds Personal history; needs a careful move);
-- `COZY_FOCUS_*` settings, the bundle id, the program name (Activity Monitor still shows "CozyFocusPet"), and the Chrome host id;
-- the project folder and repo name;
-- `brainstorming.html` and other old development pages (the gallery's title is already updated).
+The source, executable, developer commands and repository use Focus Islands. The legacy data folder, macOS bundle ID, Chrome native host ID and saved preference key remain compatibility identifiers. Keep these stable so existing installations retain their data and connections.
 
 ## The timer (outside the game)
 

@@ -13,7 +13,7 @@ if [[ ! -x "$chrome_bin" ]]; then
   exit 2
 fi
 
-tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cozy-chrome-smoke.XXXXXX")"
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/focus-islands-chrome-smoke.XXXXXX")"
 case "$chrome_bin" in
   *Chromium.app/*|*"Google Chrome for Testing.app"/*) ;;
   *) printf 'Use Chromium or Chrome for Testing: branded Google Chrome ignores --load-extension.\n' >&2; exit 2 ;;
@@ -43,13 +43,13 @@ PY
 
 if [[ "${1:-}" == "--live" ]]; then
   live_control="$repo_root/scripts/dev-control.sh"
-  instance="${COZY_FOCUS_INSTANCE:-default}"
-  if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid COZY_FOCUS_INSTANCE." >&2; exit 2; fi
+  instance="${FOCUS_ISLANDS_INSTANCE:-default}"
+  if [[ ! "$instance" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]]; then echo "Invalid FOCUS_ISLANDS_INSTANCE." >&2; exit 2; fi
   if [[ "$instance" == default ]]; then state="$repo_root/.build/dev-state"
   else state="$repo_root/.build/dev-instances/$instance"; fi
-  export COZY_FOCUS_STATUS_FILE="$state/focus-status.json"
+  export FOCUS_ISLANDS_STATUS_FILE="$state/focus-status.json"
 else
-  export COZY_FOCUS_STATUS_FILE="$tmp_dir/focus-status.json"
+  export FOCUS_ISLANDS_STATUS_FILE="$tmp_dir/focus-status.json"
 fi
 "$chrome_bin" \
   --headless=new \
@@ -71,4 +71,4 @@ for _ in {1..100}; do
 done
 if [[ ! -f "$port_file" ]]; then cat "$tmp_dir/chrome.log" >&2; exit 1; fi
 port="$(head -n1 "$port_file")"
-node "$repo_root/NativeHost/chrome_smoke.mjs" "$port" "$COZY_FOCUS_STATUS_FILE" "$manifest" "$live_control"
+node "$repo_root/NativeHost/chrome_smoke.mjs" "$port" "$FOCUS_ISLANDS_STATUS_FILE" "$manifest" "$live_control"

@@ -31,7 +31,7 @@ def snapshot(root):
 
 def launch(root, app_bundle):
     log = (root / ".build/personal.log").open("a")
-    executable = app_bundle / "Contents/MacOS/CozyFocusPet"
+    executable = app_bundle / "Contents/MacOS/FocusIslands"
     return subprocess.Popen((str(executable), "--show-window"), stdout=log, stderr=log)
 
 
@@ -51,7 +51,7 @@ def main(root, app_bundle):
                 continue
             changed_at = None
             check = subprocess.run((str(root / "scripts/build.sh"),), cwd=root,
-                                   env={**os.environ, "COZY_FOCUS_STAGE_BUILD": "1"})
+                                   env={**os.environ, "FOCUS_ISLANDS_STAGE_BUILD": "1"})
             if check.returncode:
                 print("Source check failed. Personal app is still running.", file=sys.stderr)
                 continue
@@ -67,7 +67,7 @@ def main(root, app_bundle):
                 import shutil
                 shutil.rmtree(current_build)
             os.replace(next_build, current_build)
-            built_app = current_build / f"CozyFocusPet-darwin-{os.uname().machine}/CozyFocusPet.app"
+            built_app = current_build / f"FocusIslands-darwin-{os.uname().machine}/FocusIslands.app"
             installed = subprocess.run((str(root / "scripts/install-personal-bundle.sh"), str(built_app)))
             if installed.returncode:
                 app = launch(root, app_bundle)

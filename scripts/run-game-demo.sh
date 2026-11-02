@@ -10,6 +10,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 case "${1:-}" in ''|--reset) ;; *) echo "Usage: $0 [--reset]" >&2; exit 2 ;; esac
 if [[ $# -gt 1 ]]; then echo "Usage: $0 [--reset]" >&2; exit 2; fi
-export COZY_FOCUS_INSTANCE=demo
+export FOCUS_ISLANDS_INSTANCE=demo
 "$repo_root/scripts/run-dev.sh" --demo --visible-window ${1:+"$1"}
 printf 'Opened the game demo. Close its window to hide it; the 🧪 island in the menu bar opens it again or quits.\n'

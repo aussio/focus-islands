@@ -44,11 +44,11 @@ export const appStore = createStore((set, get) => ({
       ...(profileChanged ? { planDay: 'today', planDrafts: {}, planBounds: {}, dirtyInputs: new Set(), reflectionDraft: null, todayReflectionDraft: null } : {}) });
     return true;
   },
-  async refresh() { get().receive(await window.cozy.status()); },
+  async refresh() { get().receive(await window.focusIslands.status()); },
   async command(name, value) {
     set(state => ({ pendingCommands: state.pendingCommands + 1, error: null }));
     try {
-      const result = await window.cozy.action(name, value);
+      const result = await window.focusIslands.action(name, value);
       if (result && typeof result === 'object' && 'phase' in result) get().receive(result);
       else await get().refresh();
       return result;

@@ -59,7 +59,7 @@
     ].join('');
     $('#meeting-plan').innerHTML = plan.meetings.length ? `<div class="eyebrow">Meetings in this plan</div><div class="review-meeting-list">${plan.meetings.map(meeting =>
       `<span class="review-meeting"><b>${escape(time(meeting.start))}–${escape(time(meeting.end))}</b>${escape(meeting.title)}</span>`).join('')}</div>${input.note ? `<p>${escape(input.note)}</p>` : ''}` : '';
-    $('#day-path').innerHTML = CozyDayPath.dayPath({ plan, forecastTimeline: blocks, currentWallTimeISO: nowISO }, { showEdit: false });
+    $('#day-path').innerHTML = FocusIslandsDayPath.dayPath({ plan, forecastTimeline: blocks, currentWallTimeISO: nowISO }, { showEdit: false });
     const past = pastRows(plan, actual, running, nowISO);
     $('#history').innerHTML = past.length ? past.map(row).join('') : '<p class="review-empty">No recorded activity yet.</p>';
     $('#upcoming').innerHTML = upcoming.length ? upcoming.map(row).join('') : '<p class="review-empty">No blocks remain.</p>';

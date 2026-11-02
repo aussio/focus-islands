@@ -183,7 +183,7 @@ test('a long break before a short meeting leads into focus afterward', () => {
 });
 
 function temporaryCore() {
-  const directory = tempFolder('cozy-core-test-');
+  const directory = tempFolder('focus-islands-core-test-');
   const dbPath = join(directory, 'events.sqlite');
   const statusPath = join(directory, 'focus-status.json');
   return { dbPath, statusPath, core: createCore({ dbPath, statusPath, profile: 'testing', development: true }) };
@@ -229,7 +229,7 @@ test('a removed Room route returns to Today', () => {
 });
 
 test('existing event schema and legacy date payloads replay without migration', () => {
-  const dbPath = join(tempFolder('cozy-legacy-test-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-legacy-test-'), 'events.sqlite');
   const database = new DatabaseSync(dbPath);
   database.exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at REAL NOT NULL);
     INSERT INTO schema_migrations VALUES (1, 0);
@@ -519,7 +519,7 @@ test('an explicit break automatically ends after sustained return activity', () 
 });
 
 test('profile settings import once into SQLite and do not change an existing day plan', () => {
-  const directory = tempFolder('cozy-settings-test-');
+  const directory = tempFolder('focus-islands-settings-test-');
   const dbPath = join(directory, 'events.sqlite');
   const legacyPath = join(directory, 'preferences-testing.json');
   writeFileSync(legacyPath, JSON.stringify({ focusMinutes: 40, breakMinutes: 10, notificationsEnabled: false }));
@@ -545,7 +545,7 @@ test('profile settings import once into SQLite and do not change an existing day
 });
 
 test('normal profiles default activity delay to two minutes', () => {
-  const directory = tempFolder('cozy-activity-default-');
+  const directory = tempFolder('focus-islands-activity-default-');
   const core = createCore({ dbPath: join(directory, 'events.sqlite'), profile: 'personal' });
   assert.equal(core.status().activityDelaySeconds, 120);
   core.close();
@@ -634,7 +634,7 @@ test('old acorn records stay in the ledger untouched, and nothing reads or shows
 });
 
 test('a unique key is written once; a repeat throws and undoes the whole save', () => {
-  const dbPath = join(tempFolder('cozy-unique-key-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-unique-key-'), 'events.sqlite');
   const database = openStore(dbPath);
   const first = database.append('gameStarted', { rulesVersion: 1 }, { uniqueKey: 'game:started' });
   assert.throws(() => database.transaction(() => {
@@ -791,7 +791,7 @@ test('a sleeping break resumes with its full elapsed time, including overtime', 
 });
 
 test('computer inactivity does not pause a running break', () => {
-  const dbPath = join(tempFolder('cozy-idle-break-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-idle-break-'), 'events.sqlite');
   const core = createCore({ dbPath, profile: 'testing', development: false });
   core.action('start-break');
   core.action('tick', 120);
@@ -891,7 +891,7 @@ test('same-day relaunch resumes an unfinished break without confirming it', () =
 });
 
 test('relaunch recovers a focus left open by the previous app version', () => {
-  const directory = tempFolder('cozy-legacy-restart-');
+  const directory = tempFolder('focus-islands-legacy-restart-');
   const dbPath = join(directory, 'events.sqlite');
   const database = openStore(dbPath);
   const launch = new Date(), startedAt = new Date(launch.getTime() - 30000), checkpointAt = new Date(launch.getTime() - 20000);
@@ -911,7 +911,7 @@ test('relaunch recovers a focus left open by the previous app version', () => {
 });
 
 test('an unfinished session from a prior day closes at its last checkpoint', () => {
-  const directory = tempFolder('cozy-overnight-restart-');
+  const directory = tempFolder('focus-islands-overnight-restart-');
   const dbPath = join(directory, 'events.sqlite');
   const database = openStore(dbPath);
   const yesterday = new Date();
@@ -1064,7 +1064,7 @@ test('export and backup include committed events', async () => {
 });
 
 test('simulation actions are unavailable outside development', () => {
-  const dbPath = join(tempFolder('cozy-personal-guard-'), 'events.sqlite');
+  const dbPath = join(tempFolder('focus-islands-personal-guard-'), 'events.sqlite');
   const core = createCore({ dbPath, profile: 'personal', development: false });
   assert.throws(() => core.action('dev-scenario', 'completedDay'), /Development action unavailable/);
   assert.throws(() => core.action('advance', 25), /Development action unavailable/);
@@ -1249,7 +1249,7 @@ test('end day and snooze install no state or partial records when their transact
 });
 
 // ---- The game demo (scripts/run-game-demo.sh). Its buttons send 'dev-demo' steps that press the real actions.
-function demoCore(folder = tempFolder('cozy-demo-test-')) {
+function demoCore(folder = tempFolder('focus-islands-demo-test-')) {
   const dbPath = join(folder, 'events.sqlite'), statusPath = join(folder, 'focus-status.json');
   return { folder, dbPath, core: createCore({ dbPath, statusPath, profile: 'testing', development: true, demo: true }) };
 }
@@ -1304,13 +1304,13 @@ test('the game demo starts the next morning on day 1, waits for real idle time, 
 });
 
 test('demo steps are refused outside the game demo', () => {
-  const personal = createCore({ dbPath: join(tempFolder('cozy-demo-personal-'), 'events.sqlite'), profile: 'personal', development: false });
+  const personal = createCore({ dbPath: join(tempFolder('focus-islands-demo-personal-'), 'events.sqlite'), profile: 'personal', development: false });
   assert.throws(() => personal.action('dev-demo', 'work'), /Development action unavailable/);
   assert.throws(() => personal.action('demo', 'work'), /Development action unavailable/);
   assert.deepEqual(personal.status().events.map(event => event.kind), ['gameStarted']);
   assert.equal(personal.status().demo, null);
   personal.close();
-  assert.throws(() => createCore({ dbPath: join(tempFolder('cozy-demo-guard-'), 'events.sqlite'), profile: 'testing', development: false, demo: true }),
+  assert.throws(() => createCore({ dbPath: join(tempFolder('focus-islands-demo-guard-'), 'events.sqlite'), profile: 'testing', development: false, demo: true }),
     /development app/);
   const { core } = temporaryCore();
   assert.throws(() => core.action('dev-demo', 'work'), /game demo/);
