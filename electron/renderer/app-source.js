@@ -1,6 +1,9 @@
+import { timelineTrack, timelinePercent, connectTimelineInteractions } from './timeline-track.js';
 import { dayPath } from './day-path.js';
 import { amountList, amounts, checkInCard, checkInNote, createHud, resourceIcon } from './game-hud.js';
 import { appStore } from './state.js';
+
+connectTimelineInteractions();
 
 const pages = [
   ['today', '◉', 'Today'], ['plan', '▦', 'Plan'], ['history', '◷', 'History']
@@ -445,7 +448,7 @@ function today() {
   const s = state().status, g = guidance();
   const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
   return `<div class="today-page">
-    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span></div></header>
+    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span>${!s.dayEndedAt && !['afterDay', 'wrappingUp'].includes(g.situation) ? `<details class="day-options"><summary aria-label="Day options" title="Day options">⋯</summary><div class="day-options-menu">${actionButton('End day early', 'end-day', undefined, false, 'end-day-early')}</div></details>` : ''}</div></header>
     <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-island-overlay></div></section>
     ${s.demo ? '<div data-demo-slot></div>' : ''}<div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
@@ -575,24 +578,19 @@ function historyBars(s) {
   for (const block of [...planned, ...actual]) { start = Math.min(start, minute(block.start)); end = Math.max(end, minute(block.end)); }
   const hour = 3600000, first = new Date(start); first.setMinutes(0, 0, 0);
   start = first.getTime(); end = Math.max(start + hour, Math.ceil((end - start) / hour) * hour + start);
-  const percent = time => ((Math.min(end, Math.max(start, time)) - start) / (end - start) * 100).toFixed(2);
+  const percent = value => timelinePercent(value, start, end).toFixed(2);
   const names = { focus: 'Focus', break: 'Break', meeting: 'Meeting', away: 'Away' };
-  const segments = (blocks, isActual) => blocks.map(block => {
-    const from = minute(block.start), until = minute(block.end), kind = itemKind(block);
-    if (until <= from) return '';
-    const light = isActual && kind === 'break' && !block.confirmed && !block.inferred && !block.inProgress;
-    const name = block.title || (isActual && kind === 'break' && block.inferred ? 'Time away, counted as a break' : names[kind] || 'Time');
-    return `<span class="history-seg ${html(kind)}${light ? ' is-light' : ''}" style="left:${percent(from)}%;width:${(percent(until) - percent(from)).toFixed(2)}%" title="${html(`${name} · ${clock(from)}–${clock(until)} · ${minutesText((until - from) / 60000)}${light ? ' · not counted as a real break' : ''}`)}"></span>`;
-  }).join('');
-  const marker = !s.dayEndedAt && now > start && now < end ? `<span class="history-now" style="left:${percent(now)}%" title="Now · ${html(clock(now))}"></span>` : '';
-  const row = (label, blocks, isActual, emptyText, extra = '') => `<div class="history-bar-row"><span class="history-bar-label">${html(label)}</span><div class="history-track${extra}">${blocks.length ? segments(blocks, isActual) : `<span class="history-track-empty">${html(emptyText)}</span>`}${marker}</div></div>`;
+  const row = (label, blocks, emptyText, muted = false) => `<div class="history-bar-row"><span class="history-bar-label">${html(label)}</span>${timelineTrack({
+    blocks, start, end, now, compact: true, breakMinutes: s.plan?.breakMinutes || s.defaultBreakLength,
+    marker: !s.dayEndedAt && now > start && now < end, emptyText, muted, label: `${label} timeline`,
+  })}</div>`;
   const hours = (end - start) / hour, step = hours > 10 ? 2 : 1, ticks = [];
   for (let at = start; at <= end; at += step * hour) {
     const time = new Date(at);
     ticks.push(`<span style="left:${percent(at)}%">${html(time.toLocaleTimeString([], { hour: 'numeric' }))}</span>`);
   }
   const legend = ['focus', 'break', 'meeting', 'away'].map(kind => `<span><i class="history-key ${kind}"></i>${names[kind]}</span>`).join('');
-  return card(`<div class="card-head">${section('Planned and actual')}<div class="history-legend">${legend}</div></div>${row('Planned', planned, false, 'No plan saved today', usual.length ? ' is-usual' : '')}${row('Actual', actual, true, 'Nothing recorded yet')}<div class="history-bar-row"><span class="history-bar-label"></span><div class="history-ticks">${ticks.join('')}</div></div>${usual.length ? '<p class="small-note">No plan is saved yet, so Planned shows your usual day.</p>' : ''}`);
+  return card(`<div class="card-head">${section('Planned and actual')}<div class="history-legend">${legend}</div></div>${row('Planned', planned, 'No plan saved today', Boolean(usual.length))}${row('Actual', actual, 'Nothing recorded yet')}<div class="history-bar-row"><span class="history-bar-label"></span><div class="history-ticks">${ticks.join('')}</div></div>${usual.length ? '<p class="small-note">No plan is saved yet, so Planned shows your usual day.</p>' : ''}`);
 }
 // The seven days before today, one row each. Worked out by the main process only while History is open, so it
 // is missing for a moment after you open the page.
@@ -622,8 +620,8 @@ function historyRecent(s) {
   return card(`${section('Recent days')}<div class="history-days">${body}</div>`);
 }
 function history() {
-  const s = state().status, entries = s.history || [];
-  const log = `<details class="history-log" ${historyLogOpen ? 'open' : ''}><summary>Today’s timer log · ${entries.length ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` : 'nothing yet'}</summary>${entries.length ? `<ol>${entries.map(entry => `<li><time>${clock(entry.date)}</time><span>${html(entry.title)}</span></li>`).join('')}</ol>` : empty('Your first focus session will appear here.')}</details>`;
+  const s = state().status, entries = [...(s.history || [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  const log = `<details class="history-log" ${historyLogOpen ? 'open' : ''}><summary>Today’s timer log · ${entries.length ? `${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}` : 'nothing yet'}</summary>${entries.length ? `<p class="history-log-order">Latest first</p><ol tabindex="0" aria-label="Today’s timer events, latest first">${entries.map(entry => `<li><time datetime="${html(entry.date)}">${clock(entry.date)}</time><span>${html(entry.title)}</span></li>`).join('')}</ol>` : empty('Your first focus session will appear here.')}</details>`;
   return `<div class="history-page">${header('Your rhythm', `${shortDate(s.currentWallTimeISO || Date.now())}. Your focus, breaks, and what the island made.`)}<div class="history-top">${historyGlance(s)}${historyIsland(s)}</div>${historyBars(s)}${historyRecent(s)}${log}</div>`;
 }
 function debugSettings() {
