@@ -1,4 +1,4 @@
-const defaults = ["youtube.com", "feedly.com", "reddit.com"];
+const defaults = ["youtube.com", "reddit.com", "linkedin.com", "minecraft.wiki", "minecraft.fandom.com"];
 const input = document.getElementById("domains");
 const message = document.getElementById("message");
 
