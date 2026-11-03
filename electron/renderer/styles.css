@@ -199,8 +199,7 @@ body{background:#f6f8f4}
 .check-in-option:hover:not(:disabled){border-color:#9cc493;background:#f6faf3}
 .check-in-option.is-picked{border-color:#176b4a;background:#eaf3e6}
 .check-in-option:focus-visible,.check-in-skip:focus-visible,.check-in-collect .button:focus-visible{outline:2px solid #176b4a;outline-offset:2px}
-.check-in-collect{grid-area:3/1/4/4;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px}
-.check-in-collect p{margin:0;font-size:11px;line-height:1.35;color:#5d7169}
+.check-in-collect{grid-area:3/1/4/4;display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:4px}
 .check-in-collect .button{flex:none;min-height:32px;padding:6px 16px}
 .check-in-card[aria-busy="true"] button{cursor:progress}
 .check-in-card[aria-busy="true"] button:disabled{opacity:1}

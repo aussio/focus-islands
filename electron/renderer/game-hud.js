@@ -287,7 +287,7 @@ export function checkInCard(status) {
     <h3 id="check-in-title">${heading}</h3>${brought.length ? `<p class="hud-words">Your helpers brought ${html(listWords(brought.map(([key, amount]) => amountWords(key, amount))))}.</p>` : ''}${notes.length ? `<ul class="check-in-notes" title="${html(notes.join(' '))}">${notes.map(note => `<li>${html(note)}</li>`).join(' ')}</ul>` : ''}
     ${options ? `<span class="check-in-ask" id="check-in-ask">${html(ask)}</span><button class="check-in-skip" type="button" data-check-in-pick="" id="check-in-skip">Just collect</button>
       <div class="check-in-options" role="group" aria-labelledby="check-in-ask">${options}</div>`
-    : `<div class="check-in-collect"><p>${html(card.nextUp || '')}</p><button class="button primary" type="button" data-check-in-pick="" id="check-in-collect">Collect</button></div>`}
+    : `<div class="check-in-collect"><button class="button primary" type="button" data-check-in-pick="" id="check-in-collect">Collect</button></div>`}
   </section>`;
 }
 // After a tap: what the last check-in did, as one gentle line that stays until the next check-in.
