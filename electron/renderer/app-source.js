@@ -9,7 +9,7 @@ const pages = [
   ['today', '◉', 'Today'], ['plan', '▦', 'Plan'], ['history', '◷', 'History']
 ];
 const state = () => appStore.getState();
-const draftFields = new Set(['settings-focus', 'settings-break', 'settings-start', 'settings-end', 'settings-activity-delay', 'notifications', 'reflection-input', 'today-reflection-input', 'meeting-name']);
+const draftFields = new Set(['settings-focus', 'settings-break', 'settings-start', 'settings-end', 'settings-activity-delay', 'notifications', 'reflection-input', 'today-reflection-input', 'meeting-name', 'actual-start-time']);
 const planFields = new Set(['day-start', 'day-end', 'focus-length', 'break-length']);
 const planDraftTimers = new Map();
 let planSaveInFlight = false;
@@ -942,7 +942,10 @@ document.addEventListener('click', event => {
     input.setCustomValidity(started > new Date(s.currentWallTimeISO) ? 'Choose a time earlier today.' : '');
     if (!input.reportValidity()) { input.setCustomValidity(''); return; }
     dispatch('start-focus', { startedAt: started.toISOString(),
-      ...(!s.dayPlans?.[s.todayKey]?.baseline ? { planDraft: state().planDrafts[s.todayKey] } : {}) });
+      ...(!s.dayPlans?.[s.todayKey]?.baseline ? { planDraft: state().planDrafts[s.todayKey] } : {}) }).then(result => {
+      // Keep the entered time through blur and snapshot updates until the start succeeds.
+      if (result?.phase === 'focus') { state().clearDirty('actual-start-time'); state().deferRender(false); render(); }
+    });
     return;
   }
   if (name === 'start-focus' && !state().status.dayPlans?.[state().status.todayKey]?.baseline) {

@@ -243,6 +243,14 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     return timer.state.phase === 'idle' && !dayEndedAt && !allEvents().some(event =>
       ['focusStarted', 'breakStarted'].includes(event.kind) && dayKey(new Date(event.occurredAt)) === dayKey(wall));
   }
+  // Choose the durable session target from the time available, before recording it.
+  function focusTarget(target, wall, plan = currentPlan) {
+    if (!plan || !sameDay(plan.day, wall)) return target;
+    const finish = dayEndSnoozedUntil && ms(dayEndSnoozedUntil) > ms(plan.end)
+      ? ms(dayEndSnoozedUntil) : ms(plan.end);
+    if (finish <= wall) return target; // After-day guidance owns explicit work beyond the plan.
+    return Math.max(1, Math.min(target, (finish - wall) / 1000));
+  }
   function start(phase, target, planDraft, reason = 'manual', reportedStart) {
     if (dayEndedAt) return;
     if (timer.state.phase !== 'idle' && !(phase === 'break' && timer.state.phase === 'focus')) return;
@@ -260,10 +268,11 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       const { sessionID, targetSeconds } = proposed.state;
       finishedFocus = { sessionID, targetSeconds, elapsedSeconds: proposed.end(instant) };
     }
-    const id = proposed.start(phase, target, { wall: startedAt, monotonicSeconds: instant.monotonicSeconds - (instant.wall - startedAt) / 1000 });
-    const signals = proposed.advance(instant);
     const prepared = currentPlan ? null : preparePlan(planDraft || {}, planDraft ? 'explicit' : 'generated-default', instant);
     if (!currentPlan && !prepared) return;
+    if (phase === 'focus') target = focusTarget(target, startedAt, currentPlan || prepared.plan);
+    const id = proposed.start(phase, target, { wall: startedAt, monotonicSeconds: instant.monotonicSeconds - (instant.wall - startedAt) / 1000 });
+    const signals = proposed.advance(instant);
     let planEvent;
     store.transaction(() => {
       if (prepared) planEvent = append(prepared.existing.latestEventID ? 'dayPlanRevised' : 'dayPlan', prepared.plan, { occurredAt: instant.wall });
@@ -301,7 +310,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const elapsedSeconds = Math.max(proposed.end(endInstant), breakAwayStartedAt
       ? breakElapsedAtAway + Math.max(0, (endInstant.wall - breakAwayStartedAt) / 1000) : 0);
     const payload = { sessionID, targetSeconds, elapsedSeconds };
-    const focusID = startNextFocus ? proposed.start('focus', focusLength * 60, endInstant) : null;
+    const focusID = startNextFocus ? proposed.start('focus', focusTarget(focusLength * 60, endInstant.wall), endInstant) : null;
     if (focusID && returnedAt) proposed.advance(instant);
     store.transaction(() => {
       if (breakAwayStartedAt) append('awayEnded', { reason: 'break ended' }, { occurredAt: endInstant.wall, source: 'inferred' });
@@ -450,7 +459,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       const proposed = timer.clone();
       const { sessionID, targetSeconds, elapsedSeconds } = proposed.state;
       proposed.end(returnInstant);
-      const nextID = proposed.start('focus', focusLength * 60, returnInstant);
+      const nextID = proposed.start('focus', focusTarget(focusLength * 60, returnInstant.wall), returnInstant);
       proposed.advance(instant);
       store.transaction(() => {
         append('awayEnded', { reason, countedAsBreak: true, restSeconds: awaySeconds, targetSeconds: breakLength * 60,
@@ -947,7 +956,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
         if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60 || minutes % 5 !== 0) throw new Error('Snooze for 5 to 60 minutes in five-minute steps.');
         if (timer.state.phase === 'focus' && timer.state.isDue) {
           const proposed = timer.clone();
-          proposed.snooze(minutes, instant);
+          proposed.snooze(focusTarget(minutes * 60, instant.wall) / 60, instant);
           store.transaction(() => {
             append('breakSnoozed', { ...sessionPayload(proposed), minutes }, { occurredAt: instant.wall });
             append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall });
@@ -963,7 +972,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'skip-break': {
         if (timer.state.phase !== 'focus' || !timer.state.isDue) break;
         const instant = now(), proposed = timer.clone();
-        proposed.snooze(focusLength, instant);
+        proposed.snooze(focusTarget(focusLength * 60, instant.wall) / 60, instant);
         store.transaction(() => {
           append('breakSkipped', { ...sessionPayload(proposed), minutes: focusLength }, { occurredAt: instant.wall });
           append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall });

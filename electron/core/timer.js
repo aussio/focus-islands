@@ -53,7 +53,7 @@ class Timer {
   snooze(minutes, instant) {
     if (this.state.phase === 'focus' && this.state.isDue) {
       this.advance(instant);
-      this.state.targetSeconds = this.state.elapsedSeconds + Math.max(1, minutes) * 60;
+      this.state.targetSeconds = this.state.elapsedSeconds + Math.max(1, minutes * 60);
       this.state.isDue = false;
       this.nextNudgeAt = null;
     }

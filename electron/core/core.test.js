@@ -1460,3 +1460,26 @@ test('an earlier start beyond the focus target immediately makes a break due', (
   assert.ok(s.events.some(event => event.kind === 'breakDue'));
   core.close();
 });
+
+
+test('focus targets after breaks and manual starts fit the local planned finish across DST', () => {
+  for (const day of [31, 32, 33]) {
+    for (const path of ['manual', 'break', 'away', 'running']) {
+      setComputerClock(new Date(2026, 9, day, 16, 40).getTime());
+      const { core } = temporaryCore();
+      core.action('start-focus');
+      if (path === 'break') core.action('start-break');
+      if (path === 'away') core.action('away');
+      if (path === 'manual') core.action('end-focus');
+      core.action('advance', 13);
+      if (path === 'break') core.action('finish-break');
+      if (path === 'away') { core.action('return'); core.action('confirm-return'); }
+      if (path === 'manual') core.action('start-focus');
+      const state = core.status();
+      assert.ok(Math.abs(state.timer.remainingSeconds - 7 * 60) < 1, path);
+      const started = state.events.findLast(event => event.kind === 'focusStarted');
+      assert.ok(started.payload.targetSeconds <= 20 * 60, path);
+      core.close();
+    }
+  }
+});
