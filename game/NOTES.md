@@ -27,7 +27,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 **Check-ins:**
 
 - A check-in is ready when you come back from a break. Anything that interrupts you waits until then, never at the moment focus ends. It waits on Today until you open the window.
-- You collect with one tap what the helpers made and, if you can afford something, pick 1 of 2 or 3 blueprints. The aim is about 10 seconds.
+- You collect with one tap what the helpers made and, if you can afford something, pick 1 of up to 3 blueprints, or collect and save. The aim is about 10 seconds.
 - Many check-ins have nothing to decide yet because you haven't earned enough. Then you just collect.
 - Start with this and watch whether it distracts. Make it smaller if it does.
 
@@ -89,8 +89,8 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - New islands follow "active days": days with at least one focus session and one real break. Vacations pause the clock, and long days don't speed it up. Timing by time spent rewarded overwork, and timing by plain calendar days handed out islands during vacations.
 - Each break counts fully for its first 10 minutes and at half value up to 20 minutes, so one long lunch can't stand in for a day of breaks.
 - A focus session earns Starlight only if it stays close to its planned length and a real break follows it.
-- The first day offers about 3 real choices. After that, about one choice every workday or two.
-- Never offer a choice that doesn't matter. An offer has 2 or 3 blueprints of different kinds, and cheap repeatable items are limited so no single item takes over.
+- The first day offers about 3 real choices. Later growth aims for about one accepted build or job every workday or two; optional single offers can appear more often while saving.
+- Never offer a choice that doesn't matter. An offer has 1 to 3 blueprints of different kinds. Building now or saving is a meaningful choice even with one option. Cheap repeatable items are limited so no single item takes over.
 
 **Fun, without extra interaction** (shown only at check-ins):
 
@@ -99,7 +99,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - Each new island has its own kind (for example mossy, rocky, meadow, or crystal) and one special building found only there.
 - Starlight buys named wonders, such as a lighthouse, airship dock, or observatory. The first one takes about 2 or 3 weeks, then roughly one a month.
 - Helpers have names.
-- A check-in with no choice shows what's coming next, for example "about 2 more breaks until the Sawmill".
+- A check-in with no choice shows whether more room or materials are needed, with an approximate wait and without revealing undiscovered content.
 
 **Still open (decide after trying prototypes):**
 

@@ -24,6 +24,9 @@ function simulatedPlayer(state, { blueprints, helpersWaiting, homesOffers = 0 })
   owned.bridge = state.links.filter(link => !String(link.id).startsWith('gift-')).length;
   const wonder = choice.options.find(o => o.kind === 'wonder');
   if (wonder) return wonder.blueprint;
+  // This baseline player saves solitary ordinary offers for a wider choice.
+  // Keep its existing spending strategy comparable across offer-rule changes.
+  if (choice.options.length === 1) return null;
   const homes = choice.options.find(o => o.kind === 'homes');
   if (homes && helpersWaiting) return homes.blueprint;
   const bridge = choice.options.find(o => blueprints.find(bp => bp.id === o.blueprint).linkType);
@@ -65,13 +68,14 @@ function run(personId, dayCount, options = {}) {
     const state = game.gameState(history.events, ctx());
     if (!state.checkIn) return;
     const choice = state.checkIn.choice;
-    if (choice && choice.kind === 'build' && choice.options.some(o => o.kind === 'homes')) homesOffers += 1;
+    if (choice && choice.kind === 'build' && choice.options.length > 1 && choice.options.some(o => o.kind === 'homes')) homesOffers += 1;
     const pick = chooser(state, { blueprints, rules, helpersWaiting: helpersWaitingFor(history.events, rules, blueprints), homesOffers });
     const record = game.checkInRecord(history.events, ctx(), { token: state.checkIn.token, pick });
     history.appendRecord(record);
     log.push({ day: today.day, ...record.payload });
     today.checkIns += 1;
     if (record.payload.choice) today.choices += 1;
+    if (record.payload.built || record.payload.job) today.accepted += 1;
     if (record.payload.surprise) today.surprises += 1;
   }
 
@@ -80,7 +84,7 @@ function run(personId, dayCount, options = {}) {
     todayKey = MadeUpDays.dayKeyFor(d);
     now = `${todayKey}T07:00:00.000Z`;
     plans.set(todayKey, MadeUpDays.planFor(madeUp));
-    today = { day: d, checkIns: 0, choices: 0, surprises: 0 };
+    today = { day: d, checkIns: 0, choices: 0, accepted: 0, surprises: 0 };
     settle(true); // a new day: yesterday's day grant may be due
     for (const batch of MadeUpDays.batchesForDay(madeUp, { fillers: options.fillers })) {
       for (const [kind, payload, at] of batch.events) { history.append(kind, payload, at); now = at; }
@@ -90,7 +94,7 @@ function run(personId, dayCount, options = {}) {
     if (keep.has(d)) states[d] = state;
     timeline.push({ day: d, label: madeUp.label, activeDays: state.activeDays, islands: state.islands.length,
       helpers: state.helpers.length, buildings: state.islands.reduce((n, i) => n + i.buildings.length, 0) + state.links.length,
-      wonders: state.wonders.length, checkInsToday: today.checkIns, choicesToday: today.choices, surprisesToday: today.surprises,
+      wonders: state.wonders.length, checkInsToday: today.checkIns, choicesToday: today.choices, acceptedToday: today.accepted, surprisesToday: today.surprises,
       onHand: state.onHand, land: state.islands.map(island => island.land), links: state.links.length });
   }
   return { states, timeline, events: history.events, log };
@@ -116,6 +120,7 @@ function milestones(result) {
   return {
     dayOneChoices: t[0].choicesToday, dayOneCheckIns: t[0].checkInsToday, islandDays, wonderDays,
     choicesPerWeekMonth3: t.length >= 90 ? Math.round(sum('choicesToday', 61, 90) / (30 / 7) * 10) / 10 : null,
+    acceptedPerWeekMonth3: t.length >= 90 ? Math.round(sum('acceptedToday', 61, 90) / (30 / 7) * 10) / 10 : null,
     surprisesPerWeek: Math.round(sum('surprisesToday', 1, t.length) / (t.length / 7) * 10) / 10,
     helpers: end.helpers, buildings: end.buildings, islands: end.islands,
   };

@@ -315,7 +315,8 @@ function makeOffer(state, rules, blueprints, key) {
     .map(k => ({ k, r: roll(`${key}:kind:${k}`) })).sort((a, b) => a.r - b.r).map(x => x.k);
   if (byKind.wonder) kinds.unshift('wonder');
   const offer = kinds.slice(0, Math.max(2, rules.blueprintsOffered)).map(k => byKind[k]);
-  if (offer.length < 2 && !(offer.length === 1 && offer[0].bp.kind === 'wonder')) return null;
+  // Building now or saving for later is a choice even with only one affordable option.
+  if (!offer.length) return null;
   return offer;
 }
 
@@ -344,21 +345,16 @@ function teaser(state, rules, blueprints, typical) {
   const perSession = { wood: focusMinutes * rules.woodPerFocusMinute * boost(state, rules, 'wood'),
     stone: focusMinutes * rules.stonePerFocusMinute * boost(state, rules, 'stone'),
     planks: count(state, 'sawmill') ? focusMinutes * rules.planksPerFocusMinute * boost(state, rules, 'planks') : 0 };
-  // If one kind is already affordable, the next choice needs something of another kind.
-  let ready = null;
-  for (const bp of blueprints) {
-    if (bp.kind !== 'wonder' && !ready && available(bp, state, rules, blueprints) &&
-      canAfford(R.priceOf(bp, state, rules), state) && placeFor(bp, state, rules) !== null) ready = bp;
-  }
   let best = null;
   for (const bp of blueprints) {
     if (bp.kind === 'wonder' || !available(bp, state, rules, blueprints)) continue;
-    if (ready && bp.kind === ready.kind) continue;
     const price = R.priceOf(bp, state, rules);
-    let breaks = 0, sessions = 0, impossible = false;
+    let breaks = 0, sessions = 0, impossible = false, needsRoom = false;
+    const missing = [];
     for (const r of Object.keys(price)) {
       const short = price[r] - (state.onHand[r] || 0);
       if (short <= EPSILON) continue;
+      missing.push(r === 'saplings' ? 'water' : r);
       if (perBreak[r]) breaks = Math.max(breaks, Math.ceil(short / perBreak[r]));
       else if (perSession[r]) sessions = Math.max(sessions, Math.ceil(short / perSession[r]));
       else impossible = true;
@@ -367,23 +363,22 @@ function teaser(state, rules, blueprints, typical) {
       // It needs more land first: count the land points still missing, in rest minutes.
       const points = landPointsNeeded(bp, state, rules);
       if (points === null) continue;
+      needsRoom = true;
       breaks = Math.max(breaks, Math.ceil((points * rules.restMinutesPerLand - state.landProgress) / Math.max(1, breakRest)));
     }
     if (impossible || (!breaks && !sessions)) continue;
-    if (!best || breaks + sessions < best.breaks + best.sessions) best = { bp, breaks, sessions };
+    if (!best || breaks + sessions < best.breaks + best.sessions) best = { breaks, sessions, needsRoom, missing };
   }
   const lines = [];
   if (best) {
     const parts = [];
     if (best.breaks) parts.push(plural(best.breaks, 'more break'));
     if (best.sessions) parts.push(plural(best.sessions, 'more focus session'));
-    lines.push(ready ? `Next choice: ${ready.name} or ${best.bp.name}, about ${parts.join(' and ')} away.`
-      : `Next up: ${best.bp.name}, about ${parts.join(' and ')} away.`);
+    const needs = [...(best.needsRoom ? ['more room'] : []), ...best.missing];
+    const needsText = needs.length < 3 ? needs.join(' and ') : `${needs.slice(0, -1).join(', ')}, and ${needs.at(-1)}`;
+    lines.push(`Your next build needs ${needsText} — about ${parts.join(' and ')} away.`);
   }
-  const wonder = nextWonder(state, blueprints);
-  if (wonder && state.onHand.starlight >= 1) {
-    lines.push(`${wonder.name}: ${Math.floor(state.onHand.starlight + EPSILON)} of ${R.priceOf(wonder, state, rules).starlight} Starlight.`);
-  }
+  // Explain the constraint without revealing undiscovered buildings or milestones.
   return lines.length ? lines.join(' ') : null;
 }
 

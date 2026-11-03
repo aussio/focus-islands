@@ -266,8 +266,17 @@ test('a check-in is ready after a break or a day end, never when focus ends, and
   state = h.state();
   assert.ok(state.checkIn, 'ready after the day ends');
   assert.equal(state.checkIn.collected.wood, 7.56, 'Pip the Woodcutter adds 8%');
-  assert.equal(state.checkIn.choice, null, 'only one kind of thing is affordable, so there is no pointless choice');
-  assert.equal(state.checkIn.nextUp, 'Next choice: Flower bed or Little house, about 1 more focus session away. Lighthouse: 1 of 90 Starlight.');
+  assert.deepEqual(state.checkIn.choice.options.map(o => o.blueprint), ['flowers'], 'one affordable option is still offered');
+  assert.equal(state.checkIn.nextUp, null);
+  const before = state.onHand.wood + state.checkIn.collected.wood;
+  const saved = h.checkIn(null);
+  assert.equal(saved.payload.built, null, 'saving collects without buying');
+  assert.equal(h.state().onHand.wood, before);
+  assert.equal(h.state().checkIn, null, 'saving does not immediately offer the same card again');
+  h.rest(10); h.grants();
+  const built = h.checkIn('flowers');
+  assert.equal(built.payload.built.blueprint, 'flowers');
+  assert.equal(h.state().onHand.wood, play.round2(before - built.payload.built.price.wood));
 });
 
 test('a card already waiting stays through later focus and collects it too; counted time away makes a card ready', () => {
@@ -632,10 +641,17 @@ test('"next up" counts the land points still missing', () => {
   build('garden');
   const typical = { focusMinutes: 60, breakMinutes: 10 };
   // Room 0.9 after the garden. A Flower bed needs 2 more land points (one 10-minute break); a pad needs 8.
-  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Next up: Flower bed, about 1 more break away.');
+  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Your next build needs more room — about 1 more break away.');
   assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8);
   state.landProgress = 9;
   assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8, 'progress is minutes, counted by the caller');
+  state.onHand.wood = 0;
+  state.onHand.saplings = 0;
+  state.onHand.starlight = 10;
+  const hint = play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical);
+  assert.match(hint, /more room, wood, and water/);
+  assert.match(hint, /more break.*more focus session/);
+  assert.doesNotMatch(hint, /Flower|Lighthouse|saplings/, 'only constraints, in familiar resource names');
 });
 
 test('version-1 records still read: land × 7, a cottage is a house, islands get places, chain links become rope bridges', () => {
@@ -717,6 +733,8 @@ test('the simulated player: a wonder, homes for a bed, a bridge to an unjoined i
   const state = (ids, built = [], more = {}) => ({ islands: [{ id: 'home', buildings: built.map(blueprint => ({ blueprint })) }], links: [],
     checkIn: { choice: { kind: 'build', options: ids.map(opt) } }, ...more });
   const choose = (s, extra = {}) => sim.simulatedPlayer(s, { blueprints, helpersWaiting: 0, homesOffers: 1, ...extra });
+  assert.equal(choose(state(['room'])), null, 'save instead of automatically buying every single repeatable');
+  assert.equal(choose(state(['sawmill'])), null, 'baseline spending waits for a wider choice');
   assert.equal(choose(state(['lighthouse', 'room', 'garden'])), 'lighthouse');
   assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { helpersWaiting: 1 }), 'room', 'a helper needs a bed');
   assert.equal(choose(state(['windmill', 'room'], ['room', 'room']), { homesOffers: 3 }), 'room', 'every third homes offer');

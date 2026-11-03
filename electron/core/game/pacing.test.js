@@ -19,8 +19,10 @@ test('steady planner: about 3 choices on day 1, the first island around active d
   assert.ok(m.islandDays[0].activeDay >= 7 && m.islandDays[0].activeDay <= 9, `first island on active day ${m.islandDays[0].activeDay}`);
   assert.ok(m.wonderDays[0].day >= 8 && m.wonderDays[0].day <= 21, `first wonder on day ${m.wonderDays[0].day}`);
   assert.ok(m.wonderDays.length >= 4, 'roughly one wonder a month after the first');
-  // Homes are offered whenever they fit (decision 7), so month 3 runs a little busier than the old 2.5 to 5.
-  assert.ok(m.choicesPerWeekMonth3 >= 2.5 && m.choicesPerWeekMonth3 <= 6, `about one choice every workday: ${m.choicesPerWeekMonth3} a week`);
+  // Optional singles can recur while saving. Track accepted builds/jobs separately
+  // from offers so saving isn't mistaken for faster town growth.
+  assert.ok(m.acceptedPerWeekMonth3 >= 2.5 && m.acceptedPerWeekMonth3 <= 6, `about one accepted build/job every workday: ${m.acceptedPerWeekMonth3} a week`);
+  assert.ok(m.choicesPerWeekMonth3 >= m.acceptedPerWeekMonth3);
   assert.ok(m.surprisesPerWeek >= 1 && m.surprisesPerWeek <= 4, `a few surprises a week: ${m.surprisesPerWeek}`);
 });
 
@@ -33,7 +35,7 @@ test('every person: saved records stay clean and every offer is a real choice', 
       if (record.choice?.kind === 'build') {
         const kinds = record.choice.options.map(o => R.DEFAULT_BLUEPRINTS.find(bp => bp.id === o.blueprint).kind);
         assert.equal(new Set(kinds).size, kinds.length, `${person.id} check-in ${record.number}: one blueprint per kind`);
-        assert.ok(kinds.length >= 2 || kinds[0] === 'wonder', `${person.id} check-in ${record.number}: never a pointless choice`);
+        assert.ok(kinds.length >= 1, `${person.id} check-in ${record.number}: build now or save for later`);
         assert.ok(kinds.length <= 3);
       }
       assert.ok(record.job === null || record.built === null, 'at most one choice per check-in');

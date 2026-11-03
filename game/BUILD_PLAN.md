@@ -215,7 +215,7 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
 | `floor` | homes | 2 | 0 | stone 14, planks 18, soil 8, saplings 4 | 6% |
 
 - `priceOf` reads a blueprint's own `step` when it has one, before `fastRepeatPriceStep` and `repeatPriceStep`.
-- `KIND_NAMES` gains `homes: 'homes'`, and `decor` becomes `'pretty things'`. An offer now draws its 2 or 3 blueprints from four kinds: making, growing, decor, homes. A wonder can still come on its own.
+- `KIND_NAMES` gains `homes: 'homes'`, and `decor` becomes `'pretty things'`. An offer now draws its 1 to 3 blueprints from four kinds: making, growing, decor, homes. Any affordable option can come on its own; collecting and saving remains available.
 - Pad buildings keep their prices, `perIsland` caps and `maxShareOfIsland`, now counted against each island's things.
 - `placeFor` picks, among the islands with enough room for the blueprint's ground, the one with the fewest buildings for its land (buildings ÷ land, homes included). Ties go to the most room, then the earlier island. Rooms and floors only go to islands with a house, and the `perIsland` caps still apply.
   - This way every island fills up alike, and a young island gets the next things until it runs out of room.
@@ -226,7 +226,7 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
 
 ### Pacing
 
-The targets in `pacing.test.js` stay: about 3 choices on day 1 (2 to 4), the first island on active day 7 to 9, the first wonder in weeks 2 to 3 (now day 18 for the steady planner), and 2.5 to 6 choices a week in month 3 (was 5; widened because homes are offered whenever they fit, decision 7).
+The targets in `pacing.test.js` stay: about 3 choices on day 1 (2 to 4), the first island on active day 7 to 9, the first wonder in weeks 2 to 3 (now day 18 for the steady planner), and 2.5 to 6 accepted builds/jobs a week in month 3. Optional single offers can recur while saving, so offered choices and accepted builds/jobs are tracked separately.
 
 - **Unchanged,** because they don't depend on land or buildings: grants, the rest curve, Starlight, island and helper timing, how often surprises come, wonder prices. Islands and wonders should land on the same days as now. The surprise mix gains fancy bridges.
 - **To retune together** until the targets pass and the layout never needs extra land: `startingLand` (40, was `startingSpots` 4), `restMinutesPerLand` (5, was `restMinutesPerNewSpot` 35), the new islands' `startLand` (small 30, medium 40, large 55, was 2, 3, 5), the coast and lane parts of the room sum (4 and 0.12), the ground per bridge end (`groundPerBridgeEnd` 4), the homes prices, steps and weights, `homesShareOfIsland`, and the land share (`landAgeStep` 0.3, `homeAppetite` 1.3, `homeLead` 0.85).
@@ -238,7 +238,7 @@ The targets in `pacing.test.js` stay: about 3 choices on day 1 (2 to 4), the fir
   - 2 to 4 fancy bridges;
   - every island that arrived at least 30 days earlier has at least 3 buildings besides flower beds (houses, rooms and floors count);
   - home holds at most 60% of all blocks.
-- **Simulated player** (`simulate.js`): a wonder first. Then homes if a helper is waiting for a bed. Then a rope bridge if some island isn't joined yet. Then the homes option on every third build choice where it's offered, standing in for a player who likes the town. Otherwise something new before something repeated.
+- **Simulated player** (`simulate.js`): a wonder first. The baseline simulated player saves single ordinary offers for a wider choice, preserving its prior spending strategy. For wider choices, homes come first if a helper is waiting for a bed, then a rope bridge if some island isn't joined yet. Then the homes option on every third build choice where it's offered, standing in for a player who likes the town. Otherwise something new before something repeated.
 - The test that compared with the pacing prototype's own replay is removed. Its export is no longer in `.build`, so it was already skipped, and it has done its job of checking the port.
 
 ## Layout
