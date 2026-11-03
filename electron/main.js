@@ -5,6 +5,7 @@ const os = require('node:os');
 const { createCore } = require('./core');
 const { createActivityDetector } = require('./activity');
 const { createBreakReminder } = require('./break-reminders');
+const { restartLatest } = require('./restart');
 
 const development = process.env.FOCUS_ISLANDS_DEV === '1';
 // The game demo (scripts/run-game-demo.sh, or scripts/run-dev.sh --demo): a development app whose Today has demo
@@ -49,6 +50,7 @@ let core;
 let window;
 let tray;
 let quitting = false;
+let restarting = false;
 let lastReturnPromptSince = null;
 let lastBreakReminderPreview = null;
 let publicationEpoch = 0;
@@ -264,6 +266,16 @@ function makeTray() {
   const menu = () => Menu.buildFromTemplate([
     { label: `${appStatus().profile === 'testing' ? 'Testing' : 'Personal'} profile${development ? ` · ${devInstance}` : ''}`, enabled: false },
     { label: 'Open Window', click: () => showWindow('Open Window in the menu bar menu') },
+    { label: restarting ? 'Building Latest Changes…' : 'Restart with Latest Changes', enabled: !restarting && !(development && app.isPackaged),
+      click: async () => {
+        restarting = true;
+        try {
+          await restartLatest({ app, development, repository });
+        } catch (error) {
+          console.error(error);
+          if (!development) dialog.showErrorBox('Could not restart Focus Islands', error.message);
+        } finally { restarting = false; }
+      } },
     { label: 'Quit Focus Islands', click: () => { quitting = true; app.quit(); } },
   ]);
   // A Testing app's menu bar item only opens its menu on a click. Agents run several Testing apps at once, and

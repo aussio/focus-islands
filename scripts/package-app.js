@@ -38,6 +38,7 @@ async function main() {
   }
   fs.writeFileSync(path.join(source, 'package.json'), JSON.stringify({
     name: manifest.name, version: manifest.version, main: manifest.main,
+    localBuild: { repository: root, nodeDirectory: path.dirname(process.execPath) },
   }));
   const bundles = await packager({
     dir: source, out: output, name: 'FocusIslands', executableName: 'FocusIslands',

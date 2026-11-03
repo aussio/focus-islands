@@ -20,7 +20,7 @@ npm install
 scripts/run-personal.sh
 ```
 
-This builds and installs `/Applications/Focus Islands.app`. Open it from Spotlight afterward; rerun the script after quitting to install code updates. Use the menu bar island to open or quit the app.
+This builds and installs `/Applications/Focus Islands.app`. Open it from Spotlight afterward. Right-click the menu bar island and choose **Restart with Latest Changes** to rebuild from this checkout, install, and reopen in the background. Keep the checkout and Node.js installed. If the build fails, the current app stays running; details are in `.build/restart.log`. You can also use the menu to open or quit the app.
 
 To try the game without waiting through real sessions: `scripts/run-game-demo.sh`.
 
