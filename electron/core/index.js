@@ -193,6 +193,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   function tick(idleSeconds = 0) {
     const instant = now(); syncDay();
     if (dayEndedAt) { lastTick = instant; writeLease('idle'); return; }
+    if (inMeeting()) { returnCandidateAt = null; returnActivityStartedAt = null; }
     if (!development && Number.isFinite(idleSeconds)) {
       if (idleSeconds >= activityDelaySeconds) {
         beginAway('idle', new Date(Math.max(observationStartedAt.getTime(), instant.wall.getTime() - idleSeconds * 1000)),
@@ -430,8 +431,12 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     returnCandidateAt = null; returnActivityStartedAt = null;
     returnDismissed = false;
   }
-  function beginReturn() {
-    if (returnDismissed) return;
+  function inMeeting() {
+    const time = now().wall.getTime();
+    return (currentPlan?.meetings || []).some(meeting => ms(meeting.start) <= time && time < ms(meeting.end));
+  }
+  function beginReturn(manual = false) {
+    if (returnDismissed || (!manual && inMeeting())) return;
     if (!returnCandidateAt) returnCandidateAt = now().wall;
     if (!returnActivityStartedAt) returnActivityStartedAt = now().wall;
   }
@@ -896,7 +901,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       timerTargetSeconds: timer.state.targetSeconds, breakDue: timer.state.phase === 'focus' && timer.state.isDue && !liveAway?.inferred && !endGuide,
       inferredBreakActive: Boolean(liveAway?.inferred), suspended: timer.state.isSleeping,
       reminderSequence, breakCompleteSequence,
-      returnPrompt: returnCandidateAt && !endGuide ? { since: returnCandidateAt.toISOString(),
+      returnPrompt: returnCandidateAt && !endGuide && !inMeeting() ? { since: returnCandidateAt.toISOString(),
         activeSeconds: returnActivityStartedAt ? Math.max(0, (instant.wall - returnActivityStartedAt) / 1000) : 0,
         autoEndAfterSeconds: RETURN_ACTIVITY_SECONDS,
         kind: awayStartedAt ? 'inferred' : 'started' } : null,
@@ -948,7 +953,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'start-break': start('break', Number(value?.targetSeconds || breakLength * 60)); break;
       case 'start-long-break': start('break', 30 * 60); break;
       case 'finish-break': finishBreak(); break;
-      case 'confirm-return': if (!returnCandidateAt && (awayStartedAt || breakAwayStartedAt)) { returnDismissed = false; beginReturn(); } finishReturn('confirmed return'); break;
+      case 'confirm-return': if (!returnCandidateAt && (awayStartedAt || breakAwayStartedAt)) { returnDismissed = false; beginReturn(true); } finishReturn('confirmed return'); break;
       case 'keep-break': returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = true; break;
       case 'snooze': case 'snooze-break': {
         const instant = now();

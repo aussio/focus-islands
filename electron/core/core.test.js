@@ -518,6 +518,36 @@ test('an explicit break automatically ends after sustained return activity', () 
   core.close();
 });
 
+for (const explicitBreak of [false, true]) {
+  test(`meetings suppress return prompts and automatic return during ${explicitBreak ? 'explicit' : 'inferred'} breaks`, () => {
+    const { core } = temporaryCore();
+    const at = (hour, minute = 0) => new Date(pinnedTime(hour, minute)).toISOString();
+    core.action('save-plan', { start: at(9), end: at(17), meetings: [
+      { title: 'Meeting', start: at(9, 15), end: at(9, 45) },
+    ] });
+    core.action('start-focus');
+    if (explicitBreak) core.action('start-break');
+    core.action('away');
+    core.action('advance', 14.5);
+    assert.ok(core.action('return').returnPrompt);
+    // A pending return must also be cancelled at the meeting boundary.
+    assert.equal(core.action('advance', .5).returnPrompt, null);
+    assert.equal(core.action('return').returnPrompt, null);
+    const during = core.action('advance', 2);
+    assert.equal(during.returnPrompt, null);
+    assert.equal(explicitBreak ? during.phase === 'break' : during.inferredBreakActive, true);
+    assert.equal(during.events.some(event => event.kind === 'awayEnded'), false);
+    core.action('advance', 28);
+    const after = core.action('return');
+    assert.ok(after.returnPrompt);
+    assert.equal(after.returnPrompt.activeSeconds, 0);
+    const resumed = core.action('advance', 1);
+    assert.equal(resumed.phase, 'focus');
+    assert.equal(resumed.inferredBreakActive, false);
+    core.close();
+  });
+}
+
 test('profile settings import once into SQLite and do not change an existing day plan', () => {
   const directory = tempFolder('focus-islands-settings-test-');
   const dbPath = join(directory, 'events.sqlite');
