@@ -492,13 +492,19 @@ function selectedPlan() {
     !record.current ? s.defaultDayPath?.timeline || [] : ended ? s.plannedTimeline || [] : s.forecastTimeline || [];
   return { key, date, record, plan, timeline, ended, bounds: state().planBounds[key] || {} };
 }
+// Yesterday's recorded time on the shared timeline, from its first hour to the end of its last.
+function yesterdayTrack(s) {
+  const blocks = s.yesterdayTimeline || [], hour = 3600000;
+  const times = blocks.flatMap(block => [date(block.start).getTime(), date(block.end).getTime()]).filter(Number.isFinite);
+  const start = times.length ? Math.floor(Math.min(...times) / hour) * hour : 0;
+  const end = times.length ? Math.max(start + hour, Math.ceil(Math.max(...times) / hour) * hour) : hour;
+  return timelineTrack({ blocks, start, end, now: end, compact: true, marker: false, breakMinutes: s.defaultBreakLength,
+    emptyText: 'Nothing recorded yesterday', label: 'Yesterday timeline' });
+}
 function plan() {
   const s = state().status, view = selectedPlan();
-  const yesterday = (s.yesterdayTimeline || []).filter(x => x.kind === 'focus' || (x.kind === 'break' && x.confirmed));
-  const saved = s.savedReflection ?? null;
-  const editing = state().reflectionDraft !== null || !saved;
-  const reflection = editing ? `<p class="muted">What felt good? What would make breaks easier today?</p><input class="text-input" id="reflection-input" placeholder="Add a reflection…" value="${html(state().reflectionDraft ?? saved ?? '')}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${saved ? actionButton('Cancel', 'cancel-reflection-edit', undefined, false, 'cancel-reflection-edit') : ''}${actionButton('Save reflection', 'save-reflection', undefined, false, 'save-reflection')}</div>` : `<div class="reflection-saved"><span class="green">●</span><div><b>Saved</b><p class="muted">${html(saved)}</p></div></div>`;
-  const reflectionCard = state().planDay === 'today' ? card(`<div class="card-head">${section('Yesterday')}${saved && !editing ? actionButton('Edit reflection', 'edit-reflection', undefined, false, 'edit-reflection') : ''}</div><div class="inline-metrics"><span>Focus · ${s.yesterdayFocusMinutes || 0} min</span><span>Confirmed breaks · ${s.yesterdayBreakMinutes || 0} min</span></div>${yesterday.map(x => `<div class="line-row"><span>${x.kind === 'focus' ? 'Focus' : 'Break'}</span><span class="spacer"></span><time>${clock(x.start)} · ${Math.round((x.observedSeconds || mins(x.start, x.end) * 60) / 60)} min</time></div>`).join('')}${reflection}`) : '';
+  // Yesterday shows only until you save a reflection for it (here, or on Today's "How did today feel?").
+  const reflectionCard = state().planDay === 'today' && !s.savedReflection ? card(`${section('Yesterday')}${yesterdayTrack(s)}<p class="muted">What felt good? What would make breaks easier today?</p><input class="text-input" id="reflection-input" placeholder="Add a reflection…" value="${html(state().reflectionDraft ?? '')}"><div class="actions" style="justify-content:flex-end;margin-top:9px">${actionButton('Save reflection', 'save-reflection', undefined, false, 'save-reflection')}</div>`) : '';
   const meetings = (view.plan.meetings || []).map(m => `<div class="line-row"><span>${html(m.title)}</span><span class="spacer"></span><time>${clock(m.start)}–${clock(m.end)}</time></div>`).join('') || empty('No meetings planned yet.');
   const dayButtons = `<div class="actions"><button class="button ${state().planDay === 'today' ? 'primary' : ''}" data-plan-day="today">Today</button><button class="button ${state().planDay === 'tomorrow' ? 'primary' : ''}" data-plan-day="tomorrow">Tomorrow</button></div>`;
   const planSaving = state().pendingPlanKey === view.key;
@@ -923,8 +929,6 @@ document.addEventListener('click', event => {
     });
     return;
   }
-  if (name === 'edit-reflection') { state().setUI({ reflectionDraft: state().status.savedReflection ?? '' }); render(); document.getElementById('reflection-input')?.focus(); return; }
-  if (name === 'cancel-reflection-edit') { state().setUI({ reflectionDraft: null }); render(); return; }
   if (name === 'save-reflection') { const value = document.getElementById('reflection-input')?.value.trim(); if (value) { state().setUI({ reflectionDraft: null }); state().clearDirty('reflection-input'); state().deferRender(false); dispatch(name, value); } return; }
   if (name === 'save-preferences') { savePreferences(); return; }
   if (name === 'dev-timer-end') {
