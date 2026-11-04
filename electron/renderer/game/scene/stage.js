@@ -390,9 +390,13 @@ export function createStage({ now = () => globalThis.performance?.now?.() ?? Dat
     // land: [x, z, y] spots over grass, where fireflies may hover. elevation: the camera's angle above the
     // horizon (gallery only; the scene keeps Today's). top: how high points may reach in the picture (see
     // frameCamera; lower keeps a band clear at the top). Returns { look, distance, elevation, oval } of the busy view.
-    aim(points, aspect, { ease = false, land = [], elevation = ELEVATION, top = TOP, wide = null, others = [], restart = true } = {}) {
+    aim(points, aspect, { ease = false, land = [], elevation = ELEVATION, top = TOP, wide = null, others = [], restart = true, viewport = null } = {}) {
       camera.fov = FOV;
       camera.aspect = aspect;
+      // Fit in the unobstructed area, then shift that view within the full canvas.
+      // Projection stays offset as the camera sways and travels between islands.
+      if (viewport?.left) camera.setViewOffset(viewport.width - viewport.left, viewport.height, -viewport.left, 0, viewport.width, viewport.height);
+      else camera.clearViewOffset();
       camera.updateProjectionMatrix();
       const poseOf = f => ({ at: f.look, distance: f.distance, elevation, yaw: 0, oval: f.oval });
       const poseFor = list => poseOf(fitView(list, aspect, { elevation, top }));

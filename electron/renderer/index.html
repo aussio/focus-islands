@@ -9,13 +9,13 @@
   <script src="app.js" defer></script>
 </head>
 <body>
-  <div class="app-shell sidebar-collapsed">
-    <aside id="sidebar" class="sidebar" inert>
+  <div class="app-shell">
+    <header class="topbar">
       <div id="profile-badge" class="profile-badge"></div>
       <nav id="navigation" aria-label="Main navigation"></nav>
+      <span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span>
       <div class="local-note" title="Stored on this Mac"><span class="local-dot"></span><span class="local-note-text">Stored on this Mac</span></div>
-    </aside>
-    <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Expand sidebar" aria-controls="sidebar" aria-expanded="false" title="Expand sidebar"><span aria-hidden="true">›</span></button>
+    </header>
     <main id="content" class="content" aria-live="polite"></main>
   </div>
   <div id="dialog-root"></div>

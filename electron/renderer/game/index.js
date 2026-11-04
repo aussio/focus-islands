@@ -33,7 +33,8 @@ function start() {
     stage.setAttribute('aria-hidden', 'true');
     stage.style.cssText = 'position:absolute;inset:0;overflow:hidden;';
     host.appendChild(stage);
-    scene = createIslandScene(stage);
+    const clearLeft = parseFloat(host.ownerDocument.defaultView.getComputedStyle(host).getPropertyValue('--island-clear-left')) || 0;
+    scene = createIslandScene(stage, { clearLeft });
     return true;
   } catch (error) {
     report('the scene could not start; keeping the plain sky.', error);

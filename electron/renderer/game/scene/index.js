@@ -26,6 +26,7 @@
 //   view only). CAMERA_STYLES lists them. A change eases back to the busy view.
 // - clearTop (get or set): pixels kept clear of the town across the top, where the page's resource bar
 //   sits (scene/core.js CLEAR_TOP, 64 by default).
+// - clearLeft (creation option): pixels reserved at the left for Today’s floating session card.
 // - stats() is a speed readout for the gallery: triangles, draw calls, frame time and rebuild time.
 // - If WebGL cannot start, the host gets a soft sky-coloured background instead, and nothing throws.
 // The canvas fills the host (width and height 100%), so the host needs a size of its own.
@@ -39,7 +40,7 @@ export { CAMERA_STYLES };
 const FRAME_MS = 1000 / 30;
 const MAX_PIXEL_RATIO = 2;
 
-export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearTop = CLEAR_TOP } = {}) {
+export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearTop = CLEAR_TOP, clearLeft = 0 } = {}) {
   const doc = host?.ownerDocument ?? globalThis.document;
   const view = doc?.defaultView ?? globalThis.window ?? globalThis;
   const now = () => (globalThis.performance?.now?.() ?? Date.now());
@@ -77,7 +78,7 @@ export function createIslandScene(host, { cameraStyle = CAMERA_STYLES[0], clearT
     renderer.shadowMap.type = THREE.PCFShadowMap;
     // Only helpers move and they use soft blob shadows, so the island's shadows are drawn once per change.
     renderer.shadowMap.autoUpdate = false;
-    core = createSceneCore({ clearTop });
+    core = createSceneCore({ clearTop, clearLeft });
     core.cameraStyle = cameraStyle;
     host.appendChild(canvas);
   } catch (error) {

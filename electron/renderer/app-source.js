@@ -448,8 +448,7 @@ function today() {
   const s = state().status, g = guidance();
   const timerVisible = !['afterDay', 'dayEnded'].includes(g.situation) && (s.phase !== 'idle' || g.situation === 'working' || g.situation === 'wrappingUp');
   return `<div class="today-page">
-    <header class="today-head"><div class="eyebrow">${html(shortDate(s.currentWallTimeISO || s.currentWallTime || Date.now()))}</div><div class="today-head-actions"><span class="activity-status" id="activity-status" role="status" aria-live="polite"><span class="activity-status-dot" aria-hidden="true"></span><span class="activity-status-text"></span></span>${!s.dayEndedAt && !['afterDay', 'wrappingUp'].includes(g.situation) ? `<details class="day-options"><summary aria-label="Day options" title="Day options">⋯</summary><div class="day-options-menu">${actionButton('End day early', 'end-day', undefined, false, 'end-day-early')}</div></details>` : ''}</div></header>
-    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy"><h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-island-overlay></div></section>
+    <section class="today-stage" aria-label="Current session"><div class="today-stage-copy">${!s.dayEndedAt && !['afterDay', 'wrappingUp'].includes(g.situation) ? `<details class="day-options"><summary aria-label="Day options" title="Day options">⋯</summary><div class="day-options-menu">${actionButton('End day early', 'end-day', undefined, false, 'end-day-early')}</div></details>` : ''}<h2 id="today-guidance">${html(g.title)}</h2>${timerVisible ? `<div class="timer"><span id="timer-countdown"></span>${focusPastTarget(s) ? '<small>past focus target</small>' : ''}</div>` : ''}${g.detail ? `<p class="today-detail">${html(g.detail)}</p>` : ''}<div class="today-actions">${todayActions(g)}${earlierStart()}</div>${activityMeter()}</div><div data-island-slot></div><div data-island-overlay></div></section>
     ${s.demo ? '<div data-demo-slot></div>' : ''}<div class="today-live-slot" data-up-next-slot></div>${s.dayEndedAt ? todayReflection() : ''}<div class="today-live-slot" data-day-path-slot></div>${s.statusMessage ? `<p class="status-message">${html(s.statusMessage)}</p>` : ''}</div>`;
 }
 function calendar(items, dayStart, dayEnd, meetingMode = false) {
@@ -656,6 +655,7 @@ function render() {
   const content = document.getElementById('content');
   const scroll = content.scrollTop;
   const markup = view();
+  content.classList.toggle('content-today', view === today);
   content.innerHTML = `<div class="page">${markup}</div>`;
   todayShell = view === today ? markup : null;
   historyShell = view === history ? markup : null;
@@ -891,16 +891,6 @@ function meetingDrop(event) {
   upsertMeeting({ id: drag.meeting?.id, title: drag.meeting?.title || 'Meeting', start, end });
 }
 document.addEventListener('click', event => {
-  if (event.target.closest('#sidebar-toggle')) {
-    const collapsed = document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
-    const toggle = document.getElementById('sidebar-toggle');
-    document.getElementById('sidebar').inert = collapsed;
-    toggle.setAttribute('aria-expanded', String(!collapsed));
-    toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
-    toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
-    toggle.querySelector('span').textContent = collapsed ? '›' : '‹';
-    return;
-  }
   const profileMenu = document.querySelector('.profile-menu[open]');
   if (profileMenu && !event.target.closest('.profile-menu')) profileMenu.open = false;
   const planDay = event.target.closest('[data-plan-day]');

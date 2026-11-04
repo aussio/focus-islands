@@ -32,8 +32,8 @@ function keyOf(world) {
 }
 
 // now: a clock in milliseconds (camera moves, the drift and rebuild timing). log: a Map for the town's
-// piece logs. clearTop: pixels kept clear across the top (CLEAR_TOP).
-export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) {
+// piece logs. clearTop/clearLeft: pixels reserved for the resource bar and floating session card.
+export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLeft = 0 } = {}) {
   const materials = createMaterials();
   const stage = createStage(now ? { now } : {});
   const actors = createActors(stage.scene);
@@ -52,7 +52,8 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) 
   let aimed = null;
   const aim = (ease = false, { restart = true } = {}) => {
     if (!town || !model) return;
-    const aspect = size[0] / Math.max(1, size[1]);
+    const left = Math.min(Math.max(0, clearLeft), Math.max(0, size[0] - 1));
+    const aspect = (size[0] - left) / Math.max(1, size[1]);
     const top = Math.max(LOWEST_TOP, Math.min(TOP, 1 - 2 * clearTop / Math.max(1, size[1])));
     const boostAt = points => HELPER_MIN_PX / Math.max(1e-3, HELPER_HEIGHT * pixelsPerUnit(fitView(points, aspect, { top }).distance, size[1]));
     const view = model.view;
@@ -68,7 +69,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP } = {}) 
     actors.setScale(Math.min(TOWN_MAX_BOOST, Math.max(1, boostAt(points))));
     const others = model.islands.filter(i => i.id !== id).map(i => town.framePoints(i.id)).filter(list => list.length);
     const wide = model.islands.flatMap(i => town.framePoints(i.id));
-    stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [], top, wide, others, restart });
+    stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [], top, wide, others, restart, viewport: { width: size[0], height: size[1], left } });
     aimed = { island: id, close, points: points.length, top };
     changed = true;
   };

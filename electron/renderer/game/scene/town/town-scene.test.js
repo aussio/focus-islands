@@ -612,3 +612,22 @@ test('the gallery can tilt the camera; the scene keeps Today\'s angle', () => {
   assert.ok(Math.abs(angle() - ELEVATION) < 1e-6);
   stage.dispose();
 });
+
+
+test('a left inset frames the town beside the card and survives resize and sway', () => {
+  const { core, clock } = clockedCore({ clearLeft: 376 });
+  core.setWorld(sampleTown('manyIslands'));
+  for (const [width, height] of [[1200, 650], [1920, 900]]) {
+    core.resize(width, height);
+    core.update(0, true);
+    const leftEdge = -1 + 2 * 376 / width;
+    for (const point of core.town.framePoints(core.aimed.island)) {
+      const screen = new THREE.Vector3(...point).project(core.camera);
+      assert.ok(screen.x >= leftEdge - 0.01 && screen.x <= 1.01, 'town fits beside the card');
+    }
+    clock.ms += 100000;
+    core.update(clock.ms / 1000);
+    assert.equal(core.camera.view.offsetX, -376, 'sway keeps the screen offset');
+  }
+  core.dispose();
+});

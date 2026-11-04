@@ -313,3 +313,28 @@ body{background:#f6f8f4}
 .timeline-segment[data-tooltip-edge="start"] .timeline-tooltip{left:0;transform:none}
 .timeline-segment[data-tooltip-edge="end"] .timeline-tooltip{left:auto;right:0;transform:none}
 .timeline-marker{pointer-events:none}
+
+/* Compact navigation and a content-sized session card over the island. */
+.app-shell{height:100vh;min-height:590px;flex-direction:column}
+.topbar{height:58px;flex:none;display:flex;align-items:center;gap:18px;padding:0 20px;background:#fff;border-bottom:1px solid #e4e9e1;position:relative;z-index:5}
+.topbar #navigation{display:flex;gap:6px;order:0}
+.topbar .nav-button{width:auto;min-height:34px;margin:0;padding:0 13px}
+.topbar .profile-badge{order:2;margin:0}
+.topbar .profile-menu summary{min-height:34px;padding:5px 9px;border:0;box-shadow:none;background:transparent;font-size:12px}
+.topbar .profile-dropdown{left:auto;right:0}
+.topbar .activity-status{order:1;margin-left:auto}
+.topbar .local-note{display:none}
+.content{height:auto;min-height:0;min-width:0}
+.content.content-today{padding:0}
+.content-today>.page{max-width:none;min-height:100%;padding:0;display:flex}
+.content-today .today-page{flex:1;min-width:0;gap:0}
+.content-today .today-stage{flex:1;display:grid;grid-template-columns:1fr;min-height:460px;border:0;border-radius:0;--session-width:340px;--island-clear-left:376px}
+.content-today .today-stage-copy{grid-column:1;grid-row:1;align-self:start;justify-self:start;width:var(--session-width);margin:24px 18px;padding:26px 24px;background:#fffdf2;border:1px solid #dce5d8;border-radius:18px;box-shadow:0 8px 28px #28493718;z-index:3}
+.content-today .today-stage h2{font-size:28px;letter-spacing:-.8px;margin:12px 0 8px}
+.content-today .today-stage .timer{font-size:66px}
+.content-today .today-detail{font-size:13px;margin:8px 0 18px}
+.content-today .today-actions{margin-top:0}
+.content-today .today-island{grid-column:1;grid-row:1;border:0;border-radius:0;min-height:460px}
+.content-today .today-island-overlay{grid-column:1;grid-row:1;padding-left:var(--island-clear-left)}
+.content-today .today-path,.content-today .today-up-next{border-radius:0;box-shadow:none}
+.today-stage-copy>.day-options{position:absolute;top:8px;right:8px;z-index:3}
