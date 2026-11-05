@@ -128,7 +128,7 @@ body{background:#f6f8f4}
    has. Both are drawn by game-hud.js. */
 .today-island{grid-column:2;grid-row:1}
 .today-island-overlay{grid-column:2;grid-row:1;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;padding:10px;pointer-events:none}
-.today-hud{max-width:100%;min-width:0}
+.today-hud{align-self:flex-end;max-width:100%;min-width:0}
 .today-hud[hidden]{display:none}
 .today-check-in{align-self:stretch;margin-top:auto;min-width:0;pointer-events:auto}
 .today-check-in:empty{display:none}
@@ -139,7 +139,7 @@ body{background:#f6f8f4}
 
 /* The resource bar: icons and white totals straight over the sky, with a soft shadow and no panel. While a card is
    open, a small yellow "+34" beside a total shows the part arriving with it. */
-.hud-list{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:0;list-style:none}
+.hud-list{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 12px;margin:0;padding:0;list-style:none}
 .hud-item{position:relative;min-width:0}
 /* Each resource is a button that opens its hover card. The padding widens what you can point at; the negative
    margin keeps the bar's spacing as it was. */
@@ -328,7 +328,7 @@ body{background:#f6f8f4}
 .content.content-today{padding:0}
 .content-today>.page{max-width:none;min-height:100%;padding:0;display:flex}
 .content-today .today-page{flex:1;min-width:0;gap:0}
-.content-today .today-stage{flex:1;display:grid;grid-template-columns:1fr;min-height:460px;border:0;border-radius:0;--session-width:340px;--island-clear-left:376px}
+.content-today .today-stage{flex:1;display:grid;grid-template-columns:1fr;min-height:460px;border:0;border-radius:0;--session-width:400px;--island-clear-left:436px}
 .content-today .today-stage-copy{grid-column:1;grid-row:1;align-self:start;justify-self:start;width:var(--session-width);margin:24px 18px;padding:26px 24px;background:#fffdf2;border:1px solid #dce5d8;border-radius:18px;box-shadow:0 8px 28px #28493718;z-index:3}
 .content-today .today-stage h2{font-size:28px;letter-spacing:-.8px;margin:12px 0 8px}
 .content-today .today-stage .timer{font-size:66px}
