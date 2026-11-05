@@ -16,7 +16,7 @@ const { DatabaseSync } = require('node:sqlite');
 const { createCore } = require('./index');
 const { openStore } = require('./store');
 const { Timer } = require('./timer');
-const { project, suggest, forecast } = require('./planning');
+const { project, suggest, forecast, idleStartAfterMeetings } = require('./planning');
 
 // The core reads the computer's clock. So that no result depends on when the suite runs, every test
 // starts at a fixed local time: 9:00 AM on Wednesday 21 October 2026, a plain day with no clock change
@@ -1541,5 +1541,49 @@ test('not a break keeps idle time in the same focus session', () => {
   assert.ok(focusSeconds >= 29 * 60);
   assert.ok(kept.events.find(item => item.kind === 'awayEnded').payload.notBreak);
   assert.equal(kept.events.some(item => item.kind === 'awayEnded' && item.payload.countedAsBreak), false);
+  const running = kept.forecastTimeline.filter(item => item.kind === 'focus' && (item.actual || item.active));
+  assert.equal(running.length, 1, 'kept idle time does not split the focus session on the day path');
+  assert.equal(Date.parse(running[0].start), Date.parse(started.timer.startedAt));
+  core.action('advance', 5);
+  core.action('away');
+  core.action('advance', 1);
+  core.action('return');
+  core.action('not-a-break');
+  core.action('advance', 2);
+  const ended = core.action('end-focus');
+  const pieces = ended.actualTimeline.filter(item => item.kind === 'focus');
+  assert.equal(pieces.length, 1, 'a finished session with kept idle time is one focus block');
+  assert.equal(Date.parse(pieces[0].start), Date.parse(started.timer.startedAt));
+  core.close();
+});
+
+test('idle time inside a scheduled meeting does not count as time away', () => {
+  const at = (hour, minute) => new Date(2026, 0, 1, hour, minute).toISOString();
+  const meetings = [{ start: at(14, 0), end: at(14, 30) }, { start: at(14, 30), end: at(15, 0) }];
+  assert.equal(idleStartAfterMeetings(meetings, at(13, 50)), Date.parse(at(13, 50)));
+  assert.equal(idleStartAfterMeetings(meetings, at(14, 10)), Date.parse(at(15, 0)));
+  assert.equal(idleStartAfterMeetings([], at(14, 10)), Date.parse(at(14, 10)));
+});
+
+test('a focus session stays running while the computer is idle during a scheduled meeting', () => {
+  const dbPath = join(tempFolder('focus-islands-meeting-idle-'), 'events.sqlite');
+  const core = createCore({ dbPath, profile: 'testing', development: false });
+  const time = (hour, minute) => new Date(pinnedTime(hour, minute)).toISOString();
+  core.action('save-plan', { start: time(9, 0), end: time(12, 0), focusMinutes: 60, breakMinutes: 10,
+    meetings: [{ title: 'Presentations', start: time(9, 30), end: time(10, 30) }] });
+  core.action('start-focus');
+  setComputerClock(pinnedTime(10, 0));
+  core.action('tick', 25 * 60);
+  let status = core.status();
+  assert.equal(status.inferredBreakActive, false, 'no away time inside the meeting');
+  assert.equal(status.events.some(event => event.kind === 'awayStarted'), false);
+  setComputerClock(pinnedTime(10, 31));
+  core.action('tick', 56 * 60);
+  assert.equal(core.status().inferredBreakActive, false, 'one idle minute after the meeting is too short');
+  setComputerClock(pinnedTime(10, 40));
+  core.action('tick', 65 * 60);
+  status = core.status();
+  assert.equal(status.inferredBreakActive, true, 'idle time after the meeting still counts as away');
+  assert.equal(Date.parse(status.events.findLast(event => event.kind === 'awayStarted').occurredAt), pinnedTime(10, 30));
   core.close();
 });

@@ -155,7 +155,9 @@ function project(events, day, includeSuggestions = true) {
     if (end > start) actual.push({ kind: 'focus', start: iso(start), end: iso(end), observedSeconds: (end - start) / 1000 });
   }
   const pairs = { breakEnded: ['breakStarted', 'break'], awayEnded: ['awayStarted', 'away'] };
+  const keptPauses = keptFocusPauses(events);
   for (const event of events) {
+    if (keptPauses.has(event)) continue;
     if (event.kind === 'focusStarted' && event.payload?.sessionID) {
       if (ms(event.occurredAt) >= dayStart && ms(event.occurredAt) < dayEnd) firstFocusAt = Math.min(firstFocusAt, ms(event.occurredAt));
       focusSessions.set(event.payload.sessionID, { runningFrom: event.occurredAt, elapsedAtStart: 0, paused: false });
@@ -198,11 +200,9 @@ function project(events, day, includeSuggestions = true) {
     const start = Math.max(ms(startEvent.occurredAt), dayStart), end = Math.min(ms(event.occurredAt), dayEnd);
     if (end <= start) continue;
     const wallSeconds = (end - start) / 1000;
-    // The user said this idle time was work, so it shows as focus and earns no break or away time.
-    if (pair[1] === 'away' && event.payload?.notBreak) {
-      if (!startEvent.duringBreak) actual.push({ kind: 'focus', start: iso(start), end: iso(end), observedSeconds: wallSeconds });
-      continue;
-    }
+    // The user said this idle time was work: the focus session ran straight through it (see keptFocusPauses),
+    // so it earns no break or away time.
+    if (pair[1] === 'away' && event.payload?.notBreak) continue;
     const observedSeconds = pair[1] === 'away' ? wallSeconds : Math.min(wallSeconds, Math.max(0, event.payload?.elapsedSeconds || 0));
     const inferredBreak = pair[1] === 'away' && !startEvent.duringBreak &&
       ms(startEvent.occurredAt) >= firstFocusAt && ms(startEvent.occurredAt) < dayEnd;
@@ -229,6 +229,37 @@ function project(events, day, includeSuggestions = true) {
   return { plan, suggestions: includeSuggestions && plan ? suggest(plan) : [], actual,
     focusSeconds: actual.filter(item => item.kind === 'focus').reduce((total, item) => total + item.observedSeconds, 0),
     breakSeconds: actual.filter(item => item.kind === 'break' && (item.confirmed || item.inferred)).reduce((total, item) => total + item.observedSeconds, 0), awaySeconds };
+}
+
+// Idle time inside a scheduled meeting is meeting time, not time away. Moves an idle start past any
+// meeting (or run of back-to-back meetings) that covers it.
+function idleStartAfterMeetings(meetings, idleStart) {
+  let start = ms(idleStart), moved = true;
+  while (moved) {
+    moved = false;
+    for (const meeting of meetings || []) {
+      if (ms(meeting.start) <= start && start < ms(meeting.end)) { start = ms(meeting.end); moved = true; }
+    }
+  }
+  return start;
+}
+
+// When the user says idle time during focus was work, the idle pause never happened: replay skips that
+// focusPaused fact and the focusResumed that follows the user's answer, so the session stays one span.
+function keptFocusPauses(events) {
+  const skipped = new Set();
+  let away = false, pause = null, resumeSession = null;
+  for (const event of events) {
+    if (event.kind === 'awayStarted') { away = true; pause = null; }
+    else if (event.kind === 'focusPaused' && away && !pause) pause = event;
+    else if (event.kind === 'awayEnded') {
+      if (event.payload?.notBreak && pause) { skipped.add(pause); resumeSession = pause.payload?.sessionID; }
+      away = false; pause = null;
+    } else if (event.kind === 'focusResumed' && resumeSession && event.payload?.sessionID === resumeSession) {
+      skipped.add(event); resumeSession = null;
+    }
+  }
+  return skipped;
 }
 
 function qualifyingRestSeconds(breakMinutes) {
@@ -343,4 +374,4 @@ function forecast(plan, actual, timer, now, events = []) {
   }, []);
 }
 
-module.exports = { suggest, editBlock, project, forecast, fixedMeetings, validBlocks, sameDay, ms, iso, qualifyingRestSeconds };
+module.exports = { suggest, editBlock, project, forecast, fixedMeetings, validBlocks, sameDay, ms, iso, qualifyingRestSeconds, idleStartAfterMeetings };

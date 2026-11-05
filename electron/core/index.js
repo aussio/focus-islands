@@ -3,7 +3,7 @@ const { dirname, join } = require('node:path');
 const { backup: sqliteBackup } = require('node:sqlite');
 const { openStore, uuid } = require('./store');
 const { Timer } = require('./timer');
-const { suggest, editBlock, project, forecast, sameDay, ms, iso, qualifyingRestSeconds } = require('./planning');
+const { suggest, editBlock, project, forecast, sameDay, ms, iso, qualifyingRestSeconds, idleStartAfterMeetings } = require('./planning');
 const { todayGuidance, dayEndGuidance } = require('./guidance');
 const game = require('./game');
 
@@ -196,8 +196,11 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     if (inMeeting()) { returnCandidateAt = null; returnActivityStartedAt = null; }
     if (!development && Number.isFinite(idleSeconds)) {
       if (idleSeconds >= activityDelaySeconds) {
-        beginAway('idle', new Date(Math.max(observationStartedAt.getTime(), instant.wall.getTime() - idleSeconds * 1000)),
-          Math.min(idleSeconds, (instant.wall - observationStartedAt) / 1000));
+        // Only idle time after a meeting ends can start time away, and it must reach the usual threshold.
+        const idleStart = Math.max(observationStartedAt.getTime(), instant.wall.getTime() - idleSeconds * 1000);
+        const awayStart = idleStartAfterMeetings(currentPlan?.meetings, idleStart);
+        const awaySeconds = (instant.wall.getTime() - awayStart) / 1000;
+        if (awaySeconds >= activityDelaySeconds) beginAway('idle', new Date(awayStart), awaySeconds);
       } else if (idleSeconds < Math.min(3, activityDelaySeconds)) {
         if (!suspended.has('locked') && !suspended.has('sleep') && awayStartedAt && timer.state.phase === 'idle') finishAway('input resumed');
         else if (!suspended.has('locked') && !suspended.has('sleep') && (awayStartedAt || breakAwayStartedAt)) beginReturn();
@@ -498,8 +501,11 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     if (!awayStartedAt || timer.state.phase !== 'focus' || suspended.size !== 1 || !suspended.has('idle')) return;
     const instant = now(), proposed = timer.clone();
     const awaySeconds = Math.max(0, (instant.wall - awayStartedAt) / 1000);
+    const segmentStartedAt = proposed.state.observedSegmentStartedAt;
     proposed.resumeFromSleep(instant);
     proposed.creditFocus(awaySeconds);
+    // The idle pause never happened, so the running stretch of focus keeps its original start.
+    proposed.state.observedSegmentStartedAt = segmentStartedAt;
     store.transaction(() => {
       append('awayEnded', { reason: 'not a break', notBreak: true }, { occurredAt: instant.wall, source: 'user' });
       append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall, source: 'user' });
