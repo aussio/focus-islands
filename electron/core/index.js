@@ -492,6 +492,24 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     awayStartedAt = null;
     lastCheckpoint = instant.wall.getTime();
   }
+  // The user says idle time during focus was work (for example, watching a video), not a break.
+  // Ends the away interval without counting it as rest and gives its time back to the same focus session.
+  function notABreak() {
+    if (!awayStartedAt || timer.state.phase !== 'focus' || suspended.size !== 1 || !suspended.has('idle')) return;
+    const instant = now(), proposed = timer.clone();
+    const awaySeconds = Math.max(0, (instant.wall - awayStartedAt) / 1000);
+    proposed.resumeFromSleep(instant);
+    proposed.creditFocus(awaySeconds);
+    store.transaction(() => {
+      append('awayEnded', { reason: 'not a break', notBreak: true }, { occurredAt: instant.wall, source: 'user' });
+      append('focusResumed', sessionPayload(proposed), { occurredAt: instant.wall, source: 'user' });
+    });
+    timer = proposed; suspended.clear(); lastTick = instant;
+    awayStartedAt = null; returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
+    lastCheckpoint = instant.wall.getTime();
+    writeLease();
+    message = 'Not counted as a break. That time stayed in your focus session.';
+  }
   // ---- The sky-island game. The rules in ./game are pure: the core gives them its clock (including
   // development offsets), local days, and saved plans, and writes the records they return.
 
@@ -954,6 +972,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'start-long-break': start('break', 30 * 60); break;
       case 'finish-break': finishBreak(); break;
       case 'confirm-return': if (!returnCandidateAt && (awayStartedAt || breakAwayStartedAt)) { returnDismissed = false; beginReturn(true); } finishReturn('confirmed return'); break;
+      case 'not-a-break': notABreak(); break;
       case 'keep-break': returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = true; break;
       case 'snooze': case 'snooze-break': {
         const instant = now();

@@ -1513,3 +1513,33 @@ test('focus targets after breaks and manual starts fit the local planned finish 
     }
   }
 });
+
+test('not a break keeps idle time in the same focus session', () => {
+  const { core } = temporaryCore();
+  const real = new Date();
+  const morning = new Date(real.getFullYear(), real.getMonth(), real.getDate(), 9, 28);
+  core.action('wall-jump', (morning - real) / 60000);
+  core.action('save-plan', { start: new Date(real.getFullYear(), real.getMonth(), real.getDate(), 9).toISOString(),
+    end: new Date(real.getFullYear(), real.getMonth(), real.getDate(), 12).toISOString(),
+    focusMinutes: 60, breakMinutes: 10 });
+  const started = core.action('start-focus');
+  core.action('advance', 20);
+  core.action('away');
+  core.action('advance', 10);
+  const prompt = core.action('return');
+  assert.equal(prompt.returnPrompt.kind, 'inferred');
+  const kept = core.action('not-a-break');
+  assert.equal(kept.returnPrompt, null);
+  assert.equal(kept.inferredBreakActive, false);
+  assert.equal(kept.phase, 'focus');
+  assert.equal(kept.timer.isSleeping, false);
+  assert.equal(kept.timer.sessionID, started.timer.sessionID);
+  assert.ok(kept.timer.elapsedSeconds >= 29 * 60);
+  assert.equal(kept.actualTimeline.some(item => item.kind === 'break'), false);
+  assert.equal(kept.breakMinutesToday, 0);
+  const focusSeconds = kept.actualTimeline.filter(item => item.kind === 'focus').reduce((total, item) => total + item.observedSeconds, 0);
+  assert.ok(focusSeconds >= 29 * 60);
+  assert.ok(kept.events.find(item => item.kind === 'awayEnded').payload.notBreak);
+  assert.equal(kept.events.some(item => item.kind === 'awayEnded' && item.payload.countedAsBreak), false);
+  core.close();
+});

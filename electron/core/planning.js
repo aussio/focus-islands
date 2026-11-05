@@ -198,6 +198,11 @@ function project(events, day, includeSuggestions = true) {
     const start = Math.max(ms(startEvent.occurredAt), dayStart), end = Math.min(ms(event.occurredAt), dayEnd);
     if (end <= start) continue;
     const wallSeconds = (end - start) / 1000;
+    // The user said this idle time was work, so it shows as focus and earns no break or away time.
+    if (pair[1] === 'away' && event.payload?.notBreak) {
+      if (!startEvent.duringBreak) actual.push({ kind: 'focus', start: iso(start), end: iso(end), observedSeconds: wallSeconds });
+      continue;
+    }
     const observedSeconds = pair[1] === 'away' ? wallSeconds : Math.min(wallSeconds, Math.max(0, event.payload?.elapsedSeconds || 0));
     const inferredBreak = pair[1] === 'away' && !startEvent.duringBreak &&
       ms(startEvent.occurredAt) >= firstFocusAt && ms(startEvent.occurredAt) < dayEnd;

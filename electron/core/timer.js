@@ -76,6 +76,12 @@ class Timer {
     this.state.isDue = this.state.elapsedSeconds >= this.state.targetSeconds;
     if (!this.state.isDue) this.nextNudgeAt = null;
   }
+  // Gives back focus time that idle detection took away, when the user says the time away was work.
+  creditFocus(seconds) {
+    if (this.state.phase !== 'focus') return;
+    this.state.elapsedSeconds += Math.max(0, seconds);
+    this.state.isDue = this.state.elapsedSeconds >= this.state.targetSeconds;
+  }
   resumeFromSleep(instant) {
     if (!this.state.isSleeping) return [];
     const slept = Math.max(0, (instant.wall - (this.sleepBeganAt || instant.wall)) / 1000);

@@ -39,7 +39,7 @@ if (development) {
 const initialProfile = development ? 'testing' : 'personal';
 let activeProfile = initialProfile;
 const rendererActions = new Set([
-  'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'snooze-break',
+  'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'not-a-break', 'snooze-break',
   'skip-break', 'end-day', 'snooze-end-day', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database', 'game-check-in',
