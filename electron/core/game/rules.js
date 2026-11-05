@@ -75,6 +75,21 @@ const SURPRISE_FLAVOURS = deepFreeze({
     { id: 'tent', weight: 1, visitor: 'tent' },
   ],
 });
+// Animal variations, keyed by the slot they dress. They change only a surprise's words and what it
+// brings to look at, never its gift, slot or island, and use their own keyed rolls once the slot and
+// its flavour are final (see dressAnimalSurprise in play.js). flavour: the id saved as surprise.flavour.
+// onlyFlavour: the slot flavour it may replace (any, if not set). resident or visitor: the animal it
+// brings. texts: its words, one picked by a keyed roll; {island} is the island's name.
+const ANIMAL_FLAVOURS = deepFreeze({
+  soil: { flavour: 'resident-cat', resident: 'cat', texts: [
+    'A cat padded in with muddy paws and curled up on {island}. It seems to have decided to stay. Its paws left a little rich soil behind.',
+  ] },
+  stones: { flavour: 'bird', onlyFlavour: 'plain', visitor: 'bird', texts: [
+    'A little bluebird brought a few shiny stones to {island} and stayed to rest a while.',
+    'A bluebird dropped a beakful of shiny stones on {island}, then found a high spot to rest.',
+    'A small bluebird carried shiny stones to {island}, one at a time. It is resting before it flies on.',
+  ] },
+});
 // Keepsakes: small things a water surprise leaves on an island for good. They come from the water slot's
 // `keepsake` flavour, and from the golden slot once its island already has its golden tree. Never the same
 // kind twice on one island, and at most maxKeepsakesPerIsland. ground: building room it takes (saved in
@@ -90,6 +105,12 @@ const KEEPSAKES = deepFreeze([
   { id: 'lamp', weight: 1, text: 'A little lamp now stands at the edge of {island}. It glows after dark.' },
 ]);
 const KEEPSAKE_ENDING = 'Some water and soil were left beside it.';
+// The lane share of a game whose start record doesn't name one: every game started before the share was
+// saved with the start, when lanes were counted at 0.12 of land.
+const FIRST_LANE_SHARE = 0.12;
+// The quiet line at the check-in that brings an older game's one-time land top-up (by how many islands grew).
+const LAND_TOP_UP_TEXT = { one: 'The island settled and stretched out a little overnight.',
+  many: 'The islands settled and stretched out a little overnight.' };
 // Bridge types. Rope is the one you build; the others come only as surprises (a new bridge, or a rope
 // bridge that changes type). weight: how often a surprise rolls each one. Ids match BRIDGE_TYPES in
 // electron/renderer/game/kinds.js. A water slide needs the two islands' lift at least slideLiftGap apart.
@@ -118,14 +139,19 @@ const DEFAULT_RULES = Object.freeze({
   breakMinutesWithoutPlan: 10,         // usual break when a day has no plan, matches qualifyingRestSeconds
   // Land is counted in points of the island's town grid. One old building spot is about 7 points.
   restMinutesPerLand: 5,               // rest minutes for one more land point
-  startingLand: 40,                    // home's land at the start
-  startLand: Object.freeze({ small: 30, medium: 40, large: 55 }), // a new island's land when it drifts in
+  startingLand: 49,                    // home's land at the start: room for one cell pad, as before lanes were
+                                       // counted at 0.22 (saved games keep the start land in their start record)
+  startLand: Object.freeze({ small: 43, medium: 50, large: 56 }), // a new island's land when it drifts in: room for
+                                       // a cell pad, each size a bit bigger (was 30, 40, 55; each island saves its own)
   maxLand: Object.freeze({ small: 320, medium: 450, large: 600, home: 600 }), // most land each island's grid holds
   // Room for buildings: land - coastPerRootLand * sqrt(land) - laneShareOfLand * land - used, where used is
   // the start things (startGround), every building's ground, and groundPerBridgeEnd for each bridge end on
-  // the island. The coast takes no houses or pads.
+  // the island. The coast takes no houses or pads. Real lanes take about 14 to 26% of home's land and 15 to
+  // 18% of a later island's; at 0.12 the rules offered buildings the layout could only fit by borrowing land.
+  // New games save laneShareOfLand in their start record. A game whose land was counted with a smaller
+  // share gets a one-time land top-up at its next check-in (see FIRST_LANE_SHARE and landTopUpFor in play.js).
   coastPerRootLand: 4,
-  laneShareOfLand: 0.12,
+  laneShareOfLand: 0.22,
   startGround: Object.freeze({ home: 4, island: 2 }),
   // A bridge's foot needs a lane to the island's other lanes: about 5 points when it's laid, the foot
   // itself on the coast. Bridges are never refused for room, so room may dip below 0 until land catches up.
@@ -167,6 +193,13 @@ const DEFAULT_RULES = Object.freeze({
   maxLostHelpers: 3,
   lostHelpersAfterActiveDays: 10,
   maxKeepsakesPerIsland: 3,
+  residentAfterActiveDays: 5,           // residents arrive only through future check-in surprises
+  residentChanceInSoilSurprise: 1,     // the first soil surprise after that brings the resident
+  maxResidents: 1,                     // one quiet resident while the scene remains small
+  birdAfterActiveDays: 5,
+  birdChanceInPlainStonesSurprise: 1,  // every plain stones surprise after that is a bird's visit
+  extensionAfterCheckIns: 25,          // an extension waits until its parent is this many check-ins old: about a
+                                       // working week, at the steady planner's 5 or 6 check-ins an active day
 });
 
 // kind: making / growing / decor / homes / wonder. perIsland caps repeatable items on each island.
@@ -177,7 +210,16 @@ const DEFAULT_RULES = Object.freeze({
 // neighbours instead of standing on an island (offered while some neighbour pair has no link).
 // Homes are parts of block houses, never things on a pad. blocks: new blocks on the ground; storeys:
 // new block storeys (one bed each); weight: how often the homes slot shows it (lowest owned / weight);
-// step: its own repeat price step. The layout picks which house grows and where.
+// step: its own repeat price step. The layout picks which house grows and where. extends: a one-time
+// addition inside its saved parent's parcel, with no new pad, helper beds or ground, offered once the
+// parent is extensionAfterCheckIns old. landGift: land points its island gains when it is built (up to
+// the island's maxLand), so a big footprint doesn't squeeze its neighbours. The amount is worked out
+// when it is offered and saved on the build record (built.landGift); replay reads only the record.
+// A building with a gift stands on the grown island, so it fits once its ground fits the room it has after
+// the gift (placeFor in play.js; room-check.js checks it the same way). roomMargin: extra points included
+// in ground beyond the footprint's usual charge, as headroom for later buildings; no extra land is set
+// aside on the map. Only the Farmyard has one: its cells footprint costs 7, plus a margin of 1. That
+// margin and its planks price keep it to about an Orchard's timing (see BUILD_PLAN "Pacing").
 const DEFAULT_BLUEPRINTS = deepFreeze([
   { id: 'house', name: 'Little house', kind: 'homes', tier: 1, again: true, ground: 3, blocks: 2, storeys: 2, weight: 1, step: 0.25, cost: { wood: 40, stone: 20, soil: 20, saplings: 10 }, does: 'A new house of two rooms, with beds for 2 more helpers.' },
   { id: 'room', name: 'Extra room', kind: 'homes', tier: 1, again: true, ground: 1, blocks: 1, storeys: 1, weight: 3, step: 0.06, cost: { wood: 20, stone: 12, soil: 10, saplings: 5 }, does: 'One more room on a house, with a bed for 1 more helper.' },
@@ -189,6 +231,8 @@ const DEFAULT_BLUEPRINTS = deepFreeze([
   { id: 'workshop', name: 'Workshop', kind: 'making', tier: 2, ground: 5, cost: { stone: 80, planks: 60, soil: 80, saplings: 40 }, does: 'Opens bigger buildings once you have 3 islands.' },
   { id: 'windmill', name: 'Windmill', kind: 'making', tier: 2, again: true, perIsland: 2, ground: 5, cost: { stone: 100, planks: 90, soil: 60, saplings: 35 }, does: 'Turns slowly in the wind.' },
   { id: 'orchard', name: 'Orchard', kind: 'growing', tier: 2, again: true, perIsland: 2, ground: 5, cost: { wood: 90, planks: 40, soil: 110, saplings: 80 }, does: 'A little grove of fruit trees.' },
+  { id: 'farmyard', name: 'Farmyard', kind: 'growing', tier: 2, ground: 8, roomMargin: 1, landGift: 6, cost: { wood: 70, stone: 20, planks: 35, soil: 150, saplings: 100 }, does: 'A little coop and fenced yard where hens scratch about.' },
+  { id: 'farmextension', name: 'Barn', kind: 'growing', tier: 2, extends: 'farmyard', ground: 0, cost: { wood: 50, stone: 20, planks: 40, soil: 80, saplings: 50 }, does: 'A proper red barn for the farmyard. Something woolly may wander in.' },
   { id: 'lanterns', name: 'Lantern path', kind: 'decor', tier: 2, again: true, perIsland: 2, fast: true, ground: 1, cost: { wood: 40, stone: 40, planks: 20, soil: 30, saplings: 20 }, does: 'Little lights along the paths.' },
   { id: 'bridge', name: 'Rope bridge', kind: 'decor', tier: 2, again: true, linkType: 'rope', noSpot: true, ground: 0, cost: { wood: 60, planks: 60, soil: 40, saplings: 40 }, does: 'A rope bridge to another island.' },
   { id: 'tower', name: 'Lookout tower', kind: 'making', tier: 3, again: true, perIsland: 1, ground: 5, cost: { wood: 100, stone: 300, planks: 180, soil: 70, saplings: 40 }, does: 'A tall tower that looks out over the sky.' },
@@ -293,8 +337,8 @@ function builtNameOf(built, blueprints) {
 
 module.exports = {
   RESOURCES, MATERIALS, GROWTH, KIND_NAMES, JOBS, STARTING_JOBS, HELPER_NAMES, FIRST_HELPER_WAY, LOST_HELPER_WAY,
-  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, SURPRISE_FLAVOURS, KEEPSAKES, KEEPSAKE_ENDING,
-  BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
+  ARRIVAL_WAYS, ISLAND_KINDS, NEW_ISLAND_KINDS, ISLAND_SIZES, SURPRISES, SURPRISE_FLAVOURS, ANIMAL_FLAVOURS, KEEPSAKES, KEEPSAKE_ENDING,
+  FIRST_LANE_SHARE, LAND_TOP_UP_TEXT, BRIDGE_TYPES, DEFAULT_RULES, DEFAULT_BLUEPRINTS,
   islandDueAt, helperDueAt, isRealBreak, restValue, focusOnPlan, dayPlanMatch, priceOf, builtNameOf, roomOf, maxLandOf,
   startGroundOf,
 };

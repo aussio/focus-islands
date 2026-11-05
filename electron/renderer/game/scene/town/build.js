@@ -9,8 +9,10 @@
 //     builder.closePoints(id, ids, steps)   world points around some grid points, steps out
 //     builder.landSpots(id)       [x, z, y] grass spots for fireflies
 //     builder.moodHooks(), builder.update... see below
-//   makeModelContext({ materials, blobMaterial, blobPlane, model, root, log }) => { ctx, ... }
-//     the model context every drawing function gets, with piece(key) and island.
+//   makeModelContext({ materials, blobMaterial, blobPlane, model, liveModel, root, log }) => { ctx, ... }
+//     the model context every drawing function gets, with piece(key) and island. ctx.model is the whole
+//     world. With liveModel (a function), ctx.model reads it each time, so moving parts of an island
+//     that is kept between check-ins still see the current world (the builder passes its own).
 //
 // Each island is its own group at [at[0], lift, at[1]], drawn in island units with y = 0 at the grass top.
 // Its parts are drawn in this order, each into the island's Batch (one mesh per material):
@@ -44,11 +46,12 @@ export function makeBlobMaterial() {
 
 // The model context every drawing function gets (models/index.js describes it), plus piece(key) and island.
 //   finish() merges the batch into one mesh per material under root and returns the meshes.
-export function makeModelContext({ materials, blobMaterial, blobPlane, model = null, island = null, root = new THREE.Group(), log = null }) {
+export function makeModelContext({ materials, blobMaterial, blobPlane, model = null, liveModel = null, island = null, root = new THREE.Group(), log = null }) {
   const batch = new Batch();
   const dynamic = [], moodHooks = [], disposables = [];
   const ctx = {
-    batch, model, island, materials, root, dynamic, palette: P,
+    batch, island, materials, root, dynamic, palette: P,
+    get model() { return liveModel ? liveModel() ?? model : model; },
     add(geometry, mat, color, local, base, ao = true, grad = null) {
       base = base ?? new THREE.Matrix4();
       const matrix = base.clone().multiply(local ?? new THREE.Matrix4());
@@ -152,10 +155,12 @@ export function createTownBuilder(parent, materials, { log = null } = {}) {
   const root = new THREE.Group();
   root.name = 'town';
   parent.add(root);
-  const shared = { materials, blobMaterial: makeBlobMaterial(), blobPlane: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2) };
+  let model = null;
+  // liveModel: an island kept between check-ins keeps its drawing, but its moving parts read ctx.model,
+  // which then gives the newest world (another island's visitor may have come or gone).
+  const shared = { materials, blobMaterial: makeBlobMaterial(), blobPlane: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), liveModel: () => model };
   const islands = new Map(); // id -> built island
   const bridges = new Map(); // id -> built bridge
-  let model = null;
 
   const add = built => { root.add(built.group); return built; };
 

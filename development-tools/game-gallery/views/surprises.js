@@ -35,7 +35,7 @@ const KEEPSAKE_KINDS = rules.KEEPSAKES.map(k => k.id);
 // Where the placed section puts each keepsake (at most three on an island, as the rules allow).
 const PLACED = { home: ['fountain', 'bench', 'lamp'], 'isle-1': ['well', 'cairn', 'telescope'], 'isle-2': ['birdhouse'] };
 // The moods each visitor is shown in: the ones where it looks different.
-const VISITOR_MOODS = { raincloud: ['focus'], tent: ['focus', 'break', 'done'], balloon: ['focus', 'break'], rainbow: ['focus', 'away', 'done'], fireflies: ['break', 'done'] };
+const VISITOR_MOODS = { raincloud: ['focus'], tent: ['focus', 'break', 'done'], balloon: ['focus', 'break'], rainbow: ['focus', 'away', 'done'], fireflies: ['break', 'done'], bird: ['focus', 'done'] };
 
 // ---------- Game states ----------
 const steadyEntry = tools => tools.data.town.states.find(s => s.person === 'steady' && s.day === DAY && s.game);

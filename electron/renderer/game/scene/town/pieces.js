@@ -123,15 +123,48 @@ export function addPiece(ctx, key, mesh, mat, extra = {}) {
   geometry.dispose();
 }
 
+// How much a slab cuts off at an outer corner (a piece whose next and previous points are both empty) and
+// fills in at an inner corner, in piece units.
+export const SLAB_CUT = 0.1;
+
+// A slab piece's outline at width t, in the piece's unit square: the sides between it and the empty
+// parts, trimmed to the cut corner, then the cut corner's or filled corner's own side. Each side is
+// { p, q, out, from }: its ends, the way it faces, and the point that way is measured from.
+// slabPiece draws its rim from these; scene/town/pads.js padOutline gives them to a model.
+export function slabEdges(t, fA, fB, fO) {
+  const out = [];
+  const lone = !fA && !fB, inner = fA && fB && !fO;
+  for (const e of parts(t, fA, fB, fO).edges) {
+    let p = e.p, q = e.q;
+    if (lone && e.side === 'A') q = [t, t - SLAB_CUT];
+    if (lone && e.side === 'B') q = [t - SLAB_CUT, t];
+    if (inner && e.side === 'AX') p = [t + SLAB_CUT, t];
+    if (inner && e.side === 'BX') p = [t, t + SLAB_CUT];
+    out.push({ p, q, out: e.out, from: p });
+  }
+  if (lone) out.push({ p: [t, t - SLAB_CUT], q: [t - SLAB_CUT, t], out: [1, 1], from: [t, t] });
+  if (inner) out.push({ p: [t + SLAB_CUT, t], q: [t, t + SLAB_CUT], out: [1, 1], from: [t, t] });
+  return out;
+}
+
+// Whether the point (a, b) of the unit square is on a slab piece of width t (slack: how far outside
+// still counts).
+export function onSlab(a, b, t, fA, fB, fO, slack = 1e-6) {
+  if (a < -slack || b < -slack || a > 1 + slack || b > 1 + slack) return false;
+  if (fA && fB && !fO && a >= t && b >= t && a + b <= 2 * t + SLAB_CUT) return true; // the filled inner corner
+  const { cells, filled } = parts(t, fA, fB, fO);
+  return Object.entries(cells).some(([name, [[a0, b0], [a1, b1]]]) => filled[name] && a >= a0 - slack && b >= b0 - slack && a <= a1 + slack && b <= b1 + slack
+    && !(name === 'core' && !fA && !fB && a + b > 2 * t - SLAB_CUT + slack));
+}
+
 // A raised slab piece (a lane or a pad): the core by the point, strips toward filled neighbours, and the
 // whole piece when all four points are filled. Outer corners are cut and inner corners filled in.
 //   width: how far the slab reaches from its point, in piece units (t); rise: its height.
 //   fA, fB, fO: whether the next, previous and opposite points carry the same slab.
 export function slabPiece(c, { width, rise, fA, fB, fO, top, side }) {
   const mesh = new PieceMesh();
-  const t = width, y = rise;
-  const { cells, filled, edges } = parts(t, fA, fB, fO);
-  const cut = 0.1;
+  const t = width, y = rise, cut = SLAB_CUT;
+  const { cells, filled } = parts(t, fA, fB, fO);
   for (const name of ['core', 'A', 'B', 'X']) {
     if (!filled[name]) continue;
     const [[a0, b0], [a1, b1]] = cells[name];
@@ -141,17 +174,9 @@ export function slabPiece(c, { width, rise, fA, fB, fO, top, side }) {
   }
   // Inner corner: a small triangle softens the turn.
   if (fA && fB && !fO) mesh.tri(c.at3(t, t, y), c.at3(t + cut, t, y), c.at3(t, t + cut, y), top, [0, 1, 0]);
-  for (const e of edges) {
-    let p = e.p, q = e.q;
-    // Trim the sides to the cuts.
-    if (!fA && !fB && e.side === 'A') q = [t, t - cut];
-    if (!fA && !fB && e.side === 'B') q = [t - cut, t];
-    if (fA && fB && !fO && e.side === 'AX') p = [t + cut, t];
-    if (fA && fB && !fO && e.side === 'BX') p = [t, t + cut];
-    mesh.quad(c.at3(...p, -0.01), c.at3(...q, -0.01), c.at3(...q, y), c.at3(...p, y), side, c.dir(...p, ...e.out));
+  for (const { p, q, out, from } of slabEdges(t, fA, fB, fO)) {
+    mesh.quad(c.at3(...p, -0.01), c.at3(...q, -0.01), c.at3(...q, y), c.at3(...p, y), side, c.dir(...from, ...out));
   }
-  if (!fA && !fB) mesh.quad(c.at3(t, t - cut, -0.01), c.at3(t - cut, t, -0.01), c.at3(t - cut, t, y), c.at3(t, t - cut, y), side, c.dir(t, t, 1, 1));
-  if (fA && fB && !fO) mesh.quad(c.at3(t + cut, t, -0.01), c.at3(t, t + cut, -0.01), c.at3(t, t + cut, y), c.at3(t + cut, t, y), side, c.dir(t, t, 1, 1));
   return mesh;
 }
 

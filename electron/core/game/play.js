@@ -47,17 +47,29 @@ function initialState(started, rules) {
     islands: [makeIsland({ id: 'home', name: R.ISLAND_KINDS.home.names[0], kind: 'home', size: 'medium',
       land: p.startingLand ?? rules.startingLand, ...sky.placeOf(0), lift: 0, appetite: rules.homeAppetite }, rules)],
     links: [],
+    residents: [],
     helpers: [{ id: 'h1', name: R.HELPER_NAMES[0], job: null, island: 'home', how: R.FIRST_HELPER_WAY }],
     queue: [],
     helpersMade: 1, helpersScheduled: 0, lostHelpers: 0,
     counts: {}, storeys: 0, buildingsMade: 0, wonders: [], firsts: {},
     checkIns: 0, lastSurpriseDay: null, activeDaysAtLastSurprise: 0,
+    // The lane share the islands' land was last settled to: the start record's, or the first share for a
+    // game started before the start record saved it. A land top-up record raises it (see landTopUpFor).
+    laneShare: p.laneShareOfLand ?? R.FIRST_LANE_SHARE,
     last: null,
   };
 }
 
 function islandById(state, id) { return state.islands.find(island => island.id === id); }
 
+// An older game's one-time land top-up (see landTopUpFor). It comes first in a check-in, before the
+// new land, and replay reads only the saved amounts.
+function applyTopUp(state, p) {
+  const topUp = p.landTopUp;
+  if (!topUp) return;
+  for (const grown of topUp.land || []) islandById(state, grown.island).land += grown.amount;
+  state.laneShare = topUp.to;
+}
 function applyCollect(state, p) {
   addInto(state.onHand, p.collected);
   state.landProgress = p.landProgress;
@@ -78,6 +90,11 @@ function applySurprise(state, p, rules) {
   if (s.upgrade) {
     const link = state.links.find(l => l.id === s.upgrade.link);
     if (link) link.type = s.upgrade.type; // only the type changes, so the bridge's feet never move
+  }
+  // A resident is a saved arrival, not something inferred from age during replay. Keep any
+  // previously saved kind even if its future arrival rules change; the scene owns its behavior.
+  if (s.resident && !state.residents.some(resident => resident.id === s.resident.id)) {
+    state.residents.push({ ...s.resident });
   }
   state.lastSurpriseDay = p.dayKey;
   state.activeDaysAtLastSurprise = p.activeDays;
@@ -123,15 +140,20 @@ function applyBuild(state, built, number, rules, blueprints) {
   if (bp.kind === 'homes') state.storeys += bp.storeys || 0;
   if (built.island) {
     const island = islandById(state, built.island);
-    island.buildings.push({ id: built.id, blueprint: built.blueprint, name: built.name, landWhenBuilt: built.landWhenBuilt, checkIn: number });
+    island.buildings.push({ id: built.id, blueprint: built.blueprint, name: built.name, landWhenBuilt: built.landWhenBuilt, checkIn: number,
+      ...(built.parentBuildingId ? { parentBuildingId: built.parentBuildingId } : {}), ...(built.landGift ? { landGift: built.landGift } : {}) });
     island.counts[built.blueprint] = (island.counts[built.blueprint] || 0) + 1;
     island.used += bp.ground || 0;
-    if (bp.kind === 'homes') { island.blocks += bp.blocks || 0; island.storeys += bp.storeys || 0; } else island.pads += 1;
+    // A land gift comes only from the saved record (its landWhenBuilt already counts it), never from
+    // the blueprint, so older records and a later change to the blueprint replay exactly as saved.
+    if (built.landGift) island.land += built.landGift;
+    if (bp.kind === 'homes') { island.blocks += bp.blocks || 0; island.storeys += bp.storeys || 0; } else if (!bp.extends) island.pads += 1;
   }
   if (built.link) addLink(state, { ...built.link, id: built.id }, number, rules);
   if (built.kind === 'wonder') state.wonders.push(built.blueprint);
 }
 function applyRecord(state, p, sequence, rules, blueprints) {
+  applyTopUp(state, p);
   applyCollect(state, p);
   applySurprise(state, p, rules);
   applyIslands(state, p, rules);
@@ -182,7 +204,40 @@ function available(bp, state, rules, blueprints) {
   if (!bp.again && !bp.onlyOn && count(state, bp.id)) return false;
   if (bp.onlyOn && !state.islands.some(i => i.kind === bp.onlyOn && !i.counts[bp.id])) return false;
   if (bp.linkType && !openPairs(state).length) return false;
+  if (bp.extends && !state.islands.some(island => extensionParent(bp, island, state, rules))) return false;
   return true; // homes are offered whenever they fit, not only when a helper needs a bed
+}
+// An extension stays with a saved parent and uses the parcel already reserved by that parent.
+// A parent qualifies once it is extensionAfterCheckIns old (counting the check-in being made now), so
+// the two never come back to back. Each parent receives this extension once.
+function extensionParent(bp, island, state, rules) {
+  const age = rules.extensionAfterCheckIns ?? 1;
+  return island.buildings.find(b => b.blueprint === bp.extends && state.checkIns + 1 - b.checkIn >= age &&
+    !island.buildings.some(extension => extension.blueprint === bp.id && extension.parentBuildingId === b.id)) || null;
+}
+// The land points a blueprint's island would gain if it were built there now: its landGift, up to the
+// island's maxLand. Worked out when offered and saved with the build, never at replay.
+function landGiftOn(bp, island, rules) {
+  if (!bp.landGift || !island) return 0;
+  return Math.max(0, Math.floor(Math.min(R.maxLandOf(island, rules), island.land + bp.landGift) - island.land));
+}
+// The one-time land top-up for a game whose land was settled under a smaller lane share than the rules'
+// (a game started before laneShareOfLand grew to 0.22). Each island gets the fewest whole land points
+// that give it at least the room it had under the old share, up to its most land. Returns the record
+// { from, to, land: [{ island, amount }] }, or null when the land already matches the rules. The amounts
+// are worked out once, saved in the check-in record and covered by its token, and replay reads only
+// the record, as with a building's land gift. A game gets it once, because the record raises laneShare.
+function landTopUpFor(state, rules) {
+  const from = state.laneShare ?? R.FIRST_LANE_SHARE, to = rules.laneShareOfLand;
+  if (!(to > from + EPSILON)) return null;
+  const before = { ...rules, laneShareOfLand: from }, land = [];
+  for (const island of state.islands) {
+    const most = R.maxLandOf(island, rules), room = R.roomOf(island.land, 0, before);
+    let amount = 0;
+    while (island.land + amount + 1 <= most + EPSILON && R.roomOf(island.land + amount, 0, rules) + EPSILON < room) amount += 1;
+    if (amount) land.push({ island: island.id, amount });
+  }
+  return { from, to, land };
 }
 // Homes on one island: a new house once the houses there have at least one room each (the first is
 // always allowed), a room on an island with a house, and a floor while floors are fewer than blocks (so
@@ -206,8 +261,13 @@ function placeFor(bp, state, rules, landOf = null) {
   state.islands.forEach((island, i) => {
     const land = landOf ? landOf(island) : island.land;
     const room = roomOn(island, rules, land);
-    if (room + EPSILON < (bp.ground || 0)) return;
+    // A building with a land gift stands on the grown island (its landWhenBuilt counts the gift, and
+    // room-check.js checks it there), so it fits when there is room for it once the gift is added.
+    // An extension takes no ground (it grows inside its parent's parcel), so it never waits for room.
+    const roomAfterGift = bp.landGift ? roomOn(island, rules, land + landGiftOn(bp, { ...island, land }, rules)) : room;
+    if (!bp.extends && roomAfterGift + EPSILON < (bp.ground || 0)) return;
     if (bp.onlyOn && (island.kind !== bp.onlyOn || island.counts[bp.id])) return;
+    if (bp.extends && !extensionParent(bp, island, state, rules)) return;
     if (bp.kind === 'homes' && !homesFit(bp, island, rules, land)) return;
     // A repeatable item may fill at most a set share of an island's pad buildings (never less than its small base cap).
     if (bp.perIsland && (island.counts[bp.id] || 0) >= Math.max(bp.perIsland, Math.floor(island.pads * rules.maxShareOfIsland))) return;
@@ -306,6 +366,9 @@ function makeOffer(state, rules, blueprints, key) {
     const where = placeFor(bp, state, rules);
     if (where === null) continue;
     const option = { bp, price, island: where >= 0 ? state.islands[where].id : null, order: roll(`${key}:offer:${bp.id}`) };
+    if (bp.extends) option.parentBuildingId = extensionParent(bp, state.islands[where], state, rules).id;
+    const gift = where >= 0 ? landGiftOn(bp, state.islands[where], rules) : 0;
+    if (gift) option.landGift = gift;
     if (bp.linkType) option.link = ropeTarget(state, key);
     const current = byKind[bp.kind];
     const better = !current || owned(option) < owned(current) || (owned(option) === owned(current) && option.order < current.order);
@@ -493,7 +556,35 @@ function makeSurprise(work, draft, rules, key) {
     if (pick.id === 'golden') surprise.golden = true;
   }
   dressSurprise(surprise, island, rules, key, { keepsake: treeThere, number: draft.number });
+  dressAnimalSurprise(surprise, work, draft, rules, key);
   return surprise;
+}
+
+// Separate keyed rolls only change the presentation of an existing gift. They never reroll
+// the slot, its island or resources, consume a choice, or replace a keepsake or existing visitor.
+// The words come from R.ANIMAL_FLAVOURS, picked by their own keyed roll (animal-words), so a new
+// variant changes no other roll.
+function dressAnimalSurprise(surprise, work, draft, rules, key) {
+  const animal = R.ANIMAL_FLAVOURS[surprise.id];
+  if (!animal || surprise.keepsake || surprise.visitor) return;
+  if (animal.onlyFlavour && surprise.flavour !== animal.onlyFlavour) return;
+  // The cat names home, not the surprise's island: it always lives on home, and the soil it brings
+  // goes to the shared store, not to one island.
+  const home = work.islands.find(island => island.id === 'home');
+  let island = null;
+  if (animal.resident) {
+    if (!home || (work.residents || []).length >= (rules.maxResidents ?? 0) || draft.activeDays < rules.residentAfterActiveDays ||
+        roll(`${key}:resident-arrival`) >= rules.residentChanceInSoilSurprise) return;
+    island = home;
+    surprise.resident = { id: `resident-${draft.number}`, kind: animal.resident, island: home.id,
+      appearanceSeed: fingerprint(`${key}:resident-appearance`), arrivedAtCheckIn: draft.number };
+  } else {
+    if (draft.activeDays < rules.birdAfterActiveDays || roll(`${key}:bird-visitor`) >= rules.birdChanceInPlainStonesSurprise) return;
+    island = islandById(work, surprise.island);
+    surprise.visitor = animal.visitor;
+  }
+  surprise.flavour = animal.flavour;
+  surprise.text = pickOne(`${key}:animal-words`, animal.texts).replace('{island}', island.name);
 }
 
 // The gift each slot gives. Every flavour of a slot gives exactly this.
@@ -584,6 +675,14 @@ function draftCheckIn(state, facts, env, trigger, skip) {
   };
   const work = cloneState(state);
 
+  // An older game's islands first settle to today's lane share, once (see landTopUpFor).
+  const topUp = landTopUpFor(work, rules);
+  if (topUp) {
+    draft.landTopUp = topUp;
+    if (topUp.land.length) draft.moments.push(topUp.land.length === 1 ? R.LAND_TOP_UP_TEXT.one : R.LAND_TOP_UP_TEXT.many);
+    applyTopUp(work, draft);
+  }
+
   // Collect, and turn rest minutes into new land points, shared between islands by appetite and age.
   // When no island can take a point, the rest minutes wait in landProgress.
   const progress = work.landProgress + draft.restMinutes;
@@ -647,15 +746,18 @@ function draftCheckIn(state, facts, env, trigger, skip) {
     const offer = makeOffer(work, rules, blueprints, key);
     if (offer) {
       draft.choice = { kind: 'build', options: offer.map(o => ({ blueprint: o.bp.id, island: o.island, price: o.price,
-        ...(o.link ? { link: o.link } : {}) })) };
+        ...(o.link ? { link: o.link } : {}), ...(o.parentBuildingId ? { parentBuildingId: o.parentBuildingId } : {}),
+        ...(o.landGift ? { landGift: o.landGift } : {}) })) };
     }
   }
 
-  const something = R.RESOURCES.some(r => draft.collected[r] >= 0.01) || draft.newLand.length || draft.islands.length ||
+  const something = R.RESOURCES.some(r => draft.collected[r] >= 0.01) || draft.newLand.length || draft.landTopUp || draft.islands.length ||
     draft.helpersQueued.length || draft.helpersArrived.length || draft.surprise || draft.choice;
   if (!something) return null;
-  draft.token = fingerprint(JSON.stringify([number, draft.collected, draft.newLand, draft.surprise && [draft.surprise.id, draft.surprise.island, draft.surprise.flavour ?? null, draft.surprise.keepsake?.kind ?? null],
-    draft.islands.map(i => i.id), draft.helpersQueued.map(h => h.id), draft.helpersArrived.map(h => h.id), draft.choice]));
+  draft.token = fingerprint(JSON.stringify([number, draft.collected, draft.newLand, draft.surprise && [draft.surprise.id, draft.surprise.island, draft.surprise.flavour ?? null, draft.surprise.keepsake?.kind ?? null,
+    ...(draft.surprise.resident ? [draft.surprise.resident] : []), ...(draft.surprise.visitor ? [draft.surprise.visitor] : [])],
+    draft.islands.map(i => i.id), draft.helpersQueued.map(h => h.id), draft.helpersArrived.map(h => h.id), draft.choice,
+    ...(draft.landTopUp ? [draft.landTopUp] : [])]));
   return { draft, work };
 }
 
@@ -678,6 +780,9 @@ function pick(prepared, choiceID, env) {
     if (!option) throw new Error("That building isn't one of the choices on this card.");
     const bp = blueprints.find(b => b.id === choiceID);
     const island = option.island ? islandById(work, option.island) : null;
+    if (bp.extends && (!island || extensionParent(bp, island, work, rules)?.id !== option.parentBuildingId)) {
+      throw new Error('That extension no longer has an eligible building to join.');
+    }
     // A bridge joins the two islands its option named, with each one's land now, so the layout can
     // place its feet at the right point in the replay.
     let link = null;
@@ -685,10 +790,16 @@ function pick(prepared, choiceID, env) {
       const { from, to } = option.link;
       link = { from, to, type: bp.linkType, land: { [from]: islandById(work, from).land, [to]: islandById(work, to).land } };
     }
+    // A land gift was worked out with the offer (so the card's token covers it) and is saved here. The
+    // building stands on the grown island, so landWhenBuilt counts it and the layout grows the gift first.
+    const landGift = island && option.landGift ? option.landGift : 0;
     draft.built = { id: `b${work.buildingsMade + 1}`, blueprint: bp.id, name: bp.name, kind: bp.kind,
-      island: island ? island.id : null, price: option.price, landWhenBuilt: island ? island.land : null, link };
+      island: island ? island.id : null, price: option.price, landWhenBuilt: island ? island.land + landGift : null, link,
+      ...(option.parentBuildingId ? { parentBuildingId: option.parentBuildingId } : {}), ...(landGift ? { landGift } : {}) };
     firstTime(work, draft, 'building', `The first building on the island: ${article(bp.name)}.`);
     if (bp.id === 'sawmill') firstTime(work, draft, 'sawmill', 'The Sawmill blade turns for the first time. Focus makes planks from now on.');
+    if (bp.id === 'farmyard') firstTime(work, draft, 'farmyard', 'Two hens moved into the Farmyard.');
+    if (bp.id === 'farmextension') firstTime(work, draft, 'barn', 'A woolly sheep wandered into the new barn and settled in.');
     if (bp.kind === 'wonder') {
       firstTime(work, draft, 'wonder', 'Your first Starlight wonder!');
       draft.moments.push(bp.moment);
@@ -731,6 +842,8 @@ function viewState(state, facts, prepared, env) {
   let ahead = prepared ? prepared.work : null;
   if (!ahead) {
     ahead = cloneState(state);
+    const topUp = landTopUpFor(ahead, rules);
+    if (topUp) applyTopUp(ahead, { landTopUp: topUp });
     addInto(ahead.onHand, waiting);
     ahead.landProgress += since.restMinutes;
   }
@@ -762,6 +875,7 @@ function viewState(state, facts, prepared, env) {
       buildings: island.buildings.map(b => ({ ...b })), keepsakes: island.keepsakes.map(k => ({ ...k })) })),
     links: state.links.map(link => ({ ...link, land: { ...link.land } })),
     helpers: state.helpers.map(h => ({ id: h.id, name: h.name, job: h.job, island: h.island })),
+    residents: state.residents.map(resident => ({ ...resident })),
     wonders: state.wonders.slice(),
     checkIn,
     nextUp: teaser(ahead, rules, blueprints, typical),
@@ -778,5 +892,5 @@ function viewState(state, facts, prepared, env) {
 module.exports = {
   empty, round2, initialState, fold, applyRecord, prepare, pick, viewState, teaser, countActiveDays,
   count, beds, boost, available, placeFor, canAfford, rankJobs, makeOffer, nextWonder, openJobs,
-  roomOn, homesFit, shareLand, landPointsNeeded, openPairs, ropeTarget, fancyBridge, makeSurprise, dressSurprise, slotGifts,
+  roomOn, homesFit, shareLand, landGiftOn, landTopUpFor, landPointsNeeded, openPairs, ropeTarget, fancyBridge, makeSurprise, dressSurprise, slotGifts,
 };

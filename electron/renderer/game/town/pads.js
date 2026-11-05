@@ -149,9 +149,28 @@ export function bayOf(grid, option, side, way, blocked = () => false) {
   return [...bay].sort((a, b) => a - b);
 }
 
+// The turn of a kind that lies along its plot (kinds.js `along`, the farmyard): its model's x runs along
+// the plot's long side (its two cells), so the model fills the plot. Its front lane is usually at one end;
+// then the model's +x end points at it. When the front is beside a long side instead, the model's +z side
+// faces it. Only such kinds turn this way (checkTown knows), so no other building in a saved town moves.
+// points: the six points as footOptions gives them (the first cell's four first), at: the middle.
+export function farmYaw(grid, points, at, front) {
+  const first = middleOf(points.slice(0, 4).map(p => grid.points[p]));
+  const long = [at[0] - first[0], at[1] - first[1]];
+  const size = Math.hypot(long[0], long[1]) || 1;
+  const x = [long[0] / size, long[1] / size], z = [-x[1], x[0]];
+  const to = [grid.points[front][0] - at[0], grid.points[front][1] - at[1]];
+  const along = to[0] * x[0] + to[1] * x[1], across = to[0] * z[0] + to[1] * z[1];
+  // The model's z axis is [sin yaw, cos yaw] and its x axis [cos yaw, -sin yaw], so x = [zz, -zx].
+  if (Math.abs(along) >= Math.abs(across)) { const s = along < 0 ? -1 : 1; return yawOf([-s * x[1], s * x[0]]); }
+  const s = across < 0 ? -1 : 1;
+  return yawOf([s * z[0], s * z[1]]);
+}
+
 function yawFor(isle, def, option, id) {
   const { grid } = isle;
   if (def.edge) return yawOf(option.way);
+  if (def.along && option.points.length === 6 && option.front !== null) return farmYaw(grid, option.points, option.at, option.front);
   if (option.front !== null) return yawOf([grid.points[option.front][0] - option.at[0], grid.points[option.front][1] - option.at[1]]);
   if (def.foot === 'pair') {
     // A flower bed lies along its two points and faces the camera's side.

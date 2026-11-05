@@ -69,7 +69,7 @@ function pointText(island, p, model) {
   return [
     island.land.has(p) ? 'L' : '', island.lanes.has(p) ? 'P' : '', island.kept.has(p) ? 'K' : '',
     island.floors.get(p) ?? 0, island.look.get(p) ?? '', island.house.get(p) ?? '', door,
-    thing ? `${thing.id}:${thing.kind}:${thing.yaw}:${thing.scale}` : '', feet, front,
+    thing ? `${thing.id}:${thing.kind}:${thing.yaw}:${thing.scale}:${thing.extension ?? ''}` : '', feet, front,
   ].join('|');
 }
 
@@ -218,4 +218,24 @@ test('the check catches a piece that changes far from any change', () => {
   const a = order.slice(0, land), b = order.slice(0, land + 1);
   assert.deepEqual(compareDrawings(fakeDrawing(a), fakeDrawing(b)).problems, [], 'a local change passes');
   assert.ok(compareDrawings(fakeDrawing(a), fakeDrawing(b, 1)).problems.length > 0, 'a change everywhere is caught');
+});
+
+test('a farm extension changes only its existing shelter pieces', () => {
+  const game = JSON.parse(readFileSync(path.join(STATES, 'steady-day-30.json'), 'utf8'));
+  const home = game.islands[0];
+  home.land = Math.max(140, home.land);
+  const checkIn = Math.max(...home.buildings.map(b => b.checkIn || 0)) + 1;
+  home.buildings.push({ id: 'farm-test', blueprint: 'farmyard', checkIn, landWhenBuilt: home.land });
+  const before = drawTown(buildTown(game));
+  home.buildings.push({ id: 'farm-extension-test', blueprint: 'farmextension', parentBuildingId: 'farm-test', checkIn: checkIn + 1, landWhenBuilt: home.land });
+  const after = drawTown(buildTown(game));
+  assert.deepEqual(compareDrawings(before, after, 'farm extension').problems, []);
+  let changes = 0;
+  for (const [island, pieces] of before.logs) {
+    for (const [key, value] of pieces) if (after.logs.get(island).get(key) !== value) {
+      assert.equal(key, 'thing:farm-test'); changes++;
+    }
+    assert.deepEqual([...after.logs.get(island).keys()], [...pieces.keys()]);
+  }
+  assert.equal(changes, 1, 'only the parent shelter changes');
 });

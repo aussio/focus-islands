@@ -18,6 +18,8 @@ export const P = {
   flower: ['#ffffff', '#ff8fb4', '#ffd25e', '#b88cff', '#ff6b6b'],
   mushroomCap: '#ff5a5f', mushroomStem: '#fff3e2', crystal: ['#b99cff', '#8fd8ff', '#ffa8e0'],
   root: '#c99467',
+  // The farmyard's straw plot (scene/town/pads.js PAD_LOOKS) and the darker straw drawn on it.
+  straw: '#efd48c', strawSide: '#d4b36c', strawDeep: '#e2c278',
 };
 
 // Town sizes on the uneven grid (the town scene in scene/town/). Heights are world units; widths and

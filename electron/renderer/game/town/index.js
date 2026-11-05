@@ -39,10 +39,11 @@ export function forgetTowns() {
 function inputOf(game) {
   return JSON.stringify([
     (game?.islands ?? []).map(({ id, kind, size, land, golden, ring, angle, lift, buildings, keepsakes }) => [id, kind, size, land, golden, ring, angle, lift,
-      (buildings ?? []).map(b => [b.id, b.blueprint, b.landWhenBuilt, b.checkIn]), (keepsakes ?? []).map(k => [k?.id, k?.kind, k?.land, k?.checkIn])]),
+      (buildings ?? []).map(b => [b.id, b.blueprint, b.landWhenBuilt, b.checkIn, b.parentBuildingId]), (keepsakes ?? []).map(k => [k?.id, k?.kind, k?.land, k?.checkIn])]),
     game?.links ?? [],
     game?.helpers ?? [],
     game?.visitor ?? null,
+    game?.residents ?? [],
   ]);
 }
 
@@ -94,7 +95,7 @@ function layoutTown(game) {
     });
     (island.buildings ?? []).forEach((b, i) => events.push({
       checkIn: Number.isFinite(b.checkIn) ? b.checkIn : Infinity, rank: 0, i,
-      land: Number.isFinite(b.landWhenBuilt) ? Math.floor(b.landWhenBuilt) : land, building: { id: String(b.id), blueprint: b.blueprint },
+      land: Number.isFinite(b.landWhenBuilt) ? Math.floor(b.landWhenBuilt) : land, building: { id: String(b.id), blueprint: b.blueprint, ...(b.parentBuildingId ? { parentBuildingId: b.parentBuildingId } : {}) },
     }));
     links.forEach((link, i) => {
       if (link.from !== island.id && link.to !== island.id) return;
@@ -133,8 +134,10 @@ function layoutTown(game) {
   }
 
   const helpers = (game?.helpers ?? []).filter(h => h && byId.has(h.island)).map(({ id, name, job, island }) => ({ id, name, job: job ?? null, island }));
+  // Residents occupy no building ground and never participate in placement or camera framing.
+  const residents = (game?.residents ?? []).filter(r => r && typeof r.id === 'string' && typeof r.kind === 'string' && byId.has(r.island)).map(r => ({ ...r }));
   const view = viewOf(isles.map(isle => ({ id: isle.id, plaza: isle.plaza, newest: isle.newest })), things, helpers, new Map(isles.map(i => [i.id, i.grid])));
-  return { islands, things, bridges, helpers, view };
+  return { islands, things, bridges, helpers, view, ...(residents.length ? { residents } : {}) };
 }
 
 // The visitor's kind on this island, or null.
@@ -142,7 +145,7 @@ const visitorOf = (game, id) => (game?.visitor && game.visitor.island === id && 
 
 const round4 = v => Math.round(v * 1e4) / 1e4 + 0;
 const reachOf = isle => round4(Math.max(0, ...isle.land.map(p => Math.hypot(...isle.grid.points[p]))));
-const copyThing = t => ({ id: t.id, kind: t.kind, island: t.island, points: [...t.points], at: [...t.at], yaw: t.yaw, scale: t.scale, pad: t.pad, front: t.front, coast: t.coast && { ...t.coast } });
+const copyThing = t => ({ id: t.id, kind: t.kind, island: t.island, points: [...t.points], at: [...t.at], yaw: t.yaw, scale: t.scale, pad: t.pad, front: t.front, coast: t.coast && { ...t.coast }, ...(t.extension ? { extension: t.extension } : {}) });
 
 function copyWorld(world) {
   return {
@@ -153,6 +156,7 @@ function copyWorld(world) {
     things: world.things.map(copyThing),
     bridges: world.bridges.map(b => ({ id: b.id, type: b.type, from: { ...b.from, out: [...b.from.out] }, to: { ...b.to, out: [...b.to.out] } })),
     helpers: world.helpers.map(h => ({ ...h })),
+    ...(world.residents?.length ? { residents: world.residents.map(r => ({ ...r })) } : {}),
     view: { island: world.view.island, points: [...world.view.points] },
   };
 }

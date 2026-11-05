@@ -23,12 +23,13 @@ function environment(ctx = {}) {
 }
 
 // The record that turns the game on. The starting land and pouch are saved in it, so a later rules
-// change can't rewrite how the game began.
+// change can't rewrite how the game began. So is the lane share its land is counted with: a start record
+// without one began under R.FIRST_LANE_SHARE, and gets a one-time land top-up (see play.js landTopUpFor).
 function startRecord(ctx = {}) {
   const rules = environment(ctx).rules;
   return { kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: ctx.now,
     payload: { rulesVersion: rules.rulesVersion, startingLand: rules.startingLand,
-      startingSoil: rules.startingSoil, startingSaplings: rules.startingSaplings } };
+      startingSoil: rules.startingSoil, startingSaplings: rules.startingSaplings, laneShareOfLand: rules.laneShareOfLand } };
 }
 
 // The gameGranted records that should exist but don't yet, in the order to write them.

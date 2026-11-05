@@ -11,7 +11,7 @@
 // model = {
 //   town: true, data: world,            // data: the world as given (never copied)
 //   islands: [island], byId: Map(id -> island),
-//   things: [thing], bridges: [bridge], helpers: [helper], view,
+//   things: [thing], bridges: [bridge], helpers: [helper], residents: [resident], view,
 // }
 // island = {
 //   id, kind, size, index, key,         // key: drawKey below; it changes only when something drawn on the
@@ -138,7 +138,8 @@ export function parseTown(world) {
   const ids = viewIsland ? list(data.view.points).filter(p => Number.isInteger(p) && p >= 0 && p < viewIsland.grid.points.length) : [];
   const view = { island: viewIsland?.id ?? null, ids, points: viewIsland ? ids.map(p => viewIsland.world(p)) : [] };
 
-  return { town: true, data, islands, byId, things, bridges, helpers, view };
+  const residents = list(data.residents).filter(r => r && typeof r.id === 'string' && typeof r.kind === 'string' && byId.has(r.island)).map(r => ({ ...r }));
+  return { town: true, data, islands, byId, things, bridges, helpers, residents, view };
 }
 
 // One bridge end in world space. Fills in `out` and `clear` when the world leaves them out. An `out` given

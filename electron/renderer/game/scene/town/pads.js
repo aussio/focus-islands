@@ -18,17 +18,22 @@
 //   the island's edge is (coastDepth), which coastFrame in wonders.js reads.
 // - Each pad corner piece is tagged pad:<cell>:<corner>, and each model thing:<id>, so the drawing check
 //   can see that a thing's pieces change only when its own points do.
+// - A kind with its own pad look (kinds.js `padLook`, such as the farmyard's straw) has its plot drawn with
+//   the same slab pieces in that look's colours (PAD_LOOKS). A kind that lies along its plot (kinds.js
+//   `along`) gets the plot's outline as `plot` (padOutline below), so its parts follow the real shape.
 import { KINDS, MODEL_SCALE } from '../../kinds.js';
 import { CELL, P, TOWN } from '../style.js';
 import { hashString, place } from '../ground.js';
 import { modelFor } from '../models/index.js';
-import { addPiece, piecesAt, slabPiece } from './pieces.js';
+import { addPiece, onSlab, piecesAt, slabEdges, slabPiece } from './pieces.js';
 
 export const COAST_EDGE = 0.3; // how far the grass reaches past the coast points (half a step, less rounding)
 // The footprint each foot's models were designed for, in cells [across, front to back].
 const DESIGN_CELLS = { point: [1, 1], pair: [2, 1], cell: [2, 2], cells: [3, 2], ring: [3, 3] };
 const QUARTER = Math.PI / 2;
 const PAD_AO = { ao: { ground: 0, height: 0.2, min: 0.85 } };
+// Pad colours by kinds.js `padLook`: [top, side]. Stone unless the kind says otherwise.
+const PAD_LOOKS = { stone: [P.stone, P.stoneDark], straw: [P.straw, P.strawSide] };
 
 // The middle of a thing in island units: from the layout, else from its points.
 export function thingMiddle(island, thing) {
@@ -70,9 +75,10 @@ export function buildThings(ctx, island, things = island.things ?? []) {
 function buildPad(ctx, island, thing) {
   const mine = new Set(thing.points);
   const on = p => mine.has(p);
+  const [top, side] = PAD_LOOKS[KINDS[thing.kind]?.padLook] ?? PAD_LOOKS.stone;
   for (const p of thing.points) {
     for (const c of piecesAt(island.grid, p)) {
-      const mesh = slabPiece(c, { width: TOWN.padWidth, rise: TOWN.padRise, fA: on(c.next), fB: on(c.prev), fO: on(c.opp), top: P.stone, side: P.stoneDark });
+      const mesh = slabPiece(c, { width: TOWN.padWidth, rise: TOWN.padRise, fA: on(c.next), fB: on(c.prev), fO: on(c.opp), top, side });
       addPiece(ctx, `pad:${c.key}`, mesh, 'matte', PAD_AO);
     }
   }
@@ -101,8 +107,23 @@ function placeModel(ctx, island, thing, old) {
     fw, fd, w: fw, h: fd, facing: yaw / QUARTER, yaw, height: 0,
     blocks: thing.blocks ?? kind.blocks, old, modelScale: s,
     coast: thing.coast ?? null, coastDepth: thing.coast ? coastDepth(island, thing, x, z) : null,
+    ...(thing.extension ? { extension: thing.extension } : {}),
+    ...(kind.along && thing.pad ? { plot: padOutline(island.grid, thing.points, thing.front) } : {}),
   };
   modelFor(thing.kind)(ctx, model, base);
+}
+
+// A pad's outline in island units, as slabPiece draws it but at any width t (in piece units; the pad
+// itself is TOWN.padWidth), so a model can stay inside its plot or run a fence a little inside its edge.
+//   edges(t) => [[[x, z], [x, z]]]: the outline's sides, each piece's in turn (cut corners included).
+//   inside([x, z], t) => whether the point is on the pad drawn at width t.
+//   front: the front lane's point [x, z], or null.
+export function padOutline(grid, points, front = null) {
+  const mine = new Set(points);
+  const pieces = points.flatMap(p => piecesAt(grid, p).map(c => ({ c, fA: mine.has(c.next), fB: mine.has(c.prev), fO: mine.has(c.opp) })));
+  const edges = t => pieces.flatMap(({ c, fA, fB, fO }) => slabEdges(t, fA, fB, fO).map(({ p, q }) => [c.at(...p), c.at(...q)]));
+  const inside = (point, t) => pieces.some(({ c, fA, fB, fO }) => onSlab(...c.unit(point), t, fA, fB, fO));
+  return { edges, inside, front: Number.isInteger(front) ? [...grid.points[front]] : null };
 }
 
 // How far the island's edge is from a coast building's middle, toward its coast.

@@ -11,6 +11,8 @@
 import { KINDS } from '../kinds.js';
 import { checkShape, MAX_FLOORS } from './shape.js';
 import { deckLine, SKY_GAP, FOOT_ROOM } from './sky.js';
+import { farmYaw } from './pads.js';
+import { canFill } from './grid.js';
 
 const BLOCK_SHARE = 0.3;
 const OVER_LAND = 0.3; // a deck closer than this to a land point passes over that island's land
@@ -76,7 +78,10 @@ function checkIsland(island, things, bridges, say) {
     else if (!t.points.some(p => neighbours[p].includes(t.front))) say(`${t.id}'s front isn't next to it`);
     // ...and faces it, so its door looks onto the lane (coast buildings face the sky instead).
     else if (!t.coast) {
-      const [dx, dz] = [grid.points[t.front][0] - t.at[0], grid.points[t.front][1] - t.at[1]];
+      // A kind that lies along its plot (the farmyard) turns its end or side toward the front instead (farmYaw).
+      const [dx, dz] = KINDS[t.kind]?.along && t.points.length === 6
+        ? [Math.sin(farmYaw(grid, t.points, t.at, t.front)), Math.cos(farmYaw(grid, t.points, t.at, t.front))]
+        : [grid.points[t.front][0] - t.at[0], grid.points[t.front][1] - t.at[1]];
       const off = Math.atan2(Math.sin(t.yaw) * dz - Math.cos(t.yaw) * dx, Math.sin(t.yaw) * dx + Math.cos(t.yaw) * dz);
       if (Math.abs(off) > FACING) say(`${t.id} faces ${Math.round(Math.abs(off) * 180 / Math.PI)} degrees away from its front`);
     }
@@ -102,7 +107,9 @@ function checkIsland(island, things, bridges, say) {
     if (stuck.length) say(`${id} has ${stuck.length} free point${stuck.length === 1 ? '' : 's'} nobody can walk to (point ${stuck[0]})`);
   }
 
-  // Coast buildings have kept sky in front: each point on their outer side looks out onto kept sky.
+  // Coast buildings have kept sky in front: each point on their outer side looks out onto kept sky. A point
+  // near the grid's rim that land can never fill (canFill) is sky for good, so it counts as kept; the layout
+  // doesn't list such points as kept (island.js keep).
   for (const t of things) {
     if (!t.coast) continue;
     const way = [Math.sin(t.coast.yaw), Math.cos(t.coast.yaw)];
@@ -111,7 +118,7 @@ function checkIsland(island, things, bridges, say) {
     const side = t.points.filter(p => along(p) > most - 0.3);
     for (const p of side) {
       const ahead = neighbours[p].filter(q => !t.points.includes(q)).sort((a, b) => along(b) - along(a))[0];
-      if (ahead === undefined || !kept[ahead]) say(`${t.id} has no kept sky in front of point ${p}`);
+      if (ahead === undefined || !(kept[ahead] || !canFill(grid, ahead))) say(`${t.id} has no kept sky in front of point ${p}`);
     }
   }
 

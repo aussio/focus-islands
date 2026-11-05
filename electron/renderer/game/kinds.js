@@ -6,6 +6,8 @@
 // lane. Flower beds and lanterns are buildings too, placed like pads, but drawn without one.
 // blocks: helpers walk around it. work: the job done there.
 // edge: a coast building (it hangs over or looks out from the edge).
+// along: lies along its plot's long side (town/pads.js farmYaw) and fills it; its model gets the plot's
+// outline. padLook: its pad's colours, if not stone (scene/town/pads.js PAD_LOOKS).
 
 export const KINDS = {
   // Natural things and start things. They are never built.
@@ -24,6 +26,7 @@ export const KINDS = {
   flowers: { foot: 'pair', blocks: false },
   garden: { foot: 'cell', pad: true, blocks: true, work: 'soil' },
   nursery: { foot: 'cell', pad: true, blocks: true, work: 'saplings' },
+  farmyard: { foot: 'cells', pad: true, blocks: true, along: true, padLook: 'straw' },
   sawmill: { foot: 'cell', pad: true, blocks: true, work: 'planks' },
   workshop: { foot: 'cell', pad: true, blocks: true },
   windmill: { foot: 'cell', pad: true, blocks: true },

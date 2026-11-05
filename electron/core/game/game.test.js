@@ -146,10 +146,10 @@ test('nothing exists before the game starts, and earlier history never counts', 
   assert.equal(rest.payload.amounts.starlight, undefined, 'the focus session before the start earns no Starlight');
   const start = game.startRecord({ now: '2026-01-05T08:00:00.000Z' });
   assert.deepEqual(start, { kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: '2026-01-05T08:00:00.000Z',
-    payload: { rulesVersion: 2, startingLand: 40, startingSoil: 40, startingSaplings: 25 } });
+    payload: { rulesVersion: 2, startingLand: 49, startingSoil: 40, startingSaplings: 25, laneShareOfLand: 0.22 } });
   const state = h.state();
   assert.equal(state.rulesVersion, 2);
-  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 40]]);
+  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 49]]);
   assert.deepEqual(state.helpers, [{ id: 'h1', name: 'Pip', job: null, island: 'home' }]);
 });
 
@@ -475,8 +475,15 @@ test('blueprint ids, footprints and homes match electron/renderer/game/kinds.js'
   for (const bp of R.DEFAULT_BLUEPRINTS) {
     assert.equal(typeof bp.ground, 'number', `${bp.id} has a ground`);
     if (bp.kind === 'homes' || bp.noSpot) continue;
+    if (bp.extends) {
+      assert.equal(bp.ground, 0, `${bp.id} uses its parent's existing parcel`);
+      assert.ok(R.DEFAULT_BLUEPRINTS.some(parent => parent.id === bp.extends), `${bp.id} has a known parent kind`);
+      continue;
+    }
     assert.ok(KINDS[bp.id], `${bp.id} is a kind`);
-    assert.equal(bp.ground, GROUND[KINDS[bp.id].foot], `${bp.id}: ground matches its ${KINDS[bp.id].foot} footprint`);
+    const margin = bp.roomMargin ?? 0;
+    assert.ok(Number.isInteger(margin) && margin >= 0, `${bp.id}: room margin is a whole number, zero or more`);
+    assert.equal(bp.ground, GROUND[KINDS[bp.id].foot] + margin, `${bp.id}: ground matches its ${KINDS[bp.id].foot} footprint plus its room margin`);
   }
   assert.deepEqual(['house', 'room', 'floor'].map(id => R.DEFAULT_BLUEPRINTS.find(bp => bp.id === id).ground), [3, 1, 0]);
   assert.equal(R.DEFAULT_BLUEPRINTS.find(bp => bp.id === 'bridge').ground, 0);
@@ -488,10 +495,11 @@ test('blueprint ids, footprints and homes match electron/renderer/game/kinds.js'
 
 test('the room sum: home starts with room for one cell pad, and a day of breaks makes room for a second', () => {
   const rules = R.DEFAULT_RULES;
-  const room = R.roomOf(40, 4, rules);
+  const start = rules.startingLand;
+  const room = R.roomOf(start, 4, rules);
   assert.ok(room >= 5 && room < 10, `room ${room}`);
-  assert.ok(R.roomOf(40, 4 + 5, rules) < 5, 'not a second cell pad yet');
-  assert.ok(R.roomOf(48, 4 + 5, rules) >= 5, 'about 8 more points (40 rest minutes) make room for the second');
+  assert.ok(R.roomOf(start, 4 + 5, rules) < 5, 'not a second cell pad yet');
+  assert.ok(R.roomOf(start + 8, 4 + 5, rules) >= 5, 'about 8 more points (40 rest minutes) make room for the second');
   for (const land of [40, 100, 300, 600]) assert.ok(R.roomOf(land + 1, 0, rules) > R.roomOf(land, 0, rules), 'more land is always more room');
   const { state, island } = bareState();
   island('isle-1', 'small', rules.startLand.small);
@@ -573,12 +581,12 @@ test('homes: a house first, rooms before another house, floors under the blocks,
 test('placeFor: the island with the fewest buildings for its land that has room, so young islands fill up too', () => {
   const { state, build, island } = bareState(R.DEFAULT_RULES, 300);
   for (const id of ['garden', 'nursery', 'sawmill', 'workshop', 'flowers']) build(id);
-  island('isle-1', 'small', 40);
-  // Home has far more room (about 136 against 8), but 5 buildings on 300 points; the young island has none.
+  island('isle-1', 'small', 50);
+  // Home has far more room (about 139 against 9), but 5 buildings on 300 points; the young island has none.
   assert.equal(placeOf('windmill', state), 'isle-1');
   build('windmill', 'isle-1');
   assert.equal(placeOf('orchard', state), 'home', 'isle-1 has no room left for a cell pad');
-  assert.equal(placeOf('flowers', state), 'home', '1 building on 40 points is more crowded than 5 on 300');
+  assert.equal(placeOf('flowers', state), 'home', '1 building on 50 points is more crowded than 5 on 300');
   // Ties: the most room, then the earlier island.
   const even = bareState(R.DEFAULT_RULES, 100);
   even.island('isle-1', 'large', 100);
@@ -623,7 +631,7 @@ test('rest minutes become land points; full islands are skipped and the minutes 
   const first = h.checkIn('wood');
   assert.deepEqual(first.payload.newLand, [{ island: 'home', amount: 2 }], 'a 10-minute break grows 2 points');
   assert.equal(first.payload.landProgress, 0);
-  assert.equal(h.state().islands[0].land, 42);
+  assert.equal(h.state().islands[0].land, R.DEFAULT_RULES.startingLand + 2);
 
   const full = { ...R.DEFAULT_RULES, startingLand: 598 };
   const h2 = setup();
@@ -859,8 +867,8 @@ test('a rope bridge option names both islands, and building it saves both ends a
   assert.deepEqual(Object.keys(shown), ['blueprint', 'name', 'kind', 'does', 'price', 'island']);
   assert.equal(shown.does, 'A rope bridge from Home island to Mossy Hollow.');
   play.pick({ draft, work: state }, 'bridge', env);
-  assert.deepEqual(draft.built.link, { from: 'home', to: 'isle-1', type: 'rope', land: { home: 40, 'isle-1': 30 } });
-  assert.deepEqual(state.links, [{ id: draft.built.id, from: 'home', to: 'isle-1', type: 'rope', checkIn: 3, land: { home: 40, 'isle-1': 30 } }]);
+  assert.deepEqual(draft.built.link, { from: 'home', to: 'isle-1', type: 'rope', land: { home: R.DEFAULT_RULES.startingLand, 'isle-1': 30 } });
+  assert.deepEqual(state.links, [{ id: draft.built.id, from: 'home', to: 'isle-1', type: 'rope', checkIn: 3, land: { home: R.DEFAULT_RULES.startingLand, 'isle-1': 30 } }]);
 });
 
 test('fancy bridge surprises: a new link between open neighbours, else an upgrade, fewer than the islands', () => {
@@ -876,7 +884,7 @@ test('fancy bridge surprises: a new link between open neighbours, else an upgrad
     const { link, text } = surprise(`k${k}`);
     assert.equal(link.id, 'gift-9');
     assert.equal(link.from, 'home');
-    assert.deepEqual(link.land, { home: 40, [link.to]: link.to === 'isle-1' ? 30 : 33 });
+    assert.deepEqual(link.land, { home: rules.startingLand, [link.to]: link.to === 'isle-1' ? 30 : 33 });
     assert.ok(link.type !== 'rope');
     if (link.type === 'slide') {
       assert.equal(link.to, 'isle-2');

@@ -44,8 +44,8 @@ test('day 1 fits on home without borrowing', () => {
 });
 
 // One more check-in that changes one thing, made by hand from the day-135 state.
-function changed(change) {
-  const game = copy(STEADY[135]);
+function changed(change, source = STEADY[135]) {
+  const game = copy(source);
   const last = Math.max(0, ...game.islands.flatMap(i => i.buildings.map(b => b.checkIn)), ...game.links.map(l => l.checkIn));
   const add = (islandId, blueprint, id) => {
     const island = game.islands.find(i => i.id === islandId);
@@ -102,11 +102,21 @@ test('single changes keep every promise', () => {
 });
 
 test('a pad that only fits by squeezing in cuts off coast points alone, and hedges the free ones', () => {
+  // Preserve this regression's construction sequence as new catalogue entries arrive.
+  // The general state tests above continue to exercise the full current catalogue.
+  // New islands' start land is pinned to its values then too: bigger young islands pile up past their room
+  // in another order, and the 4th windmill both squeezes in and borrows.
+  const { DEFAULT_BLUEPRINTS, DEFAULT_RULES } = require('../../../core/game/rules.js');
+  const source = sim.run('steady', 135, {
+    snapshots: [135],
+    rules: { ...DEFAULT_RULES, startLand: { small: 30, medium: 40, large: 55 } },
+    blueprints: DEFAULT_BLUEPRINTS.filter(b => !['farmyard', 'farmextension'].includes(b.id)),
+  }).states[135];
   // Windmills piled onto the youngest island, one check-in each, until one has to squeeze in.
-  const youngest = STEADY[135].islands.at(-1).id;
-  let before = buildTown(STEADY[135]), hedges = [];
+  const youngest = source.islands.at(-1).id;
+  let before = buildTown(source), hedges = [];
   for (let k = 1; k <= 8 && !hedges.length; k++) {
-    const world = buildTown(changed((game, { add }) => { for (let j = 1; j <= k; j++) add(youngest, 'windmill', `test-pad-${j}`); }));
+    const world = buildTown(changed((game, { add }) => { for (let j = 1; j <= k; j++) add(youngest, 'windmill', `test-pad-${j}`); }, source));
     assert.deepEqual(checkTown(world), [], `${k} pads`);
     assert.deepEqual(compareTowns(before, world), [], `${k} pads`);
     assert.equal(world.islands.find(i => i.id === youngest).borrowed, 0, `${k} pads: it squeezes in before borrowing`);
@@ -172,6 +182,11 @@ test('checkTown and compareTowns find broken worlds', () => {
   const foot = { ...broken, islands: world.islands, bridges: world.bridges.map(b => (b === bridge ? { ...b, from: { ...b.from, point: inland } } : b)) };
   assert.ok(checkTown(foot).some(text => text.includes('coast')));
   assert.ok(compareTowns(world, foot).some(text => text.includes('moved')));
+  // A coast building that lost its kept sky (points land could still fill lie in front of it).
+  const coast = world.things.find(t => t.coast);
+  assert.ok(coast, 'day 135 has a coast building');
+  const open = withIslands(world.islands.map(i => (i.id === coast.island ? { ...i, kept: [] } : i)));
+  assert.ok(checkTown({ ...open, things: world.things }).some(text => text.includes(`${coast.id} has no kept sky in front`)));
   // A pad that covers a lane.
   const onLane = { ...broken, islands: world.islands, things: world.things.map(t => (t === pad ? { ...t, points: [home.lanes[0], ...t.points.slice(1)] } : t)) };
   assert.ok(checkTown(onLane).length > 0);
@@ -186,15 +201,18 @@ test('a foot moves out along its pier as the land grows, and only that way', () 
   });
   assert.ok(moved.length > 0, 'some foot moved out between day 60 and day 135');
   assert.deepEqual(compareTowns(before, after), []);
-  // Moving a foot sideways onto another coast lane is caught (the first moved foot that has one).
+  // Moving a foot sideways, onto another lane that is no farther out, is caught (the first moved foot,
+  // onto the lane closest to its old distance out that doesn't touch it). Feet often sit at an island's
+  // tip with no other lane at quite the same distance out, so the nearest one stands in.
   const sidewaysOf = ({ end }) => {
     const island = after.islands.find(i => i.id === end.island);
     const along = p => island.grid.points[p][0] * end.out[0] + island.grid.points[p][1] * end.out[1];
-    return island.lanes.find(p => p !== end.point && island.grid.neighbours[p].some(n => !island.land.includes(n))
-      && Math.abs(along(p) - along(end.point)) < 0.3 && !island.grid.neighbours[end.point].includes(p));
+    const at = along(end.point);
+    return island.lanes.filter(p => p !== end.point && along(p) < at + 0.3 && !island.grid.neighbours[end.point].includes(p))
+      .sort((a, b) => Math.abs(along(a) - at) - Math.abs(along(b) - at) || a - b)[0];
   };
   const pick = moved.find(m => sidewaysOf(m) !== undefined);
-  assert.ok(pick, 'a moved foot has a coast lane beside it');
+  assert.ok(pick, 'a moved foot has another lane beside or behind it');
   const { id, end } = pick, sideways = sidewaysOf(pick);
   const moveTo = world => ({ ...world, bridges: world.bridges.map(b => (b.id !== id ? b : { ...b, ...Object.fromEntries(['from', 'to'].map(k => [k, b[k].island === end.island ? { ...b[k], point: sideways } : b[k]])) })) });
   assert.ok(compareTowns(before, moveTo(after)).some(text => text.includes(`${id}'s foot on ${end.island} moved`)));

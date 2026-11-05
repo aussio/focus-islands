@@ -17,6 +17,7 @@
 //   things: [{ id, kind, island, points, at, yaw, scale, pad, front, coast }],
 //   bridges: [{ id, type, from: { island, point, out, clear }, to: { island, point, out, clear } }],  // type: see BRIDGE_TYPES
 //   helpers: [{ id, name, job, island }],
+//   residents?: [{ id, kind, island, appearanceSeed, arrivedAtCheckIn }], // no occupied land or camera weight
 //   view: { island, points },
 // }
 //

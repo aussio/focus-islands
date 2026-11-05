@@ -17,6 +17,8 @@ const element = tag => ({
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); },
 });
 globalThis.document ??= { createElement: element, createElementNS: (_, tag) => element(tag), hidden: false, addEventListener() {}, removeEventListener() {} };
+// The page glue reads the slot's CSS (for example --island-clear-left), so the fake page has a window that styles nothing.
+globalThis.document.defaultView ??= { getComputedStyle: () => ({ getPropertyValue: () => '' }) };
 
 const require = createRequire(import.meta.url);
 const sim = require('../../../core/game/simulate.js');
@@ -24,6 +26,7 @@ const { KINDS } = await import('../kinds.js');
 const { buildTown } = await import('../town/index.js');
 const { SAMPLE_NAMES, sampleTown } = await import('../town/samples.js');
 const { createSceneCore } = await import('./core.js');
+const { HELPER_SCALE } = await import('./helpers.js');
 const { createIslandScene } = await import('./index.js');
 const { MODELS, hasModel, modelFor, placeholder } = await import('./models/index.js');
 
@@ -88,6 +91,36 @@ test('real states from the rules lay out and draw, and helpers move, in every mo
     }
   } finally { watch.stop(); }
   assert.deepEqual(watch.errors, []);
+});
+
+test('a resident arrival updates the normal scene without rebuilding or reframing the island', () => {
+  const world = buildTown(STATES[7]);
+  delete world.residents;
+  const core = createSceneCore();
+  try {
+    core.setWorld(world, { ease: false });
+    const aimed = { ...core.aimed };
+    const islandGroup = core.town.islands.get('home').group;
+    const residentWorld = { ...world, residents: [{ id: 'test-cat', kind: 'cat', island: 'home', appearanceSeed: 3, arrivedAtCheckIn: 7 }] };
+    assert.equal(core.setWorld(residentWorld, { ease: false }), true);
+    assert.equal(core.residents.rigs.length, 1);
+    assert.equal(core.town.islands.get('home').group, islandGroup);
+    assert.deepEqual(core.aimed, aimed);
+    core.update(26);
+    const cat = core.residents.rigs[0].figure.root;
+    assert.ok(Number.isFinite(cat.position.x + cat.position.y + cat.position.z));
+    // The cat grows with the helpers for Today's size, so the two keep their sizes side by side.
+    const boost = core.actors.rigs[0].root.scale.x / HELPER_SCALE;
+    assert.ok(boost > 1, 'Today boosts the helpers on this island');
+    assert.ok(Math.abs(cat.scale.x - boost) < 1e-9, `cat ${cat.scale.x}, helpers ${boost}`);
+    core.resize(1600, 1000);
+    assert.ok(Math.abs(cat.scale.x - core.actors.rigs[0].root.scale.x / HELPER_SCALE) < 1e-9, 'and follows a new size');
+    core.update(26, true);
+    const held = cat.position.clone();
+    core.update(60, true);
+    assert.deepEqual(cat.position.toArray(), held.toArray());
+    assert.equal(core.setWorld(residentWorld), false, 'unchanged snapshot keeps the scene');
+  } finally { core.dispose(); }
 });
 
 test('focus helpers work at their job spots; break, away and done helpers rest', () => {

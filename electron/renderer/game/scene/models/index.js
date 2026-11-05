@@ -27,8 +27,9 @@ import { GROWING } from './growing.js';
 import { MAKING } from './making.js';
 import { WONDERS } from './wonders.js';
 import { KEEPSAKES } from './keepsakes.js';
+import { farmyard } from './farm.js';
 
-export const MODELS = { ...NATURE, ...GROWING, ...MAKING, ...WONDERS, ...KEEPSAKES };
+export const MODELS = { ...NATURE, ...GROWING, ...MAKING, ...WONDERS, ...KEEPSAKES, farmyard };
 export const hasModel = kind => Object.hasOwn(MODELS, kind);
 export const modelFor = kind => (hasModel(kind) ? MODELS[kind] : placeholder);
 export { decor, placeholder };

@@ -4,6 +4,8 @@
 // layout relies on this room sum, so it must stay honest. links: the game's links, so each bridge end on
 // this island takes groundPerBridgeEnd from the room (a link counts before a building of its check-in,
 // as a surprise comes before the build). A keepsake that takes ground (the fountain) counts the same way.
+// A bridge never waits for room, so bridge ends may take the room below zero; the next building must still
+// fit. An extension (ground 0, on its parent's parcel) skips the room check, as placeFor does.
 
 const R = require('./rules');
 const EPSILON = 1e-6;
@@ -26,7 +28,7 @@ function roomProblems(island, rules = R.DEFAULT_RULES, blueprints = R.DEFAULT_BL
     if (land < lastLand) say(`${b.id} was built on less land than the building before it`);
     lastLand = land;
     const room = R.roomOf(land, used, rules);
-    if (room + EPSILON < (bp.ground || 0)) say(`${b.id} (${b.blueprint}) needs ${bp.ground} but the room was ${room.toFixed(2)}`);
+    if (!bp.extends && room + EPSILON < (bp.ground || 0)) say(`${b.id} (${b.blueprint}) needs ${bp.ground} but the room was ${room.toFixed(2)}`);
     if (bp.kind === 'homes') {
       if (b.blueprint === 'house' && n.room < n.house) say(`${b.id} started a house before every house had a room`);
       if (b.blueprint !== 'house' && !n.house) say(`${b.id} (${b.blueprint}) has no house to join`);
@@ -37,10 +39,9 @@ function roomProblems(island, rules = R.DEFAULT_RULES, blueprints = R.DEFAULT_BL
     }
     used += bp.ground || 0;
   }
-  used += (ends.length - nextEnd) * (rules.groundPerBridgeEnd || 0);
   for (; nextKeep < keeps.length; nextKeep++) used += keeps[nextKeep].ground;
-  const end = R.roomOf(island.land, used, rules);
-  if (end < -EPSILON) say(`room ended below zero (${end.toFixed(2)})`);
+  const end = R.roomOf(island.land, used, rules); // bridges built after the last building are left out
+  if (end < -EPSILON) say(`room ended below zero (${end.toFixed(2)}) before the last bridges`);
   return problems;
 }
 

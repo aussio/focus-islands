@@ -12,6 +12,24 @@ const DAYS = 180;
 const runs = {};
 const runFor = id => (runs[id] ||= sim.run(id, DAYS, { snapshots: [DAYS] }));
 
+// One run's accepted builds a week in month 3 swings with which small builds happen to land in days 61
+// to 90, so that check takes the middle value of a few runs, each with its own seed and start id. The
+// start ids are set only here: the shared simulator still gives every run the same one. Month 3 needs
+// only 90 days.
+const ACCEPTED_SEEDS = [1, 2, 3, 4, 5];
+function runWithOwnStartId(personId, seed, dayCount) {
+  const shared = MD.createHistory;
+  MD.createHistory = () => {
+    const history = shared();
+    const append = history.append;
+    history.append = (...args) => { const event = append(...args); event.id = `pacing-${personId}-${seed}-${event.id}`; return event; };
+    history.appendRecord = record => history.append(record.kind, record.payload, record.occurredAt, record.uniqueKey, 'system');
+    return history;
+  };
+  try { return sim.run(personId, dayCount, { seed }); } finally { MD.createHistory = shared; }
+}
+const middle = values => values.slice().sort((a, b) => a - b)[Math.floor(values.length / 2)];
+
 test('steady planner: about 3 choices on day 1, the first island around active day 7-9, the first wonder in weeks 2-3', t => {
   const m = sim.milestones(runFor('steady'));
   t.diagnostic(JSON.stringify(m));
@@ -21,7 +39,9 @@ test('steady planner: about 3 choices on day 1, the first island around active d
   assert.ok(m.wonderDays.length >= 4, 'roughly one wonder a month after the first');
   // Optional singles can recur while saving. Track accepted builds/jobs separately
   // from offers so saving isn't mistaken for faster town growth.
-  assert.ok(m.acceptedPerWeekMonth3 >= 2.5 && m.acceptedPerWeekMonth3 <= 6, `about one accepted build/job every workday: ${m.acceptedPerWeekMonth3} a week`);
+  const accepted = ACCEPTED_SEEDS.map(seed => sim.milestones(runWithOwnStartId('steady', seed, 90)).acceptedPerWeekMonth3);
+  const typical = middle(accepted);
+  assert.ok(typical >= 2.5 && typical <= 6, `about one accepted build/job every workday: middle of ${accepted.join(', ')} is ${typical} a week`);
   assert.ok(m.choicesPerWeekMonth3 >= m.acceptedPerWeekMonth3);
   assert.ok(m.surprisesPerWeek >= 1 && m.surprisesPerWeek <= 4, `a few surprises a week: ${m.surprisesPerWeek}`);
 });

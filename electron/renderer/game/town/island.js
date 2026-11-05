@@ -26,7 +26,9 @@ import { newHouse, addRoom, addFloor } from './houses.js';
 import { placeBuilding } from './pads.js';
 import { pickFoot } from './sky.js';
 
-// Land each island has when it arrives: home 40, new islands by size (the rules' startLand).
+// Where each island's replay starts: home 40, new islands by size. These were the rules' start land before
+// lanes were counted at 0.22. Islands that arrive bigger now start here and grow to their saved land, so
+// towns saved earlier never move.
 export const START_LAND = { home: 40, small: 30, medium: 40, large: 55 };
 // Kinds that stop helpers walking through.
 const blocking = kind => Boolean(KINDS[kind]?.blocks);
@@ -256,6 +258,16 @@ export function replayIsland(spec, events) {
 // Places one building. Returns the points it used (for the view), or null.
 function build(isle, building) {
   const { id, blueprint } = building;
+  // An extension (a record with a saved parent building) changes its parent in place: it takes no ground
+  // and is drawn by the parent's model (thing.extension). Each parent takes one. Only farm records carry a
+  // parent; house rooms and floors find their house in houses.js as before.
+  if (building.parentBuildingId) {
+    const parent = isle.things.find(t => t.id === building.parentBuildingId);
+    if (!parent || parent.extension) return null;
+    parent.extension = id;
+    isle.changed();
+    return parent.points;
+  }
   if (blueprint === 'house') return isle.withRoom(() => newHouse(isle, id, 2));
   if (blueprint === 'room') return isle.withRoom(() => addRoom(isle, id));
   if (blueprint === 'floor') return addFloor(isle, id);

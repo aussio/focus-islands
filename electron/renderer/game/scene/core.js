@@ -10,6 +10,7 @@
 import { MOODS, moodOf, createMaterials, moodMaterials } from './style.js';
 import { TOP, createStage, fitView, pixelsPerUnit } from './stage.js';
 import { createActors } from './actors.js';
+import { createResidents } from './residents/index.js';
 import { isTownWorld, parseTown } from './town/world.js';
 import { createTownBuilder } from './town/build.js';
 import { townKey } from '../town/shape.js';
@@ -37,6 +38,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
   const materials = createMaterials();
   const stage = createStage(now ? { now } : {});
   const actors = createActors(stage.scene);
+  const residents = createResidents(stage.scene);
   let model = null, key = null, mood = 'focus';
   let town = null; // the town builder, made on the first world
   let lastReport = null;
@@ -66,7 +68,9 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
       const near = town.closePoints(view.island, view.ids.length ? view.ids : [town.islands.get(view.island)?.island.plaza].filter(p => p >= 0), CLOSE_STEPS);
       if (near.length) { points = near; close = true; }
     }
-    actors.setScale(Math.min(TOWN_MAX_BOOST, Math.max(1, boostAt(points))));
+    const boost = Math.min(TOWN_MAX_BOOST, Math.max(1, boostAt(points)));
+    actors.setScale(boost);
+    residents.setScale(boost); // the cat grows with the helpers, so the two keep their sizes side by side
     const others = model.islands.filter(i => i.id !== id).map(i => town.framePoints(i.id)).filter(list => list.length);
     const wide = model.islands.flatMap(i => town.framePoints(i.id));
     stage.aim(points, aspect, { ease: ease && Boolean(aimed), land: id ? town.landSpots(id) : [], top, wide, others, restart, viewport: { width: size[0], height: size[1], left } });
@@ -90,6 +94,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
     stage.setMood(mood);
     moodMaterials(materials, mood);
     town?.applyMood(mood, MOODS[mood]);
+    residents.setMood(mood);
     planActors();
     changed = true;
   };
@@ -101,6 +106,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
     get model() { return model; },
     get mood() { return mood; },
     get actors() { return actors; },
+    get residents() { return residents; },
     get town() { return town; },
     get aimed() { return aimed; },
     // True once a world (even an empty sky) has been set.
@@ -121,6 +127,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
       lastReport = town.update(model);
       key = next;
       actors.setWorld(model);
+      residents.setWorld(model);
       aim(ease);
       applyMood();
       return true;
@@ -166,6 +173,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
     update(t, still = false) {
       const time = still ? 0 : t;
       actors.update(time, still);
+      residents.update(time, still);
       town?.animate(time);
       stage.update(time, still);
       // The shadow box stepped with the view: the shadow map needs drawing again.
@@ -175,6 +183,7 @@ export function createSceneCore({ now, log = null, clearTop = CLEAR_TOP, clearLe
     stats() { return town ? { ...town.stats(), rebuildMs: lastReport?.ms ?? 0, islandMs: lastReport?.islandMs ?? {} } : null; },
     dispose() {
       actors.dispose();
+      residents.dispose();
       town?.dispose();
       town = null;
       aimed = null;
