@@ -20,6 +20,7 @@
 .field select{min-width:112px;appearance:none;padding-right:27px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='none' stroke='%23547a5c' stroke-width='1.5' d='m1 1 5 5 5-5'/%3E%3C/svg%3E") no-repeat right 9px center}
 .snooze-control{display:flex;align-items:center;gap:8px;padding:5px 7px 5px 10px;border:1px solid #d7dfce;border-radius:11px;background:#fffdf6;color:#547a5c;font-size:11px;font-weight:700;white-space:nowrap}
 .snooze-control label{display:flex;gap:4px}.snooze-control output{min-width:22px;font-variant-numeric:tabular-nums}.snooze-control input{width:80px;accent-color:#547a5c;cursor:grab}.snooze-control .button{padding:5px 8px;min-height:26px}
+.snooze-control.is-stacked{flex-wrap:wrap;row-gap:6px}.snooze-control.is-stacked input{flex:1}.snooze-control.is-stacked .snooze-buttons{display:flex;gap:6px;flex-basis:100%}
 .meeting-drag-preview{position:absolute;left:62px;right:9px;z-index:4;pointer-events:none;display:flex;justify-content:space-between;gap:6px;overflow:hidden;padding:5px 8px;border:2px solid #4f7756;border-radius:7px;background:#b9d7b6dd;color:#284d33;font-size:11px;font-weight:700;box-shadow:0 3px 12px #34503d33}
 .calendar:not(.meeting-calendar) .calendar-block.meeting,.timeline-segment.meeting{z-index:2}
 .profile-badge{position:relative;padding:0;background:transparent;z-index:5}

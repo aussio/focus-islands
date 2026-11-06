@@ -4,17 +4,17 @@
 //   addRoom(isle, id) => points | null            one more block on the house that most needs it
 //   addFloor(isle, id) => points | null           one more storey on the biggest house
 //
-// Blocks sit on free inland points (or touch the coast when nothing inland fits) and never cut off a
-// free point from the lanes or a point helpers can walk to. A house keeps its blocks, colour and door
-// for good; floors only go up.
+// Blocks sit on free inland points that aren't next to a pad (or touch the coast and pads when nothing
+// else fits) and never cut off a free point from the lanes or a point helpers can walk to. A house keeps
+// its blocks, colour and door for good; floors only go up.
 import { roll } from './grid.js';
 import { joinLane } from './lanes.js';
 import { HOUSE_LOOK_COUNT, MAX_FLOORS } from './shape.js';
 
 const NO_WAY = 99;
 const stepsOr = (steps, p) => (steps[p] < 0 ? NO_WAY : steps[p]);
-// Inland, unless nothing inland fits (isle.loose: see Isle.withRoom).
-const roomy = (isle, p) => isle.isFree(p) && (isle.loose || isle.isInland(p));
+// Inland and not next to a pad, unless nothing fits that way (isle.loose: see Isle.withRoom).
+const roomy = (isle, p) => isle.isFree(p) && (isle.loose || (isle.isInland(p) && !isle.nextToPad(p)));
 const blockPoints = house => house.blocks.map(b => b.point);
 
 // A new house. The first block goes on a free inland point with at least 3 free inland neighbours.

@@ -128,12 +128,17 @@ function openStore(path) {
       settings.activityDelaySeconds ?? previous?.activityDelaySeconds ?? null);
     return getSettings();
   }
+  // A transaction inside another one becomes a savepoint: if it fails, only its own rows are undone,
+  // and nothing is saved until the outermost transaction commits.
+  let transactionDepth = 0;
   function transaction(work) {
-    db.exec('BEGIN IMMEDIATE');
+    const savepoint = transactionDepth ? `nested_${transactionDepth}` : null;
+    db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
+    transactionDepth++;
     inTransaction = true;
-    try { const result = work(); db.exec('COMMIT'); return result; }
-    catch (error) { db.exec('ROLLBACK'); throw error; }
-    finally { inTransaction = false; }
+    try { const result = work(); db.exec(savepoint ? `RELEASE ${savepoint}` : 'COMMIT'); return result; }
+    catch (error) { db.exec(savepoint ? `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}` : 'ROLLBACK'); throw error; }
+    finally { transactionDepth--; inTransaction = transactionDepth > 0; }
   }
   function append(kind, payload = {}, { occurredAt = new Date(), source = 'user', uniqueKey = null } = {}) {
     const id = uuid();

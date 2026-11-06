@@ -19,11 +19,11 @@ function nextFocusDescription(blocks, date) {
   if (ms(next.start) < date) return `${next.title || label[next.kind]} is scheduled until ${time(next.end)}.`;
   return `${next.title || label[next.kind]} is next at ${time(next.start)}.`;
 }
-function dayEndGuidance(plan, nowDate, endedAt = null, snoozedUntil = null) {
+function dayEndGuidance(plan, nowDate, endedAt = null, snoozedUntil = null, working = false) {
   if (endedAt) return guidance('dayEnded', 'Your day is done', 'Activity tracking and reminders are off until tomorrow.');
   const now = ms(nowDate);
   if (!plan || !sameDay(plan.day, now) || now < ms(plan.end)) return null;
-  if (snoozedUntil && now < ms(snoozedUntil)) return guidance('wrappingUp', 'Day end snoozed', `We’ll remind you to end your day at ${time(snoozedUntil)}.`, { type: 'endDay', until: snoozedUntil });
+  if (snoozedUntil && now < ms(snoozedUntil)) return guidance('wrappingUp', working ? 'Working' : 'Day end snoozed', `We’ll remind you to end your day at ${time(snoozedUntil)}.`, { type: 'endDay', until: snoozedUntil });
   return guidance('afterDay', 'Time to end your day', 'End your day or snooze the reminder.', { type: 'endDay' });
 }
 function scheduled(plan, blocks, now) {

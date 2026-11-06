@@ -159,7 +159,9 @@ test('both stages fill their real plot and stay on it', () => {
 test('the building stands at the end away from the camera', () => {
   // The camera looks from the south (+z), so the building's roof (the middle of its top part) must be
   // clearly north of the plot's middle when the plot runs at all north and south. A plot running about
-  // east and west keeps its building at the end away from its lane, at most a little south.
+  // east and west keeps its building at the end away from its lane, at most a little south. The roof is
+  // the top part above the gate's capped posts (0.288 high in the model), which a small coop's top part
+  // would otherwise take in.
   const s = shared();
   let leaning = 0;
   try {
@@ -171,7 +173,8 @@ test('the building stands at the end away from the camera', () => {
         const made = drawFarm(s, thing, extension, null, grid);
         try {
           const all = vertices(made.ctx), high = Math.max(...all.map(v => v[1]));
-          const roof = all.filter(v => v[1] > TOWN.padRise + 0.6 * (high - TOWN.padRise));
+          const above = Math.max(0.6 * (high - TOWN.padRise), 0.3 * modelScale(thing));
+          const roof = all.filter(v => v[1] > TOWN.padRise + above);
           const z = roof.reduce((sum, v) => sum + v[2], 0) / roof.length;
           const label = `${where} ${extension ? 'barn' : 'coop'}`;
           assert.ok(z <= thing.at[1] + 0.1, `${label}: the building is not on the camera's side`);

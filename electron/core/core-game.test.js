@@ -232,6 +232,34 @@ test('the day grant is saved at End day, and a check-in follows', () => {
   core.close();
 });
 
+test('after "I\'m working" reopens a day, work still earns grants, and a second End day pays the day grant once', () => {
+  const { dbPath, core } = temporaryCore();
+  setLocalClock(core, 16);
+  core.action('start-focus');
+  core.action('advance', 60);
+  const ended = core.action('end-day');
+  const dayGrant = `game:grant:day:${ended.todayKey}`;
+  assert.deepEqual(gameKeys(ended, 'game:grant:day:'), [dayGrant]);
+  const working = core.action('keep-working', { minutes: 60 });
+  assert.equal(working.phase, 'focus');
+  const focusID = working.timer.sessionID;
+  core.action('advance', 60);
+  const resting = core.action('start-break');
+  const breakID = resting.timer.sessionID;
+  core.action('advance', 10);
+  const back = core.action('finish-break');
+  assert.ok(gameKeys(back, 'game:grant:').includes(`game:grant:focus:${focusID}`), 'focus after the reopen earns a grant');
+  assert.ok(gameKeys(back, 'game:grant:').includes(`game:grant:rest:${breakID}`), 'a break after the reopen earns a grant');
+  const endedAgain = core.action('end-day');
+  assert.equal(ofKind(endedAgain, 'dayEnded').length, 2);
+  assert.deepEqual(gameKeys(endedAgain, 'game:grant:day:'), [dayGrant]);
+  core.close();
+  const reopened = createCore({ dbPath, profile: 'testing', development: true });
+  assert.equal(reopened.status().dayEndedAt, endedAgain.dayEndedAt);
+  assert.deepEqual(gameKeys(reopened.status(), 'game:grant:day:'), [dayGrant]);
+  reopened.close();
+});
+
 test('the event cache returns exactly what a full read returns', () => {
   const dbPath = join(tempFolder('focus-islands-event-cache-'), 'events.sqlite');
   const store = openStore(dbPath);

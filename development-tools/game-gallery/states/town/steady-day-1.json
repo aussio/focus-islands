@@ -31,7 +31,7 @@
       "name": "Home island",
       "kind": "home",
       "size": "medium",
-      "land": 50,
+      "land": 76,
       "golden": false,
       "ring": 0,
       "angle": null,
@@ -41,14 +41,14 @@
           "id": "b1",
           "blueprint": "nursery",
           "name": "Rain catcher",
-          "landWhenBuilt": 44,
+          "landWhenBuilt": 69,
           "checkIn": 2
         },
         {
           "id": "b2",
           "blueprint": "garden",
           "name": "Garden plot",
-          "landWhenBuilt": 48,
+          "landWhenBuilt": 74,
           "checkIn": 4
         }
       ],
@@ -64,9 +64,10 @@
       "island": "home"
     }
   ],
+  "residents": [],
   "wonders": [],
   "checkIn": null,
-  "nextUp": "Next up: Flower bed, about 1 more break away. Lighthouse: 10 of 90 Starlight.",
+  "nextUp": "Your next build needs more room — about 1 more break away.",
   "activeDays": 1,
   "checkIns": 6,
   "lastCheckIn": {
@@ -106,7 +107,7 @@
       {
         "kind": "grew",
         "island": "Home island",
-        "amount": 10
+        "amount": 12
       }
     ],
     "earned": {

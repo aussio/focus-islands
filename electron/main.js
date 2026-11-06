@@ -40,7 +40,7 @@ const initialProfile = development ? 'testing' : 'personal';
 let activeProfile = initialProfile;
 const rendererActions = new Set([
   'navigate', 'start-focus', 'end-focus', 'start-break', 'start-long-break', 'finish-break', 'confirm-return', 'keep-break', 'not-a-break', 'snooze-break',
-  'skip-break', 'end-day', 'snooze-end-day', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
+  'skip-break', 'end-day', 'snooze-end-day', 'keep-working', 'save-plan', 'upsert-meeting', 'remove-meeting', 'save-reflection',
   'save-preferences', 'switch-profile',
   'today-suggestion', 'today-break', 'flush-plan', 'export-json', 'backup-database', 'game-check-in',
   'dev-scenario', 'dev-advance', 'dev-away', 'dev-return', 'dev-sleep-wake', 'dev-demo',
@@ -212,7 +212,7 @@ function execute(name, value) {
     return publish();
   }
   core.action(name, value);
-  if (['start-break', 'start-long-break', 'snooze-break', 'skip-break', 'end-day'].includes(name)) closeReminderEffect();
+  if (['start-break', 'start-long-break', 'snooze-break', 'skip-break', 'end-day', 'keep-working'].includes(name)) closeReminderEffect();
   if (name === 'save-preferences') {
     activity.setInactiveAfterSeconds(core.status().activityDelaySeconds);
     if (!core.status().notificationsEnabled) closeReminderEffect();

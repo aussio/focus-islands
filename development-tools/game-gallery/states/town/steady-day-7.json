@@ -4,7 +4,7 @@
   "onHand": {
     "wood": 269.47,
     "stone": 196.6,
-    "planks": 39.31,
+    "planks": 32.17,
     "soil": 436.36,
     "saplings": 286.24,
     "starlight": 36
@@ -31,7 +31,7 @@
       "name": "Home island",
       "kind": "home",
       "size": "medium",
-      "land": 84,
+      "land": 119,
       "golden": false,
       "ring": 0,
       "angle": null,
@@ -41,70 +41,70 @@
           "id": "b1",
           "blueprint": "nursery",
           "name": "Rain catcher",
-          "landWhenBuilt": 44,
+          "landWhenBuilt": 69,
           "checkIn": 2
         },
         {
           "id": "b2",
           "blueprint": "garden",
           "name": "Garden plot",
-          "landWhenBuilt": 48,
+          "landWhenBuilt": 74,
           "checkIn": 4
         },
         {
           "id": "b3",
           "blueprint": "house",
           "name": "Little house",
-          "landWhenBuilt": 54,
+          "landWhenBuilt": 82,
           "checkIn": 8
         },
         {
           "id": "b4",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 56,
-          "checkIn": 9
+          "landWhenBuilt": 87,
+          "checkIn": 10
         },
         {
           "id": "b5",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 58,
-          "checkIn": 10
+          "landWhenBuilt": 87,
+          "checkIn": 11
         },
         {
           "id": "b6",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 62,
+          "landWhenBuilt": 92,
           "checkIn": 13
         },
         {
           "id": "b7",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 65,
+          "landWhenBuilt": 95,
           "checkIn": 14
         },
         {
           "id": "b8",
           "blueprint": "sawmill",
           "name": "Sawmill",
-          "landWhenBuilt": 71,
-          "checkIn": 18
+          "landWhenBuilt": 105,
+          "checkIn": 19
         },
         {
           "id": "b9",
           "blueprint": "floor",
           "name": "Upper floor",
-          "landWhenBuilt": 75,
-          "checkIn": 21
+          "landWhenBuilt": 107,
+          "checkIn": 22
         },
         {
           "id": "b10",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 79,
+          "landWhenBuilt": 113,
           "checkIn": 24
         }
       ],
@@ -132,9 +132,10 @@
       "island": "home"
     }
   ],
+  "residents": [],
   "wonders": [],
   "checkIn": null,
-  "nextUp": "Next choice: Little house or Orchard, about 1 more focus session away. Lighthouse: 36 of 90 Starlight.",
+  "nextUp": "Your next build needs planks — about 1 more focus session away.",
   "activeDays": 5,
   "checkIns": 27,
   "lastCheckIn": {

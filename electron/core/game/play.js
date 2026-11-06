@@ -222,7 +222,7 @@ function landGiftOn(bp, island, rules) {
   return Math.max(0, Math.floor(Math.min(R.maxLandOf(island, rules), island.land + bp.landGift) - island.land));
 }
 // The one-time land top-up for a game whose land was settled under a smaller lane share than the rules'
-// (a game started before laneShareOfLand grew to 0.22). Each island gets the fewest whole land points
+// (a game started before laneShareOfLand grew to 0.22, or to 0.34). Each island gets the fewest whole land points
 // that give it at least the room it had under the old share, up to its most land. Returns the record
 // { from, to, land: [{ island, amount }] }, or null when the land already matches the rules. The amounts
 // are worked out once, saved in the check-in record and covered by its token, and replay reads only

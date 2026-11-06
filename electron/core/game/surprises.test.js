@@ -30,9 +30,10 @@ const STEADY_180 = {
 // purchasing and worker assignments, so they would test a different economy rather than gift parity.
 // residents.test.js separately compares animal surprises against today's full catalogue.
 // Likewise keep the room sum of that time (lanes counted at 12% of land, home starting at 40 points, new
-// islands at 30, 40 and 55): later room tuning changes what gets built and so what is collected, not the dice.
+// islands at 30, 40 and 55, a land point for every 5 rest minutes): later room tuning changes what gets built
+// and so what is collected, not the dice.
 const historicalBlueprints = R.DEFAULT_BLUEPRINTS.filter(bp => !['farmyard', 'farmextension'].includes(bp.id));
-const historicalRules = { ...rules, laneShareOfLand: 0.12, startingLand: 40, startLand: { small: 30, medium: 40, large: 55 } };
+const historicalRules = { ...rules, laneShareOfLand: 0.12, startingLand: 40, startLand: { small: 30, medium: 40, large: 55 }, restMinutesPerLand: 5 };
 const STEADY = sim.run('steady', 180, { rules: historicalRules, blueprints: historicalBlueprints });
 
 test('the slot roll gives the same slots for the same keys', () => {

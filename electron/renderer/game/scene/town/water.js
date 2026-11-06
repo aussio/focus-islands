@@ -11,8 +11,9 @@
 // Where: from the island's middle (its grid's 0, 0) a line goes out at a bearing picked from the island's
 // id (hashString, pick 'waterfall-side'), within about 26 degrees of due south, the side the camera sees
 // through its whole sway (scene/drift.js SWAY turns at most 45 degrees either way). The waterfall sits
-// where that line last crosses the coast. A spot whose coast faces away from the camera, or near a bridge
-// foot or its deck, or near a coast building (thing.edge), is skipped: the line turns a little further
+// where that line last crosses the coast. A spot whose coast faces away from the camera, whose water the
+// camera would see edge-on at either end of its sway (SEEN), or near a bridge foot or its deck, or near a
+// coast building (thing.edge), is skipped: the line turns a little further
 // each try, nearer bearings first, at most about 60 degrees from south. No spot: no waterfall. A foot is
 // only its point and way out here (clear is not in the island's draw key, world.js drawKey).
 //
@@ -27,6 +28,7 @@ import * as THREE from 'three';
 import { P } from '../style.js';
 import { hashString, place } from '../ground.js';
 import { chunk, glowTexture, rbox } from '../parts.js';
+import { SWAY } from '../drift.js';
 
 export const WATER_THINGS = new Set(['pond', 'nursery']); // nursery: the rain catcher
 export const WATER_ISLANDS = new Set(['mossy', 'misty']);
@@ -34,6 +36,8 @@ const SPREAD = 0.45; // the picked bearing stays within this many radians of due
 const TURN = 0.2; // each further try turns this much more (about 11 degrees)
 const WIDEST = 1.05; // and never further round than this (about 60 degrees)
 const FACING = 0.4; // the coast at the spot faces at least this much south (the cosine)
+const SEEN = 0.15; // the water faces the camera at both ends of its sway at least this much (the cosine)
+const SWAY_END = SWAY.degrees * Math.PI / 180;
 const FOOT_CLEAR = 1.3; // units kept from a bridge foot and the start of its deck
 const DECK = 1.6; // how far out along a foot's way out its deck is kept clear
 const EDGE_CLEAR = 1.0; // units kept from a coast building's points
@@ -84,8 +88,11 @@ export function waterfallSpot(island, loop) {
     if (!hit) continue;
     const { point: [x, z], facing, out } = hit;
     if (facing[1] < FACING || facing[0] * dir[0] + facing[1] * dir[1] < 0.5) continue;
+    const way = [round4(out[0]), round4(out[1])];
+    // The camera at either end of its sway looks from (sin, cos) of its turn.
+    if ([-1, 1].some(s => way[0] * Math.sin(s * SWAY_END) + way[1] * Math.cos(SWAY_END) <= SEEN)) continue;
     if (nearFoot(island, x, z) || nearEdgeThing(island, x, z)) continue;
-    return { x: round4(x), z: round4(z), out: [round4(out[0]), round4(out[1])], bearing };
+    return { x: round4(x), z: round4(z), out: way, bearing };
   }
   return null;
 }

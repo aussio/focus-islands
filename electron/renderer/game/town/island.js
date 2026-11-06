@@ -13,11 +13,11 @@
 // building id and point numbers. Nothing placed ever moves, so a longer history only adds.
 //
 // If something has no place, the replay first tries looser rules (houses and pads may touch the coast,
-// pads may sit beside blocks, lanterns needn't touch a lane). A pad that still has none may then squeeze
-// in: it may cut off coast points and points that already hold something, and any free point it leaves
-// that nobody can walk to gets a hedge. If it still has none, the replay adds the next land points until
-// it fits and counts them in `borrowed`. On the real rules that should never happen (long-run.test.js
-// checks it).
+// pads may sit beside blocks and other pads, lanterns needn't touch a lane). A pad that still has none
+// may then squeeze in: it may cut off coast points and points that already hold something, and any free
+// point it leaves that nobody can walk to gets a hedge. If it still has none, the replay adds the next
+// land points until it fits and counts them in `borrowed`. On the real rules that should never happen
+// (long-run.test.js checks it).
 import { KINDS, BLOCK_BLUEPRINTS } from '../kinds.js';
 import { gridFor, roll, canFill } from './grid.js';
 import { growthOrder } from './growth.js';
@@ -214,8 +214,8 @@ export class Isle {
 
   // Tries `attempt` and, while it finds no place, adds one more land point and tries again.
   // Before each new point it tries looser rules, up to `most`: LOOSE lets houses and pads touch the
-  // coast (and pads sit beside blocks, and lanterns away from lanes); SQUEEZE lets a pad cut off coast
-  // points (pads.js).
+  // coast (and pads sit beside blocks and other pads, and lanterns away from lanes); SQUEEZE lets a pad
+  // cut off coast points (pads.js).
   withRoom(attempt, most = LOOSE) {
     for (let extra = 0; extra <= MAX_BORROW; extra++) {
       if (extra) {

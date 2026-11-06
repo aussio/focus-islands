@@ -160,9 +160,14 @@ function heightOver(t, x, z) {
   return u < 0 || v < 0 || u + v > 1 ? -Infinity : t[1] + u * (t[4] - t[1]) + v * (t[7] - t[1]);
 }
 
-test('a crowded island still gives the bird a real flat perch on a solid roof or crown, with nothing above it', () => {
-  const crowded = JSON.parse(readFileSync(path.join(STATES, 'irregular-day-180.json'), 'utf8'));
-  const model = modelOf({ ...crowded, visitor: { kind: 'bird', island: 'home' } });
+test('with no tree branch to sit on, the bird still finds a real flat perch on a solid roof, with nothing above it', () => {
+  const big = JSON.parse(readFileSync(path.join(STATES, 'irregular-day-180.json'), 'utf8'));
+  const model = modelOf({ ...big, visitor: { kind: 'bird', island: 'home' } });
+  // Every gallery island now has room for a branch, so take the home trees away to make the bird use a roof.
+  const home = model.byId.get('home');
+  const bare = { ...home, things: home.things.filter(t => t.kind !== 'tree') };
+  model.byId.set('home', bare);
+  model.islands = model.islands.map(i => (i.id === 'home' ? bare : i));
   const { built } = build(model);
   try {
     const bird = visitorGroup(built).getObjectByName('visiting-bird');

@@ -5,8 +5,9 @@
 //   footOptions(grid, foot, land, ok) => [{ points, at, cells, sides }]   every way a footprint fits
 //   padFit(grid, cells) => number   a pad's cell size ÷ 0.62, kept between 0.85 and 1.15
 //
-// A pad sits on free land off the coast, not next to a block, and never cuts off a free point from the
-// lanes or a point helpers can walk to (when nothing fits, the coast and spots beside blocks are allowed;
+// A pad sits on free land off the coast, not next to a block or another pad (so one point of grass or lane
+// runs between buildings), and never cuts off a free point from the lanes or a point helpers can walk to
+// (when nothing fits, the coast and spots beside blocks and pads are allowed;
 // when still nothing fits, it may squeeze in and cut off coast points and points that hold something,
 // and a free point nobody can walk to any more gets a hedge). Its front is the point next to it closest
 // to the lanes; a lane joins it and the model faces it. Coast buildings (lighthouse, sky waterfall,
@@ -33,11 +34,11 @@ export function placeBuilding(isle, id, kind) {
   const def = KINDS[kind];
   const { grid } = isle;
   const lanterns = kind === 'lanterns';
-  // Pads stay off the coast and away from blocks, unless nothing fits that way (isle.loose, LOOSE or
-  // SQUEEZE: see Isle.withRoom). Flower beds and lanterns aren't pads and may stand on the coast; lanterns
-  // need a lane beside them unless nothing fits.
+  // Pads stay off the coast and away from blocks and other pads, unless nothing fits that way (isle.loose,
+  // LOOSE or SQUEEZE: see Isle.withRoom). Flower beds and lanterns aren't pads and may stand on the coast;
+  // lanterns need a lane beside them unless nothing fits.
   const ok = p => isle.isFree(p) && (def.edge || !def.pad || isle.loose || !isle.isCoast(p))
-    && (!def.pad || isle.loose || !isle.nextToBlock(p))
+    && (!def.pad || isle.loose || (!isle.nextToBlock(p) && !isle.nextToPad(p)))
     && (!lanterns || isle.loose || grid.neighbours[p].some(n => isle.isLane[n]));
   const fromPlaza = isle.stepsFrom([isle.plaza], p => isle.isLand(p));
   const fromLane = isle.stepsFrom(isle.lanes, p => isle.isFree(p));

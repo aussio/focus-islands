@@ -138,20 +138,23 @@ const DEFAULT_RULES = Object.freeze({
   realBreakShareOfPlan: 0.75,          // of the day plan's usual break, not the break's own timer
   breakMinutesWithoutPlan: 10,         // usual break when a day has no plan, matches qualifyingRestSeconds
   // Land is counted in points of the island's town grid. One old building spot is about 7 points.
-  restMinutesPerLand: 5,               // rest minutes for one more land point
-  startingLand: 49,                    // home's land at the start: room for one cell pad, as before lanes were
-                                       // counted at 0.22 (saved games keep the start land in their start record)
-  startLand: Object.freeze({ small: 43, medium: 50, large: 56 }), // a new island's land when it drifts in: room for
-                                       // a cell pad, each size a bit bigger (was 30, 40, 55; each island saves its own)
+  restMinutesPerLand: 4,               // rest minutes for one more land point (was 5 until open land rose to 0.34)
+  startingLand: 64,                    // home's land at the start: the same room as before open land rose to 0.34
+                                       // (was 49; saved games keep the start land in their start record)
+  startLand: Object.freeze({ small: 57, medium: 66, large: 73 }), // a new island's land when it drifts in: the same
+                                       // room as before open land rose to 0.34 (was 43, 50, 56; each island saves its own)
   maxLand: Object.freeze({ small: 320, medium: 450, large: 600, home: 600 }), // most land each island's grid holds
   // Room for buildings: land - coastPerRootLand * sqrt(land) - laneShareOfLand * land - used, where used is
   // the start things (startGround), every building's ground, and groundPerBridgeEnd for each bridge end on
-  // the island. The coast takes no houses or pads. Real lanes take about 14 to 26% of home's land and 15 to
-  // 18% of a later island's; at 0.12 the rules offered buildings the layout could only fit by borrowing land.
+  // the island. The coast takes no houses or pads. laneShareOfLand is the open land inside the coast: the
+  // lanes, and the strip of grass or lane the layout keeps between buildings (a pad never stands next to
+  // another pad or a house block). Real lanes take about 14 to 26% of home's land and 15 to 18% of a later
+  // island's. At 0.12 the rules offered buildings the layout could only fit by borrowing land. At 0.22,
+  // with the strip, 1 in 8 placements needed the layout's looser rules; at 0.34 about 1 in 40 do.
   // New games save laneShareOfLand in their start record. A game whose land was counted with a smaller
   // share gets a one-time land top-up at its next check-in (see FIRST_LANE_SHARE and landTopUpFor in play.js).
   coastPerRootLand: 4,
-  laneShareOfLand: 0.22,
+  laneShareOfLand: 0.34,
   startGround: Object.freeze({ home: 4, island: 2 }),
   // A bridge's foot needs a lane to the island's other lanes: about 5 points when it's laid, the foot
   // itself on the coast. Bridges are never refused for room, so room may dip below 0 until land catches up.
@@ -306,8 +309,8 @@ function dayPlanMatch(day, rules) {
   return (focusMatch + breakMatch) / 2;
 }
 // Room an island has for buildings, in land points: its land less the coast (no houses or pads there),
-// the lanes, and the ground already used (start things, buildings, bridge ends). The layout relies on this
-// sum to never need extra land.
+// the open land (lanes, and the strip between buildings), and the ground already used (start things,
+// buildings, bridge ends). The layout relies on this sum to never need extra land.
 function roomOf(land, used, rules) {
   return land - rules.coastPerRootLand * Math.sqrt(land) - rules.laneShareOfLand * land - used;
 }

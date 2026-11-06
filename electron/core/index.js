@@ -9,9 +9,9 @@ const game = require('./game');
 
 // Older databases may also hold acorn records (rewardGranted, rewardDebited, itemPurchased).
 // They stay in the ledger untouched, but nothing reads or shows them any more.
-const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'dayEnded', 'reflection']);
+const eventKinds = new Set(['focusStarted', 'focusEnded', 'breakStarted', 'breakEnded', 'breakDue', 'breakSkipped', 'dayEnded', 'dayReopened', 'reflection']);
 const viewPages = new Set(['today', 'plan', 'history', 'settings']);
-const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', dayEnded: 'Day ended', reflection: 'Reflection saved' };
+const historyTitles = { focusStarted: 'Focus started', focusEnded: 'Focus finished', breakStarted: 'Break started', breakEnded: 'Break finished', breakDue: 'Break was due', breakSkipped: 'Break skipped', dayEnded: 'Day ended', dayReopened: 'Day reopened', reflection: 'Reflection saved' };
 const validTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):(00|15|30|45)$/.test(value);
 const validStartTime = value => validTime(value) && value >= '07:00' && value <= '20:45';
 const validEndTime = value => validTime(value) && value >= '07:15' && value <= '21:00';
@@ -98,7 +98,9 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   function load(onStartup = false) {
     const events = allEvents(), instant = now();
     const key = dayKey(instant.wall);
-    dayEndedAt = events.findLast(event => event.kind === 'dayEnded' && event.payload?.dayKey === key)?.occurredAt || null;
+    // The day is ended when its last dayEnded or dayReopened record is a dayEnded.
+    const dayClosing = events.findLast(event => ['dayEnded', 'dayReopened'].includes(event.kind) && event.payload?.dayKey === key);
+    dayEndedAt = dayClosing?.kind === 'dayEnded' ? dayClosing.occurredAt : null;
     dayEndSnoozedUntil = events.findLast(event => event.kind === 'dayEndSnoozed' && event.payload?.dayKey === key)?.payload.until || null;
     timer = Timer.recover(events, instant);
     const openAway = events.reduce((open, event) => event.kind === 'awayStarted' ? event : event.kind === 'awayEnded' ? null : open, null);
@@ -346,6 +348,43 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     returnCandidateAt = null; returnActivityStartedAt = null; returnDismissed = false;
     lastTick = instant; lastCheckpoint = instant.wall.getTime();
     page = 'today'; message = ''; writeLease('idle');
+  }
+  // "I'm working" on the day-end card. It reopens an ended day, and after the planned finish it moves
+  // the day-end reminder `minutes` later with the same record as snoozing it. Then it starts work the way
+  // the matching button does: a confirmed return ends time away, a running break finishes, and an idle
+  // timer starts focus. Focus that is already running only gets the later reminder. All records of one
+  // press are saved in one transaction. If it fails, nothing in memory changes.
+  function keepWorking(value) {
+    const instant = now(), key = dayKey(instant.wall), reopen = Boolean(dayEndedAt);
+    const pastFinish = instant.wall >= new Date(currentPlan?.end || bounds.end);
+    if (!reopen && (!currentPlan || !pastFinish)) return;
+    let minutes = null, until = null;
+    if (pastFinish) {
+      minutes = Number(value?.minutes ?? value ?? 5);
+      if (!Number.isInteger(minutes) || minutes < 5 || minutes > 60 || minutes % 5 !== 0) throw new Error('Choose 5 to 60 minutes in five-minute steps.');
+      until = new Date(instant.wall.getTime() + minutes * 60000).toISOString();
+    }
+    const saved = { timer, dayEndedAt, dayEndSnoozedUntil, currentPlan, plannedBlocks, latestPlanEventID, bounds, focusLength, breakLength,
+      awayStartedAt, breakAwayStartedAt, breakElapsedAtAway, returnCandidateAt, returnActivityStartedAt, returnDismissed,
+      suspended: new Set(suspended), lastTick, lastCheckpoint, reminderSequence, message };
+    try {
+      store.transaction(() => {
+        if (reopen) append('dayReopened', { dayKey: key }, { occurredAt: instant.wall });
+        if (until) append('dayEndSnoozed', { dayKey: key, minutes, until }, { occurredAt: instant.wall });
+        // Set before work starts, so start() runs and focusTarget ends the new session at the new reminder.
+        dayEndedAt = null; if (until) dayEndSnoozedUntil = until; message = '';
+        if (awayStartedAt || breakAwayStartedAt) { returnDismissed = false; beginReturn(true); finishReturn('confirmed return'); }
+        if (timer.state.phase === 'break') finishBreak();
+        if (timer.state.phase === 'idle') start('focus', focusLength * 60, undefined, 'manual');
+      });
+    } catch (error) {
+      ({ timer, dayEndedAt, dayEndSnoozedUntil, currentPlan, plannedBlocks, latestPlanEventID, bounds, focusLength, breakLength,
+        awayStartedAt, breakAwayStartedAt, breakElapsedAtAway, returnCandidateAt, returnActivityStartedAt, returnDismissed,
+        suspended, lastTick, lastCheckpoint, reminderSequence, message } = saved);
+      writeLease(dayEndedAt ? 'idle' : timer.state.phase);
+      throw error;
+    }
+    page = 'today'; writeLease();
   }
   function preparePlan(value, provenance, instant) {
     const key = value.dayKey || dayKey(instant.wall);
@@ -889,7 +928,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       }
       forecastCacheKey = forecastKey;
     }
-    const endGuide = dayEndGuidance(plan, instant.wall, dayEndedAt, dayEndSnoozedUntil);
+    const endGuide = dayEndGuidance(plan, instant.wall, dayEndedAt, dayEndSnoozedUntil, timer.state.phase === 'focus' && !liveAway?.inferred);
     const guide = endGuide || (liveAway?.inferred
       ? { situation: 'runningBreak', title: returnCandidateAt ? 'Welcome back' : 'Break detected',
         detail: returnCandidateAt ? 'Your break appears to be ending. Confirm when you are ready to focus.' : 'Time away from your Mac is counting as a break.' }
@@ -902,6 +941,12 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const liveFocus = liveStart && instant.wall.getTime() > liveStart
       ? { kind: 'focus', start: iso(liveStart), end: instant.wall.toISOString(),
         observedSeconds: (instant.wall.getTime() - liveStart) / 1000, inProgress: true } : null;
+    const actualTimeline = liveFocus ? [...actualWithLiveAway, liveFocus] : actualWithLiveAway;
+    // The forecast stops at the planned finish. Time recorded after it, such as work after "I'm working",
+    // is added from the actual record so the day path can show it.
+    const planEnd = plan ? ms(plan.end) : Infinity;
+    const afterPlan = actualTimeline.filter(item => ms(item.end) > planEnd)
+      .map(item => ({ ...item, start: iso(Math.max(planEnd, ms(item.start))), actual: true }));
     const workSpans = [
       ...actual.filter(item => item.kind === 'focus').map(item => [ms(item.start), ms(item.end)]),
       ...(plan?.meetings || []).map(item => [ms(item.start), ms(item.end)]),
@@ -918,6 +963,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       ? countDown((ms(guide.action.until) - instant.wall) / 1000)
       : timer.state.phase === 'idle' ? `${String(focusLength).padStart(2, '0')}:00` : countDown(timer.remainingSeconds);
     return { page, profile, canBackdateStart: canBackdateStart(instant.wall), dayEndedAt, dayEndSnoozedUntil, dayEnding: Boolean(endGuide),
+      dayFinishPassed: instant.wall >= new Date(plan?.end || bounds.end),
       todayReflection: events.findLast(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, instant.wall))?.payload.note || '',
       phase: timer.state.phase, timer: { ...timer.state, remainingSeconds: timer.remainingSeconds }, countdown: display,
       currentWallTime: instant.wall.getTime() / 1000, currentWallTimeISO: instant.wall.toISOString(),
@@ -935,8 +981,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       todayKey, tomorrowKey, dayPlans: { [todayKey]: todayPlanState,
         [tomorrowKey]: { ...tomorrowPlanState, suggestedTimeline: tomorrowBlocks } },
       savedReflection, statusMessage: message,
-      plan, defaultDayPath, plannedTimeline: blocks, forecastTimeline: forecastCache, forecastRevision: forecastCacheKey,
-      actualTimeline: liveFocus ? [...actualWithLiveAway, liveFocus] : actualWithLiveAway,
+      plan, defaultDayPath, plannedTimeline: blocks, forecastTimeline: afterPlan.length ? [...forecastCache, ...afterPlan] : forecastCache, forecastRevision: forecastCacheKey,
+      actualTimeline,
       yesterdayTimeline: yesterday.actual, yesterdayFocusMinutes: Math.floor(yesterday.focusSeconds / 60),
       yesterdayBreakMinutes: Math.floor(yesterday.breakSeconds / 60), guidance: guide, history,
       recentDays: page === 'history' ? recentDays(instant) : null,
@@ -965,6 +1011,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'navigate': page = viewPages.has(String(value)) ? String(value) : 'today'; break;
       case 'start-focus': start('focus', Number(value?.targetSeconds || value?.planDraft?.focusMinutes * 60 || focusLength * 60), value?.planDraft, 'manual', value?.startedAt); break;
       case 'end-day': endDay(); break;
+      case 'keep-working': keepWorking(value); break;
       case 'snooze-end-day': {
         if (dayEndedAt || !currentPlan || now().wall < new Date(currentPlan.end)) break;
         const minutes = Number(value?.minutes ?? value ?? 5);

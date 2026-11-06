@@ -2,11 +2,11 @@
   "rulesVersion": 2,
   "change": 7173,
   "onHand": {
-    "wood": 18636.8,
-    "stone": 753.44,
-    "planks": 381.24,
-    "soil": 280.42,
-    "saplings": 57.96,
+    "wood": 18016.8,
+    "stone": 3500.44,
+    "planks": 390.29,
+    "soil": 135.54,
+    "saplings": 133.83,
     "starlight": 105
   },
   "waiting": {
@@ -20,8 +20,8 @@
   "today": {
     "wood": 215.95,
     "stone": 154.25,
-    "planks": 99.41,
-    "soil": 63,
+    "planks": 92.56,
+    "soil": 66.6,
     "saplings": 44.4,
     "starlight": 2
   },
@@ -31,7 +31,7 @@
       "name": "Home island",
       "kind": "home",
       "size": "medium",
-      "land": 321,
+      "land": 409,
       "golden": true,
       "ring": 0,
       "angle": null,
@@ -41,301 +41,331 @@
           "id": "b1",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 40,
+          "landWhenBuilt": 64,
           "checkIn": 2
         },
         {
           "id": "b2",
           "blueprint": "garden",
           "name": "Garden plot",
-          "landWhenBuilt": 43,
+          "landWhenBuilt": 67,
           "checkIn": 3
         },
         {
           "id": "b3",
           "blueprint": "house",
           "name": "Little house",
-          "landWhenBuilt": 50,
-          "checkIn": 12
+          "landWhenBuilt": 73,
+          "checkIn": 11
         },
         {
           "id": "b4",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 53,
+          "landWhenBuilt": 80,
           "checkIn": 19
         },
         {
           "id": "b5",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 55,
+          "landWhenBuilt": 83,
           "checkIn": 20
         },
         {
           "id": "b6",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 55,
+          "landWhenBuilt": 83,
           "checkIn": 21
         },
         {
           "id": "b7",
           "blueprint": "house",
           "name": "Little house",
-          "landWhenBuilt": 58,
+          "landWhenBuilt": 87,
           "checkIn": 25
         },
         {
           "id": "b8",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 63,
+          "landWhenBuilt": 93,
           "checkIn": 30
         },
         {
           "id": "b9",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 71,
+          "landWhenBuilt": 103,
           "checkIn": 39
         },
         {
           "id": "b12",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 72,
+          "landWhenBuilt": 105,
           "checkIn": 42
+        },
+        {
+          "id": "b14",
+          "blueprint": "sawmill",
+          "name": "Sawmill",
+          "landWhenBuilt": 109,
+          "checkIn": 47
         },
         {
           "id": "b15",
           "blueprint": "floor",
           "name": "Upper floor",
-          "landWhenBuilt": 76,
-          "checkIn": 48
-        },
-        {
-          "id": "b16",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 76,
+          "landWhenBuilt": 109,
           "checkIn": 49
         },
         {
+          "id": "b17",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 115,
+          "checkIn": 51
+        },
+        {
           "id": "b18",
-          "blueprint": "orchard",
-          "name": "Orchard",
-          "landWhenBuilt": 81,
-          "checkIn": 54
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 115,
+          "checkIn": 53
         },
         {
           "id": "b19",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 84,
-          "checkIn": 57
-        },
-        {
-          "id": "b20",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 84,
-          "checkIn": 58
+          "landWhenBuilt": 115,
+          "checkIn": 54
         },
         {
           "id": "b21",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 88,
-          "checkIn": 65
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 121,
+          "checkIn": 63
         },
         {
           "id": "b22",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 91,
-          "checkIn": 70
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 121,
+          "checkIn": 64
         },
         {
           "id": "b23",
-          "blueprint": "lanterns",
-          "name": "Lantern path",
-          "landWhenBuilt": 91,
-          "checkIn": 71
+          "blueprint": "farmyard",
+          "name": "Farmyard",
+          "landWhenBuilt": 138,
+          "checkIn": 78,
+          "landGift": 6
         },
         {
-          "id": "b25",
+          "id": "b24",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 96,
-          "checkIn": 78
+          "landWhenBuilt": 138,
+          "checkIn": 79
         },
         {
-          "id": "b26",
-          "blueprint": "workshop",
-          "name": "Workshop",
-          "landWhenBuilt": 98,
-          "checkIn": 83
-        },
-        {
-          "id": "b29",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 105,
+          "id": "b27",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 148,
           "checkIn": 97
         },
         {
-          "id": "b32",
+          "id": "b28",
           "blueprint": "orchard",
           "name": "Orchard",
-          "landWhenBuilt": 112,
-          "checkIn": 110
+          "landWhenBuilt": 150,
+          "checkIn": 99
         },
         {
-          "id": "b38",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 125,
-          "checkIn": 141
+          "id": "b29",
+          "blueprint": "farmextension",
+          "name": "Barn",
+          "landWhenBuilt": 150,
+          "checkIn": 103,
+          "parentBuildingId": "b23"
         },
         {
-          "id": "b39",
+          "id": "b30",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 151,
+          "checkIn": 105
+        },
+        {
+          "id": "b36",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 167,
+          "checkIn": 129
+        },
+        {
+          "id": "b40",
+          "blueprint": "pond",
+          "name": "Lily pond",
+          "landWhenBuilt": 173,
+          "checkIn": 140
+        },
+        {
+          "id": "b41",
           "blueprint": "tower",
           "name": "Lookout tower",
-          "landWhenBuilt": 132,
+          "landWhenBuilt": 182,
           "checkIn": 148
         },
         {
-          "id": "b46",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 144,
-          "checkIn": 183
+          "id": "b45",
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 190,
+          "checkIn": 169
         },
         {
           "id": "b47",
           "blueprint": "windmill",
           "name": "Windmill",
-          "landWhenBuilt": 144,
-          "checkIn": 184
+          "landWhenBuilt": 197,
+          "checkIn": 183
         },
         {
-          "id": "b48",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 150,
-          "checkIn": 195
+          "id": "b50",
+          "blueprint": "pond",
+          "name": "Lily pond",
+          "landWhenBuilt": 206,
+          "checkIn": 199
         },
         {
-          "id": "b53",
-          "blueprint": "orchard",
-          "name": "Orchard",
-          "landWhenBuilt": 156,
-          "checkIn": 218
+          "id": "b52",
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 208,
+          "checkIn": 204
         },
         {
-          "id": "b54",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 161,
+          "id": "b56",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 217,
           "checkIn": 229
         },
         {
           "id": "b59",
           "blueprint": "tower",
           "name": "Lookout tower",
-          "landWhenBuilt": 173,
-          "checkIn": 252
+          "landWhenBuilt": 226,
+          "checkIn": 240
         },
         {
-          "id": "b60",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 177,
-          "checkIn": 259
-        },
-        {
-          "id": "b72",
-          "blueprint": "pond",
-          "name": "Lily pond",
-          "landWhenBuilt": 204,
-          "checkIn": 350
-        },
-        {
-          "id": "b74",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 209,
-          "checkIn": 365
-        },
-        {
-          "id": "b87",
+          "id": "b61",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 248,
-          "checkIn": 481
+          "landWhenBuilt": 230,
+          "checkIn": 253
         },
         {
-          "id": "b89",
+          "id": "b62",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 234,
+          "checkIn": 255
+        },
+        {
+          "id": "b70",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 252,
+          "checkIn": 298
+        },
+        {
+          "id": "b76",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 266,
+          "checkIn": 348
+        },
+        {
+          "id": "b77",
+          "blueprint": "lighthouse",
+          "name": "Lighthouse",
+          "landWhenBuilt": 271,
+          "checkIn": 353
+        },
+        {
+          "id": "b82",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 279,
+          "checkIn": 369
+        },
+        {
+          "id": "b85",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 289,
+          "checkIn": 389
+        },
+        {
+          "id": "b88",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 299,
+          "checkIn": 413
+        },
+        {
+          "id": "b110",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 358,
+          "checkIn": 596
+        },
+        {
+          "id": "b111",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 364,
+          "checkIn": 609
+        },
+        {
+          "id": "b114",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 250,
-          "checkIn": 492
+          "landWhenBuilt": 374,
+          "checkIn": 640
         },
         {
-          "id": "b92",
+          "id": "b119",
+          "blueprint": "orchard",
+          "name": "Orchard",
+          "landWhenBuilt": 392,
+          "checkIn": 686
+        },
+        {
+          "id": "b120",
           "blueprint": "windmill",
           "name": "Windmill",
-          "landWhenBuilt": 257,
-          "checkIn": 521
-        },
-        {
-          "id": "b98",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 273,
-          "checkIn": 574
-        },
-        {
-          "id": "b101",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 283,
-          "checkIn": 613
-        },
-        {
-          "id": "b105",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 298,
-          "checkIn": 662
-        },
-        {
-          "id": "b108",
-          "blueprint": "pond",
-          "name": "Lily pond",
-          "landWhenBuilt": 304,
-          "checkIn": 680
-        },
-        {
-          "id": "b109",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 310,
-          "checkIn": 691
+          "landWhenBuilt": 402,
+          "checkIn": 700
         }
       ],
       "keepsakes": [
         {
           "id": "keepsake-395",
           "kind": "cairn",
-          "land": 224,
+          "land": 290,
           "checkIn": 395
         },
         {
           "id": "keepsake-450",
           "kind": "bench",
-          "land": 241,
+          "land": 309,
           "checkIn": 450
         }
       ]
@@ -345,7 +375,7 @@
       "name": "Mossy Hollow",
       "kind": "mossy",
       "size": "large",
-      "land": 201,
+      "land": 255,
       "golden": false,
       "ring": 1,
       "angle": 0,
@@ -355,183 +385,197 @@
           "id": "b10",
           "blueprint": "grotto",
           "name": "Mushroom grotto",
-          "landWhenBuilt": 56,
+          "landWhenBuilt": 74,
           "checkIn": 40
         },
         {
           "id": "b11",
           "blueprint": "nursery",
           "name": "Rain catcher",
-          "landWhenBuilt": 56,
+          "landWhenBuilt": 74,
           "checkIn": 41
         },
         {
           "id": "b13",
-          "blueprint": "sawmill",
-          "name": "Sawmill",
-          "landWhenBuilt": 56,
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 74,
           "checkIn": 43
         },
         {
-          "id": "b14",
+          "id": "b16",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 58,
-          "checkIn": 47
+          "landWhenBuilt": 76,
+          "checkIn": 50
         },
         {
-          "id": "b24",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 64,
-          "checkIn": 74
+          "id": "b25",
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 87,
+          "checkIn": 80
         },
         {
-          "id": "b27",
+          "id": "b26",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 68,
+          "landWhenBuilt": 92,
           "checkIn": 85
         },
         {
-          "id": "b28",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 72,
-          "checkIn": 93
-        },
-        {
-          "id": "b30",
-          "blueprint": "lanterns",
-          "name": "Lantern path",
-          "landWhenBuilt": 74,
-          "checkIn": 99
-        },
-        {
           "id": "b31",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 77,
-          "checkIn": 109
-        },
-        {
-          "id": "b35",
-          "blueprint": "pond",
-          "name": "Lily pond",
-          "landWhenBuilt": 81,
-          "checkIn": 124
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 103,
+          "checkIn": 106
         },
         {
           "id": "b37",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 88,
-          "checkIn": 140
+          "blueprint": "workshop",
+          "name": "Workshop",
+          "landWhenBuilt": 114,
+          "checkIn": 130
         },
         {
-          "id": "b40",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 90,
-          "checkIn": 151
-        },
-        {
-          "id": "b42",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 93,
+          "id": "b44",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 124,
           "checkIn": 159
         },
         {
-          "id": "b43",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 96,
-          "checkIn": 169
-        },
-        {
-          "id": "b45",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 99,
-          "checkIn": 175
-        },
-        {
           "id": "b49",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 102,
-          "checkIn": 196
+          "blueprint": "orchard",
+          "name": "Orchard",
+          "landWhenBuilt": 134,
+          "checkIn": 189
         },
         {
-          "id": "b51",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 107,
-          "checkIn": 203
-        },
-        {
-          "id": "b52",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 110,
-          "checkIn": 216
-        },
-        {
-          "id": "b55",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 116,
-          "checkIn": 236
-        },
-        {
-          "id": "b57",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 117,
-          "checkIn": 240
+          "id": "b53",
+          "blueprint": "orchard",
+          "name": "Orchard",
+          "landWhenBuilt": 145,
+          "checkIn": 218
         },
         {
           "id": "b58",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 122,
-          "checkIn": 251
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 151,
+          "checkIn": 238
         },
         {
-          "id": "b61",
+          "id": "b60",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 157,
+          "checkIn": 252
+        },
+        {
+          "id": "b63",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 125,
-          "checkIn": 267
+          "landWhenBuilt": 160,
+          "checkIn": 260
+        },
+        {
+          "id": "b66",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 162,
+          "checkIn": 274
+        },
+        {
+          "id": "b69",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 164,
+          "checkIn": 297
+        },
+        {
+          "id": "b72",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 171,
+          "checkIn": 323
+        },
+        {
+          "id": "b75",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 171,
+          "checkIn": 347
         },
         {
           "id": "b78",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 141,
-          "checkIn": 398
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 175,
+          "checkIn": 359
         },
         {
-          "id": "b83",
+          "id": "b80",
           "blueprint": "tower",
           "name": "Lookout tower",
-          "landWhenBuilt": 151,
-          "checkIn": 439
+          "landWhenBuilt": 177,
+          "checkIn": 361
+        },
+        {
+          "id": "b89",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 189,
+          "checkIn": 421
+        },
+        {
+          "id": "b93",
+          "blueprint": "orchard",
+          "name": "Orchard",
+          "landWhenBuilt": 202,
+          "checkIn": 467
         },
         {
           "id": "b96",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 181,
-          "checkIn": 558
+          "blueprint": "pond",
+          "name": "Lily pond",
+          "landWhenBuilt": 213,
+          "checkIn": 491
         },
         {
-          "id": "b102",
+          "id": "b99",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 194,
-          "checkIn": 629
+          "landWhenBuilt": 222,
+          "checkIn": 524
+        },
+        {
+          "id": "b105",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 227,
+          "checkIn": 554
+        },
+        {
+          "id": "b107",
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 230,
+          "checkIn": 573
+        },
+        {
+          "id": "b108",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 230,
+          "checkIn": 574
+        },
+        {
+          "id": "b113",
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 244,
+          "checkIn": 626
         }
       ],
       "keepsakes": []
@@ -541,7 +585,7 @@
       "name": "Flint Peak",
       "kind": "rocky",
       "size": "medium",
-      "land": 134,
+      "land": 190,
       "golden": true,
       "ring": 1,
       "angle": 180,
@@ -549,122 +593,150 @@
       "buildings": [
         {
           "id": "b33",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 40,
-          "checkIn": 115
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 67,
+          "checkIn": 116
         },
         {
-          "id": "b36",
+          "id": "b34",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 45,
+          "landWhenBuilt": 67,
+          "checkIn": 117
+        },
+        {
+          "id": "b35",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 69,
+          "checkIn": 121
+        },
+        {
+          "id": "b38",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 71,
           "checkIn": 135
         },
         {
-          "id": "b41",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 49,
+          "id": "b39",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 71,
+          "checkIn": 136
+        },
+        {
+          "id": "b42",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 75,
+          "checkIn": 153
+        },
+        {
+          "id": "b43",
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 77,
           "checkIn": 158
         },
         {
-          "id": "b44",
+          "id": "b46",
           "blueprint": "flowers",
           "name": "Flower bed",
-          "landWhenBuilt": 51,
-          "checkIn": 170
+          "landWhenBuilt": 80,
+          "checkIn": 175
         },
         {
-          "id": "b50",
-          "blueprint": "lanterns",
-          "name": "Lantern path",
-          "landWhenBuilt": 55,
-          "checkIn": 197
+          "id": "b48",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 85,
+          "checkIn": 188
         },
         {
-          "id": "b56",
+          "id": "b51",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 87,
+          "checkIn": 203
+        },
+        {
+          "id": "b54",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 94,
+          "checkIn": 227
+        },
+        {
+          "id": "b55",
           "blueprint": "quarry",
           "name": "Stone quarry",
-          "landWhenBuilt": 62,
-          "checkIn": 237
+          "landWhenBuilt": 94,
+          "checkIn": 228
         },
         {
-          "id": "b66",
-          "blueprint": "windmill",
-          "name": "Windmill",
-          "landWhenBuilt": 72,
-          "checkIn": 304
+          "id": "b57",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 97,
+          "checkIn": 237
         },
         {
           "id": "b68",
           "blueprint": "windmill",
           "name": "Windmill",
-          "landWhenBuilt": 76,
-          "checkIn": 322
+          "landWhenBuilt": 112,
+          "checkIn": 278
         },
         {
-          "id": "b80",
-          "blueprint": "pond",
-          "name": "Lily pond",
-          "landWhenBuilt": 86,
-          "checkIn": 408
-        },
-        {
-          "id": "b82",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 93,
-          "checkIn": 437
-        },
-        {
-          "id": "b85",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 96,
-          "checkIn": 467
+          "id": "b74",
+          "blueprint": "windmill",
+          "name": "Windmill",
+          "landWhenBuilt": 119,
+          "checkIn": 335
         },
         {
           "id": "b86",
           "blueprint": "orchard",
           "name": "Orchard",
-          "landWhenBuilt": 96,
-          "checkIn": 468
-        },
-        {
-          "id": "b88",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 101,
-          "checkIn": 491
+          "landWhenBuilt": 129,
+          "checkIn": 401
         },
         {
           "id": "b91",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 139,
+          "checkIn": 437
+        },
+        {
+          "id": "b106",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 105,
-          "checkIn": 520
+          "landWhenBuilt": 161,
+          "checkIn": 572
         },
         {
-          "id": "b97",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 113,
-          "checkIn": 573
-        },
-        {
-          "id": "b100",
+          "id": "b112",
           "blueprint": "room",
           "name": "Extra room",
-          "landWhenBuilt": 118,
-          "checkIn": 612
+          "landWhenBuilt": 169,
+          "checkIn": 625
         },
         {
-          "id": "b103",
+          "id": "b117",
+          "blueprint": "tower",
+          "name": "Lookout tower",
+          "landWhenBuilt": 178,
+          "checkIn": 674
+        },
+        {
+          "id": "b118",
           "blueprint": "floor",
           "name": "Upper floor",
-          "landWhenBuilt": 123,
-          "checkIn": 640
+          "landWhenBuilt": 184,
+          "checkIn": 685
         }
       ],
       "keepsakes": []
@@ -674,7 +746,7 @@
       "name": "Clover Meadow",
       "kind": "meadow",
       "size": "large",
-      "land": 133,
+      "land": 177,
       "golden": false,
       "ring": 1,
       "angle": 315,
@@ -682,129 +754,143 @@
       "buildings": [
         {
           "id": "b64",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 57,
-          "checkIn": 286
-        },
-        {
-          "id": "b65",
           "blueprint": "beehives",
           "name": "Beehive meadow",
-          "landWhenBuilt": 57,
-          "checkIn": 291
-        },
-        {
-          "id": "b67",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 63,
-          "checkIn": 321
-        },
-        {
-          "id": "b69",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 68,
-          "checkIn": 335
-        },
-        {
-          "id": "b70",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 70,
-          "checkIn": 348
+          "landWhenBuilt": 73,
+          "checkIn": 267
         },
         {
           "id": "b71",
-          "blueprint": "lighthouse",
-          "name": "Lighthouse",
-          "landWhenBuilt": 70,
-          "checkIn": 349
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 82,
+          "checkIn": 304
         },
         {
           "id": "b73",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 70,
-          "checkIn": 361
-        },
-        {
-          "id": "b75",
           "blueprint": "lanterns",
           "name": "Lantern path",
-          "landWhenBuilt": 72,
-          "checkIn": 372
-        },
-        {
-          "id": "b76",
-          "blueprint": "floor",
-          "name": "Upper floor",
-          "landWhenBuilt": 74,
-          "checkIn": 385
-        },
-        {
-          "id": "b77",
-          "blueprint": "flowers",
-          "name": "Flower bed",
-          "landWhenBuilt": 74,
-          "checkIn": 386
+          "landWhenBuilt": 85,
+          "checkIn": 324
         },
         {
           "id": "b79",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 77,
-          "checkIn": 407
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 92,
+          "checkIn": 360
         },
         {
           "id": "b81",
-          "blueprint": "lanterns",
-          "name": "Lantern path",
-          "landWhenBuilt": 79,
-          "checkIn": 423
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 93,
+          "checkIn": 368
+        },
+        {
+          "id": "b83",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 98,
+          "checkIn": 376
         },
         {
           "id": "b84",
-          "blueprint": "tower",
-          "name": "Lookout tower",
-          "landWhenBuilt": 84,
-          "checkIn": 455
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 100,
+          "checkIn": 388
+        },
+        {
+          "id": "b87",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 105,
+          "checkIn": 408
         },
         {
           "id": "b90",
+          "blueprint": "house",
+          "name": "Little house",
+          "landWhenBuilt": 109,
+          "checkIn": 431
+        },
+        {
+          "id": "b92",
+          "blueprint": "lanterns",
+          "name": "Lantern path",
+          "landWhenBuilt": 112,
+          "checkIn": 453
+        },
+        {
+          "id": "b94",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 120,
+          "checkIn": 481
+        },
+        {
+          "id": "b95",
           "blueprint": "windmill",
           "name": "Windmill",
-          "landWhenBuilt": 95,
+          "landWhenBuilt": 120,
+          "checkIn": 482
+        },
+        {
+          "id": "b97",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 128,
           "checkIn": 507
         },
         {
-          "id": "b99",
-          "blueprint": "orchard",
-          "name": "Orchard",
-          "landWhenBuilt": 109,
-          "checkIn": 597
-        },
-        {
-          "id": "b104",
-          "blueprint": "pond",
-          "name": "Lily pond",
-          "landWhenBuilt": 115,
-          "checkIn": 645
-        },
-        {
-          "id": "b111",
-          "blueprint": "orchard",
-          "name": "Orchard",
-          "landWhenBuilt": 129,
-          "checkIn": 707
-        },
-        {
-          "id": "b112",
+          "id": "b98",
           "blueprint": "windmill",
           "name": "Windmill",
-          "landWhenBuilt": 133,
-          "checkIn": 721
+          "landWhenBuilt": 130,
+          "checkIn": 508
+        },
+        {
+          "id": "b100",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 137,
+          "checkIn": 533
+        },
+        {
+          "id": "b103",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 141,
+          "checkIn": 543
+        },
+        {
+          "id": "b109",
+          "blueprint": "floor",
+          "name": "Upper floor",
+          "landWhenBuilt": 147,
+          "checkIn": 595
+        },
+        {
+          "id": "b115",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 158,
+          "checkIn": 655
+        },
+        {
+          "id": "b121",
+          "blueprint": "room",
+          "name": "Extra room",
+          "landWhenBuilt": 177,
+          "checkIn": 716
+        },
+        {
+          "id": "b122",
+          "blueprint": "orchard",
+          "name": "Orchard",
+          "landWhenBuilt": 177,
+          "checkIn": 720
         }
       ],
       "keepsakes": []
@@ -814,39 +900,25 @@
       "name": "Glimmer Isle",
       "kind": "crystal",
       "size": "medium",
-      "land": 62,
+      "land": 94,
       "golden": false,
       "ring": 1,
       "angle": 135,
       "lift": -0.3,
       "buildings": [
         {
-          "id": "b93",
+          "id": "b102",
           "blueprint": "forge",
           "name": "Crystal forge",
-          "landWhenBuilt": 40,
-          "checkIn": 533
+          "landWhenBuilt": 66,
+          "checkIn": 537
         },
         {
-          "id": "b106",
-          "blueprint": "house",
-          "name": "Little house",
-          "landWhenBuilt": 58,
-          "checkIn": 675
-        },
-        {
-          "id": "b107",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 58,
-          "checkIn": 679
-        },
-        {
-          "id": "b110",
-          "blueprint": "room",
-          "name": "Extra room",
-          "landWhenBuilt": 58,
-          "checkIn": 706
+          "id": "b116",
+          "blueprint": "flowers",
+          "name": "Flower bed",
+          "landWhenBuilt": 83,
+          "checkIn": 656
         }
       ],
       "keepsakes": []
@@ -854,69 +926,69 @@
   ],
   "links": [
     {
-      "id": "b17",
+      "id": "b20",
       "from": "home",
       "to": "isle-1",
       "type": "arch",
-      "checkIn": 50,
+      "checkIn": 58,
       "land": {
-        "home": 78,
-        "isle-1": 58
+        "home": 118,
+        "isle-1": 78
       }
     },
     {
-      "id": "b34",
+      "id": "b32",
       "from": "home",
       "to": "isle-2",
       "type": "flowerarch",
-      "checkIn": 119,
+      "checkIn": 115,
       "land": {
-        "home": 118,
-        "isle-2": 42
+        "home": 160,
+        "isle-2": 66
       }
     },
     {
-      "id": "b62",
+      "id": "b65",
       "from": "home",
       "to": "isle-3",
       "type": "cloudsteps",
       "checkIn": 268,
       "land": {
-        "home": 179,
-        "isle-3": 55
+        "home": 237,
+        "isle-3": 73
       }
     },
     {
-      "id": "b63",
+      "id": "b67",
       "from": "isle-1",
       "to": "isle-3",
       "type": "rope",
-      "checkIn": 277,
+      "checkIn": 275,
       "land": {
-        "isle-1": 127,
-        "isle-3": 55
+        "isle-1": 162,
+        "isle-3": 74
       }
     },
     {
-      "id": "b94",
+      "id": "b101",
       "from": "home",
       "to": "isle-4",
       "type": "rope",
-      "checkIn": 537,
+      "checkIn": 534,
       "land": {
-        "home": 259,
-        "isle-4": 40
+        "home": 335,
+        "isle-4": 66
       }
     },
     {
-      "id": "b95",
+      "id": "b104",
       "from": "isle-2",
       "to": "isle-4",
       "type": "rope",
       "checkIn": 544,
       "land": {
-        "isle-2": 107,
-        "isle-4": 41
+        "isle-2": 156,
+        "isle-4": 67
       }
     }
   ],
@@ -942,19 +1014,19 @@
     {
       "id": "h4",
       "name": "Tilly",
-      "job": "planks",
-      "island": "isle-1"
+      "job": "soil",
+      "island": "home"
     },
     {
       "id": "h5",
       "name": "Bram",
-      "job": "planks",
+      "job": "saplings",
       "island": "isle-1"
     },
     {
       "id": "h6",
       "name": "Clover",
-      "job": "soil",
+      "job": "planks",
       "island": "home"
     },
     {
@@ -1008,15 +1080,24 @@
     {
       "id": "h15",
       "name": "Nettle",
-      "job": "saplings",
-      "island": "isle-1"
+      "job": "soil",
+      "island": "home"
+    }
+  ],
+  "residents": [
+    {
+      "id": "resident-114",
+      "kind": "cat",
+      "island": "home",
+      "appearanceSeed": "1qqsj441izu7k0",
+      "arrivedAtCheckIn": 114
     }
   ],
   "wonders": [
     "lighthouse"
   ],
   "checkIn": null,
-  "nextUp": "Next choice: Little house or Flower bed, about 5 more breaks away. Airship dock: 105 of 170 Starlight.",
+  "nextUp": "Your next build needs soil and water — about 5 more breaks away.",
   "activeDays": 130,
   "checkIns": 724,
   "lastCheckIn": {
@@ -1043,6 +1124,11 @@
       },
       {
         "kind": "grew",
+        "island": "Mossy Hollow",
+        "amount": 1
+      },
+      {
+        "kind": "grew",
         "island": "Glimmer Isle",
         "amount": 2
       }
@@ -1050,8 +1136,8 @@
     "earned": {
       "wood": 215.95,
       "stone": 154.25,
-      "planks": 99.41,
-      "soil": 63,
+      "planks": 92.56,
+      "soil": 66.6,
       "saplings": 44.4,
       "starlight": 2
     }

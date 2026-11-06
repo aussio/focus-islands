@@ -295,13 +295,15 @@ function updateDayPathTime(status, previewSeconds) {
   const slider = document.getElementById('dev-time-slider');
   if (slider?.dataset.scrubbing === 'true' && previewSeconds === undefined) return;
   const start = Number(track.dataset.start), end = Number(track.dataset.end);
+  // The track can run past the planned finish to show later work; the label still names the finish.
+  const finish = Math.min(end, Date.parse(status.plan?.end) || end);
   const current = Number(status.currentWallTime) * 1000;
   const shown = previewSeconds === undefined ? current : previewSeconds * 1000;
   const percent = Math.max(0, Math.min(100, (shown - start) / Math.max(1, end - start) * 100));
   track.querySelector('.path-progress').style.width = `${percent}%`;
   track.querySelector('.path-marker').style.left = `${percent}%`;
-  track.setAttribute('aria-label', `Day progress: ${Math.round(percent)} percent. ${shown < start ? 'Before start' : shown >= end ? 'Plan ended' : 'Current time'}.`);
-  const label = shown < start ? 'Before start' : shown >= end ? 'Plan ended' : previewSeconds === undefined ? 'Current time' : 'Simulated time';
+  track.setAttribute('aria-label', `Day progress: ${Math.round(percent)} percent. ${shown < start ? 'Before start' : shown >= finish ? 'Plan ended' : 'Current time'}.`);
+  const label = shown < start ? 'Before start' : shown >= finish ? 'Plan ended' : previewSeconds === undefined ? 'Current time' : 'Simulated time';
   const display = new Date(shown).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', ...(status.developmentMode ? { second: '2-digit' } : {}) });
   document.getElementById('path-current-time').textContent = `${label} · ${display}`;
   if (slider && previewSeconds === undefined) {
@@ -403,8 +405,17 @@ function guidance() {
   if (s.phase === 'rest' || s.phase === 'break') return { title: 'Break in progress', detail: 'Step away from the computer for your break.' };
   return { title: 'Start your day', detail: 'Start a focus session or create a plan for today.', action: 'focus' };
 }
-function snoozeControl(action, label) {
-  return `<div class="snooze-control"><label for="snooze-minutes">Snooze <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="Snooze minutes">${actionButton(label, action, undefined, false, action)}</div>`;
+// The minutes slider and the buttons that use its value. Each button is [label, action], and its id is the action.
+// Two or more buttons go on a second row under the slider, so the control fits in the session card.
+function snoozeControl(buttons, prefix = 'Snooze', ariaLabel = 'Snooze minutes') {
+  const markup = buttons.map(([label, action]) => actionButton(label, action, undefined, false, action)).join('');
+  return `<div class="snooze-control${buttons.length > 1 ? ' is-stacked' : ''}"><label for="snooze-minutes">${prefix} <output id="snooze-value">${state().snoozeMinutes || 5}m</output></label><input type="range" id="snooze-minutes" min="5" max="60" step="5" value="${state().snoozeMinutes || 5}" aria-label="${ariaLabel}">${buttons.length > 1 ? `<span class="snooze-buttons">${markup}</span>` : markup}</div>`;
+}
+// The day-end buttons. "I'm working" shares the slider when the planned finish has passed, and works alone before it.
+function dayEndControl(buttons) {
+  const s = state().status;
+  if (!s.dayFinishPassed) return buttons.map(([label, action]) => actionButton(label, action, undefined, false, action)).join(' ');
+  return snoozeControl(buttons, 'For', 'Minutes until the day-end reminder');
 }
 function todayReflection() {
   const saved = state().status.todayReflection || '';
@@ -418,10 +429,14 @@ function earlierStart() {
 }
 function todayActions(g) {
   const s = state().status;
-  if (g.situation === 'dayEnded') return '<button class="button" data-page="plan" data-plan-tomorrow id="plan-tomorrow">Plan tomorrow</button>';
-  if (g.situation === 'afterDay' || g.situation === 'wrappingUp') return `${actionButton('End day', 'end-day', undefined, true, 'end-day')} ${snoozeControl('snooze-end-day', 'Snooze ending day')}`;
+  const working = ["I'm working", 'keep-working'];
+  if (g.situation === 'dayEnded') return `<button class="button" data-page="plan" data-plan-tomorrow id="plan-tomorrow">Plan tomorrow</button> ${dayEndControl([working])}`;
+  if (g.situation === 'afterDay' || g.situation === 'wrappingUp') {
+    const focusing = s.phase === 'focus' && !s.inferredBreakActive;
+    return `${actionButton('End day', 'end-day', undefined, true, 'end-day')} ${dayEndControl([['Snooze ending day', 'snooze-end-day'], ...(g.situation === 'wrappingUp' && focusing ? [] : [working])])}`;
+  }
   if (s.inferredBreakActive) return actionButton("I'm back · start focus", 'confirm-return', undefined, true, 'end-inferred-break');
-  const snooze = snoozeControl('snooze-break', s.phase === 'idle' ? 'Snooze & focus' : 'Snooze');
+  const snooze = snoozeControl([[s.phase === 'idle' ? 'Snooze & focus' : 'Snooze', 'snooze-break']]);
   const longBreak = actionButton('Take long break · 30m', 'start-long-break', undefined, false, 'start-long-break');
   if (g.situation === 'working') return `${actionButton('Take a break', 'start-break', undefined, true, 'start-break')} ${longBreak}`;
   if (s.phase === 'focus') return `${actionButton('Take a break', 'start-break', undefined, true, 'start-break')} ${longBreak} ${s.breakDue ? `${snooze} ${actionButton('Skip', 'skip-break', undefined, false, 'skip-break')}` : ''}`;
@@ -926,7 +941,7 @@ document.addEventListener('click', event => {
     if (state().status.developmentMode && state().status.phase !== 'idle' && remaining > 0) dispatch('dev-advance', { minutes: (remaining + 1) / 60 });
     return;
   }
-  if (name === 'snooze-break' || name === 'snooze-end-day') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
+  if (name === 'snooze-break' || name === 'snooze-end-day' || name === 'keep-working') { dispatch(name, { minutes: state().snoozeMinutes }); return; }
   if (name === 'start-earlier') {
     const input = document.getElementById('actual-start-time');
     if (!input.reportValidity()) return;

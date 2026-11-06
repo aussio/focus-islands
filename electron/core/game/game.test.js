@@ -146,10 +146,10 @@ test('nothing exists before the game starts, and earlier history never counts', 
   assert.equal(rest.payload.amounts.starlight, undefined, 'the focus session before the start earns no Starlight');
   const start = game.startRecord({ now: '2026-01-05T08:00:00.000Z' });
   assert.deepEqual(start, { kind: 'gameStarted', uniqueKey: 'game:started', occurredAt: '2026-01-05T08:00:00.000Z',
-    payload: { rulesVersion: 2, startingLand: 49, startingSoil: 40, startingSaplings: 25, laneShareOfLand: 0.22 } });
+    payload: { rulesVersion: 2, startingLand: 64, startingSoil: 40, startingSaplings: 25, laneShareOfLand: 0.34 } });
   const state = h.state();
   assert.equal(state.rulesVersion, 2);
-  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 49]]);
+  assert.deepEqual(state.islands.map(i => [i.id, i.kind, i.land]), [['home', 'home', 64]]);
   assert.deepEqual(state.helpers, [{ id: 'h1', name: 'Pip', job: null, island: 'home' }]);
 });
 
@@ -499,7 +499,7 @@ test('the room sum: home starts with room for one cell pad, and a day of breaks 
   const room = R.roomOf(start, 4, rules);
   assert.ok(room >= 5 && room < 10, `room ${room}`);
   assert.ok(R.roomOf(start, 4 + 5, rules) < 5, 'not a second cell pad yet');
-  assert.ok(R.roomOf(start + 8, 4 + 5, rules) >= 5, 'about 8 more points (40 rest minutes) make room for the second');
+  assert.ok(R.roomOf(start + 9, 4 + 5, rules) >= 5, 'about 9 more points (36 rest minutes) make room for the second');
   for (const land of [40, 100, 300, 600]) assert.ok(R.roomOf(land + 1, 0, rules) > R.roomOf(land, 0, rules), 'more land is always more room');
   const { state, island } = bareState();
   island('isle-1', 'small', rules.startLand.small);
@@ -581,8 +581,8 @@ test('homes: a house first, rooms before another house, floors under the blocks,
 test('placeFor: the island with the fewest buildings for its land that has room, so young islands fill up too', () => {
   const { state, build, island } = bareState(R.DEFAULT_RULES, 300);
   for (const id of ['garden', 'nursery', 'sawmill', 'workshop', 'flowers']) build(id);
-  island('isle-1', 'small', 50);
-  // Home has far more room (about 139 against 9), but 5 buildings on 300 points; the young island has none.
+  island('isle-1', 'small', 57);
+  // Home has far more room (about 103 against 5), but 5 buildings on 300 points; the young island has none.
   assert.equal(placeOf('windmill', state), 'isle-1');
   build('windmill', 'isle-1');
   assert.equal(placeOf('orchard', state), 'home', 'isle-1 has no room left for a cell pad');
@@ -630,7 +630,7 @@ test('rest minutes become land points; full islands are skipped and the minutes 
   h.focus(60); h.rest(10); h.grants();
   const first = h.checkIn('wood');
   assert.deepEqual(first.payload.newLand, [{ island: 'home', amount: 2 }], 'a 10-minute break grows 2 points');
-  assert.equal(first.payload.landProgress, 0);
+  assert.equal(first.payload.landProgress, 2, 'and 2 minutes wait for the next point');
   assert.equal(h.state().islands[0].land, R.DEFAULT_RULES.startingLand + 2);
 
   const full = { ...R.DEFAULT_RULES, startingLand: 598 };
@@ -638,21 +638,21 @@ test('rest minutes become land points; full islands are skipped and the minutes 
   h2.history.appendRecord(game.startRecord(h2.ctx({ rules: full })));
   h2.focus(60); h2.rest(15); h2.grants();
   const a = h2.checkIn('wood');
-  assert.deepEqual([a.payload.newLand, a.payload.landProgress], [[{ island: 'home', amount: 2 }], 2.5], '12.5 rest minutes: 2 points to reach 600, 2.5 minutes over');
+  assert.deepEqual([a.payload.newLand, a.payload.landProgress], [[{ island: 'home', amount: 2 }], 4.5], '12.5 rest minutes: 2 points to reach 600, 4.5 minutes over');
   h2.focus(60); h2.rest(10); h2.grants();
   const b = h2.checkIn(null);
-  assert.deepEqual([b.payload.newLand, b.payload.landProgress, h2.state().islands[0].land], [[], 12.5, 600], 'home is full, so the minutes wait');
+  assert.deepEqual([b.payload.newLand, b.payload.landProgress, h2.state().islands[0].land], [[], 14.5, 600], 'home is full, so the minutes wait');
 });
 
 test('"next up" counts the land points still missing', () => {
   const { state, build } = bareState();
   build('garden');
   const typical = { focusMinutes: 60, breakMinutes: 10 };
-  // Room 0.9 after the garden. A Flower bed needs 2 more land points (one 10-minute break); a pad needs 8.
+  // Room 1.2 after the garden. A Flower bed needs 2 more land points (one 10-minute break); a pad needs 9.
   assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Your next build needs more room — about 1 more break away.');
-  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8);
+  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 9);
   state.landProgress = 9;
-  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 8, 'progress is minutes, counted by the caller');
+  assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 9, 'progress is minutes, counted by the caller');
   state.onHand.wood = 0;
   state.onHand.saplings = 0;
   state.onHand.starlight = 10;

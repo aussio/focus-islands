@@ -7,10 +7,11 @@
 // instead of stone and gives the model its outline (thing.plot). The building stands at the end farther
 // from the camera, so it never hides its yard: the model turns its own frame half round when that end is
 // +x (see farmyard), and then draws as usual, with the building at -x. The building is as large as the
-// plot allows, centred across it with its door toward the yard, and it keeps the same straw margin as the
-// fence. A white fence runs a little inside the plot's edge round the yard, with a gate where the way to
-// the front lane crosses it, or beside the building when the front lane lies behind it. farm.test.js
-// checks that every part stays on real plots and that the building is on the far side.
+// plot allows at that end (on a plot running toward the camera it shrinks rather than slide in toward the
+// camera, see BEHIND), centred across it with its door toward the yard, and it keeps the same straw
+// margin as the fence. A white fence runs a little inside the plot's edge round the yard, with a gate
+// where the way to the front lane crosses it, or beside the building when the front lane lies behind it.
+// farm.test.js checks that every part stays on real plots and that the building is on the far side.
 //
 // Motion is calm (yardMoment): the animals take turns, so at most one moves at a time and each is still
 // more than 80% of its loop. The yard plays that loop only on its own turns (calm.js), which also keeps
@@ -75,6 +76,11 @@ const GATE = 0.1; // half the gate's opening, in the model's units
 const TALLEST = 1.2;
 // Each building's half size at scale 1 (roof edges included) and its door side's x, in its own frame.
 const SHAPES = { coop: { hx: 0.3, hz: 0.27, front: 0.22, wall: 0.21 }, barn: { hx: 0.31, hz: 0.34, front: 0.26, wall: 0.27 } };
+// On a plot that runs toward the camera, how far the building's middle stays behind the plot's middle (in
+// model units, for each unit the plot runs toward the camera), so it clearly stands at the far end. The
+// grid is uneven, so a plot's far end is often narrower or slanted; there the biggest building fits only
+// by sliding in toward the middle, which is also toward the camera. It shrinks instead.
+const BEHIND = 0.25;
 
 // The plot in the model's frame: edges(t) => [[[x, z], [x, z]]], inside(x, z, t), front [x, z] or null.
 // On Today it is the real plot (thing.plot, island units). Elsewhere (the gallery's close-up, tests
@@ -108,20 +114,28 @@ function reach(plot, x, z, [dx, dz], t) {
 
 // The building's scale and middle [cx, cz]: as large as fits inside the fence line at the plot's back (-x)
 // end, centred across the plot there, leaving the yard at least half the plot's length. Scales run from
-// `most` (roomy plots) down to 0.7.
-function fitBuilding(plot, shape, back, end, most) {
+// `most` (roomy plots) down to 0.7. It may slide in a little from the back to fit. cam is the camera's
+// way in the model's frame: on a plot that runs toward it (x above 0.25, as for the turn in farmyard), a
+// spot nearer the camera than BEHIND allows is skipped, so a smaller building at the far end wins. A plot
+// with no such spot keeps the plain fit.
+function fitBuilding(plot, shape, back, end, most, cam) {
   const yard = Math.max(0.6, (end - back) / 2);
-  for (let k = most; k >= 0.7; k -= 0.05) {
-    const hx = shape.hx * k, hz = shape.hz * k;
-    for (let cx = back + hx; cx <= back + hx + 0.3; cx += 0.01) {
-      if (end - (cx + shape.front * k) < yard) break;
-      const cz = midline(plot, cx);
-      let fits = true;
-      for (let i = 0; i <= 12 && fits; i++) for (let j = 0; j <= 8 && fits; j++) fits = plot.inside(cx - hx + (i / 6) * hx, cz - hz + (j / 4) * hz, PLOT_T.fence);
-      if (fits) return { k, cx, cz };
+  const search = least => {
+    for (let k = most; k >= 0.7; k -= 0.05) {
+      const hx = shape.hx * k, hz = shape.hz * k;
+      for (let cx = back + hx; cx <= back + hx + 0.3; cx += 0.01) {
+        if (end - (cx + shape.front * k) < yard) break;
+        const cz = midline(plot, cx);
+        if (-(cam[0] * cx + cam[1] * cz) < least) continue;
+        let fits = true;
+        for (let i = 0; i <= 12 && fits; i++) for (let j = 0; j <= 8 && fits; j++) fits = plot.inside(cx - hx + (i / 6) * hx, cz - hz + (j / 4) * hz, PLOT_T.fence);
+        if (fits) return { k, cx, cz };
+      }
     }
-  }
-  return { k: 0.7, cx: back + shape.hx * 0.7, cz: midline(plot, back + shape.hx * 0.7) };
+    return null;
+  };
+  const cx = back + shape.hx * 0.7;
+  return (cam[0] > 0.25 && search(BEHIND * cam[0])) || search(-Infinity) || { k: 0.7, cx, cz: midline(plot, cx) };
 }
 
 // The z halfway between the fence's two long sides at x: the yard's middle line there.
@@ -226,7 +240,8 @@ export function farmyard(ctx, thing, placed) {
 
   // The building, as large as the plot allows, at the end away from the front lane.
   const shape = barn ? SHAPES.barn : SHAPES.coop;
-  const { k, cx, cz: bz } = fitBuilding(plot, shape, back, end, Math.max(0.7, Math.min(1.3, TALLEST / new THREE.Vector3().setFromMatrixScale(base).y)));
+  const most = Math.max(0.7, Math.min(1.3, TALLEST / new THREE.Vector3().setFromMatrixScale(base).y));
+  const { k, cx, cz: bz } = fitBuilding(plot, shape, back, end, most, [-Math.sin(yaw), Math.cos(yaw)]);
   (barn ? buildBarn : buildCoop)(ctx, base, cx, bz, k);
   const front = cx + shape.front * k, x0 = front + 0.03, L = end - x0;
   // The yard's middle line at x, and how far the fence is from it, on the camera's side (s = 1) or the

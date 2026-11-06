@@ -568,7 +568,9 @@ function highPerch(ctx, group, near = null) {
     const twice = Math.hypot(nx, ny, nz);
     if (twice / 2 < PERCH.area || Math.abs(ny) / twice < PERCH.flat) return;
     if (near && !near([(p[i] + p[i + 3] + p[i + 6]) / 3, (p[i + 2] + p[i + 5] + p[i + 8]) / 3])) return;
-    flats.push([(p[i] + p[i + 3] + p[i + 6]) / 3, Math.max(p[i + 1], p[i + 4], p[i + 7]), (p[i + 2] + p[i + 5] + p[i + 8]) / 3]);
+    // The bird stands on the triangle's middle, so it takes the surface height there (the corners' mean),
+    // not the highest corner, which leaves it floating over a sloped roof.
+    flats.push([(p[i] + p[i + 3] + p[i + 6]) / 3, (p[i + 1] + p[i + 4] + p[i + 7]) / 3, (p[i + 2] + p[i + 5] + p[i + 8]) / 3]);
   });
   if (!flats.length) return null;
   flats.sort((a, b) => b[1] - a[1] || a[0] - b[0] || a[2] - b[2]);
