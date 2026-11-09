@@ -1,5 +1,5 @@
 // Pure forecast adapter for manually supplied development scenarios.
-const { forecast } = require('../../electron/core/planning');
+const { schedule } = require('../../electron/core/scheduler');
 
 function clock(value, day) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) throw new Error('Each scenario needs a date in YYYY-MM-DD format.');
@@ -37,7 +37,7 @@ function run(input) {
       scope: kind === 'breakSnoozed' && !input.active ? 'forecast' : undefined, minutes,
     },
   }));
-  return { plan, actual, blocks: forecast(plan, actual, timer, onDay(input.now), events) };
+  return { plan, actual, blocks: schedule(plan, { actual, timer, now: onDay(input.now), events }) };
 }
 
 module.exports = { clock, run };

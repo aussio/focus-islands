@@ -1,4 +1,4 @@
-import { qualifyingRestSeconds } from '../core/planning.js';
+import { qualifyingRestSeconds } from '../core/rest.js';
 
 // Chart-only smoothing. Never feed these spans into timers, totals, or saved facts.
 export function displayTimeline(blocks, breakMinutes = 10) {

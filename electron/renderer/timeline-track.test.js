@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { timelineTrack, timelinePercent, timelineDuration } from './timeline-track.js';
+import { schedule } from '../core/scheduler.js';
 const at = minute => new Date(Date.UTC(2026, 10, 2, 9) + minute * 60000).toISOString();
 const draw = (blocks, extra = {}) => timelineTrack({ blocks, start: at(0), end: at(60), now: at(30), breakMinutes: 10, ...extra });
 test('both sizes share exact positions and tooltips, including sub-minute intervals', () => {
@@ -45,4 +46,19 @@ test('duration is precise and running focus reports elapsed time rather than for
   assert.ok(!markup.includes('60 min'));
   assert.ok(!markup.includes('Focus'));
   assert.ok(markup.includes('tabindex="0"'));
+});
+
+test('both tracks show a break immediately after a meeting instead of a tiny focus remainder', () => {
+  const plan = { start: at(0), end: at(120), focusMinutes: 60, breakMinutes: 10,
+    meetings: [{ start: at(20), end: at(40) }] };
+  const blocks = schedule(plan, { timer: { phase: 'focus', startedAt: at(0), targetSeconds: 2567, elapsedSeconds: 600 }, now: at(10) });
+  for (const compact of [false, true]) {
+    const markup = draw(blocks, { now: at(10), compact });
+    assert.ok(markup.includes('10 min so far'));
+    assert.ok(!markup.includes('<strong>2 min 47 sec</strong>'));
+    const rest = blocks.find(block => block.start === at(40));
+    assert.equal(rest.kind, 'break');
+    assert.ok(Date.parse(rest.end) >= Date.parse(at(50)));
+    assert.ok(!markup.includes('0 sec so far'));
+  }
 });

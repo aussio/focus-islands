@@ -16,7 +16,10 @@ const { DatabaseSync } = require('node:sqlite');
 const { createCore } = require('./index');
 const { openStore } = require('./store');
 const { Timer } = require('./timer');
-const { project, suggest, forecast, idleStartAfterMeetings } = require('./planning');
+const { project, idleStartAfterMeetings } = require('./planning');
+const scheduler = require('./scheduler');
+const suggest = plan => scheduler.schedule(plan);
+const forecast = (plan, actual, timer, now, events) => scheduler.schedule(plan, { actual, timer, now, events });
 
 // The core reads the computer's clock. So that no result depends on when the suite runs, every test
 // starts at a fixed local time: 9:00 AM on Wednesday 21 October 2026, a plain day with no clock change
@@ -82,6 +85,61 @@ test('live forecast keeps meeting times fixed through skipped breaks and overlap
     assert.ok(blocks.filter(item => item.forecast && item.kind !== 'meeting')
       .every(item => Date.parse(item.end) <= Date.parse(meeting.start) || Date.parse(item.start) >= Date.parse(meeting.end)));
   }
+});
+
+test('a running timer takes its forecast break immediately after a meeting instead of a short focus remainder', () => {
+  const at = (hour, minute, second = 0) => new Date(2026, 10, 9, hour, minute, second).toISOString();
+  const plan = { start: at(9, 30), end: at(17, 0), focusMinutes: 70, breakMinutes: 10,
+    meetings: [{ start: at(10, 0), end: at(10, 30) }, { start: at(11, 30), end: at(12, 0) }] };
+  const timer = { phase: 'focus', startedAt: at(10, 52, 47), targetSeconds: 4200, elapsedSeconds: 73 };
+  const blocks = forecast(plan, [], timer, at(10, 54));
+  const rest = blocks.find(block => block.start === at(12, 0));
+  assert.equal(rest.kind, 'break');
+  assert.equal(rest.end, at(12, 10));
+  assert.equal(rest.forecast, true);
+  assert.equal(blocks.find(block => block.active).start, timer.startedAt);
+  const later = forecast(plan, [], { ...timer, elapsedSeconds: 4093 }, at(12, 1));
+  assert.equal(later.find(block => block.kind === 'focus' && block.start === at(12, 0)).active, true);
+});
+
+test('future focus gaps between meetings become breaks while recorded short work stays intact', () => {
+  const at = (hour, minute) => new Date(2026, 10, 9, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(14, 0), focusMinutes: 70, breakMinutes: 10,
+    meetings: [{ start: at(9, 30), end: at(10, 0) }, { start: at(10, 5), end: at(10, 30) }] };
+  const actual = [{ kind: 'focus', start: at(9, 0), end: at(9, 2), observedSeconds: 120 }];
+  const blocks = forecast(plan, actual, { phase: 'focus', startedAt: at(9, 10), targetSeconds: 5400, elapsedSeconds: 0 }, at(9, 10));
+  assert.equal(blocks.find(block => block.start === at(10, 0)).kind, 'break');
+  assert.equal(blocks.find(block => block.start === at(10, 30)).kind, 'break');
+  assert.equal(blocks.find(block => block.actual).kind, 'focus');
+  assert.ok(blocks.filter(block => block.kind === 'focus' && Date.parse(block.start) > Date.parse(at(9, 10)))
+    .every(block => Date.parse(block.end) - Date.parse(block.start) >= 35 * 60000));
+});
+
+test('a new focus target and its break guidance agree at the meeting end', () => {
+  const { core } = temporaryCore();
+  const at = (hour, minute, second = 0) => new Date(2026, 9, 21, hour, minute, second).toISOString();
+  core.action('wall-jump', (Date.parse(at(10, 52, 47)) - Date.now()) / 60000);
+  core.action('save-plan', { start: at(9, 30), end: at(17, 0), focusMinutes: 70, breakMinutes: 10,
+    meetings: [{ title: 'Weekly planning', start: at(11, 30), end: at(12, 0) }] });
+  const started = core.action('start-focus', { targetSeconds: 4200 });
+  assert.equal(started.timerTargetSeconds, 4033);
+  assert.equal(started.forecastTimeline.find(block => block.start === at(12, 0)).kind, 'break');
+  const due = core.action('advance', 4033 / 60);
+  assert.equal(due.breakDue, true);
+  assert.equal(due.todayTitle, 'Time for a real break');
+  core.close();
+});
+
+test('a substantial future focus block after a meeting stays planned', () => {
+  const at = (hour, minute) => new Date(2026, 10, 9, hour, minute).toISOString();
+  const plan = { start: at(9, 0), end: at(14, 0), focusMinutes: 70, breakMinutes: 10,
+    meetings: [{ start: at(9, 30), end: at(10, 0) }] };
+  const blocks = forecast(plan, [], { phase: 'focus', startedAt: at(9, 25), targetSeconds: 4200, elapsedSeconds: 0 }, at(9, 25));
+  const remainder = blocks.find(block => block.start === at(10, 0));
+  assert.equal(remainder.kind, 'focus');
+  assert.equal(remainder.end, at(10, 35));
+  assert.equal(remainder.active, false);
+  assert.equal(remainder.forecast, true);
 });
 
 test('a due break waits until a meeting ends and keeps its configured length', () => {
@@ -311,8 +369,9 @@ test('skipping a due break continues one focus session without moving a meeting'
   assert.equal(skipped.timer.sessionID, started.timer.sessionID);
   assert.equal(skipped.timer.startedAt, started.timer.startedAt);
   assert.equal(skipped.breakDue, false);
-  assert.ok(Math.abs(skipped.timer.targetSeconds - skipped.timer.elapsedSeconds - 3600) < 0.1);
-  assert.ok(skipped.timer.remainingSeconds > 3500);
+  // The extension ends with the meeting, avoiding a 15-minute focus tail.
+  assert.ok(Math.abs(skipped.timer.targetSeconds - skipped.timer.elapsedSeconds - 2700) < 0.1);
+  assert.ok(skipped.timer.remainingSeconds > 2600);
   assert.equal(skipped.events.filter(event => event.kind === 'focusEnded').length, 0);
   assert.equal(skipped.events.filter(event => event.kind === 'breakSkipped').length, 1);
   const recovered = Timer.recover(skipped.events, { wall: new Date(skipped.currentWallTimeISO), monotonicSeconds: 0 });

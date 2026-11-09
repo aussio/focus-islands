@@ -3,7 +3,10 @@ const { dirname, join } = require('node:path');
 const { backup: sqliteBackup } = require('node:sqlite');
 const { openStore, uuid } = require('./store');
 const { Timer } = require('./timer');
-const { suggest, editBlock, project, forecast, sameDay, ms, iso, qualifyingRestSeconds, idleStartAfterMeetings } = require('./planning');
+const { project, idleStartAfterMeetings } = require('./planning');
+const { sameDay, ms, iso } = require('./time');
+const { qualifyingRestSeconds } = require('./rest');
+const scheduler = require('./scheduler');
 const { todayGuidance, dayEndGuidance } = require('./guidance');
 const game = require('./game');
 
@@ -161,7 +164,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     activityDelaySeconds = prefs.activityDelaySeconds ?? defaultActivityDelay;
     const todayPlan = planForDay(events, dayKey(instant.wall));
     currentPlan = todayPlan.current; latestPlanEventID = todayPlan.latestEventID;
-    if (currentPlan) { focusLength = currentPlan.focusMinutes; breakLength = currentPlan.breakMinutes; plannedBlocks = suggest(currentPlan); }
+    if (currentPlan) { focusLength = currentPlan.focusMinutes; breakLength = currentPlan.breakMinutes; plannedBlocks = scheduler.schedule(currentPlan); }
     else currentPlan = null;
     const yesterday = new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate() - 1);
     const saved = events.filter(event => event.kind === 'reflection' && event.payload && sameDay(event.payload.day, yesterday)).at(-1);
@@ -251,11 +254,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
   }
   // Choose the durable session target from the time available, before recording it.
   function focusTarget(target, wall, plan = currentPlan) {
-    if (!plan || !sameDay(plan.day, wall)) return target;
-    const finish = dayEndSnoozedUntil && ms(dayEndSnoozedUntil) > ms(plan.end)
-      ? ms(dayEndSnoozedUntil) : ms(plan.end);
-    if (finish <= wall) return target; // After-day guidance owns explicit work beyond the plan.
-    return Math.max(1, Math.min(target, (finish - wall) / 1000));
+    return scheduler.focusTarget({ plan, start: wall, targetSeconds: target, dayEndSnoozedUntil });
   }
   function start(phase, target, planDraft, reason = 'manual', reportedStart) {
     if (dayEndedAt) return;
@@ -417,7 +416,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       revisesEventID: existing.latestEventID || null,
       customBlocks: Object.hasOwn(value, 'customBlocks') ? value.customBlocks : base?.customBlocks ?? null };
     if (!existing.baseline) plan.provenance = provenance;
-    const blocks = key === dayKey(instant.wall) ? suggest(plan) : null;
+    const blocks = key === dayKey(instant.wall) ? scheduler.schedule(plan) : null;
     return { key, plan, existing, blocks, start, end };
   }
   function installPlan(prepared, eventID) {
@@ -578,8 +577,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     if (!event) return null;
     if (!planSummaries.has(event.id)) {
       const plan = { ...event.payload, dayKey: key };
-      // Today's latest plan already has its blocks worked out (suggest takes about 20 ms).
-      const blocks = event.id === latestPlanEventID && key === dayKey(now().wall) && Array.isArray(plannedBlocks) ? plannedBlocks : suggest(plan);
+      // Today's latest plan already has its blocks worked out by the scheduler.
+      const blocks = event.id === latestPlanEventID && key === dayKey(now().wall) && Array.isArray(plannedBlocks) ? plannedBlocks : scheduler.schedule(plan);
       planSummaries.set(event.id, { focusSessions: blocks.filter(block => block.kind === 'focus').length,
         focusMinutes: Number(plan.focusMinutes) || 0, breakMinutes: Number(plan.breakMinutes) || 0 });
     }
@@ -849,8 +848,8 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const tomorrowKey = dayKey(new Date(instant.wall.getFullYear(), instant.wall.getMonth(), instant.wall.getDate() + 1));
     const todayPlanState = planForDay(events, todayKey), tomorrowPlanState = planForDay(events, tomorrowKey);
     const defaultDayPath = todayPlanState.current ? null : { start: bounds.start, end: bounds.end,
-      timeline: suggest({ ...bounds, focusMinutes: defaultFocusLength, breakMinutes: defaultBreakLength, meetings: [] }) };
-    const tomorrowBlocks = tomorrowPlanState.current ? suggest(tomorrowPlanState.current) : [];
+      timeline: scheduler.schedule({ ...bounds, focusMinutes: defaultFocusLength, breakMinutes: defaultBreakLength, meetings: [] }) };
+    const tomorrowBlocks = tomorrowPlanState.current ? scheduler.schedule(tomorrowPlanState.current) : [];
     const actual = today.actual.sort((a, b) => ms(a.start) - ms(b.start));
     const history = events.filter(item => sameDay(item.occurredAt, instant.wall) && eventKinds.has(item.kind)).reverse().map(item => ({
       id: item.id,
@@ -916,16 +915,7 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
     const actualWithLiveAway = liveAway || liveBreak ? [...actual, ...[liveAway, liveBreak].filter(Boolean)].sort((a, b) => ms(a.start) - ms(b.start)) : actual;
     const forecastKey = `${committedCacheKey}:${latestPlanEventID}:${timer.state.phase}:${timer.state.sessionID}:${timer.state.isSleeping}:${timer.state.isDue}:${timer.state.observedSegmentStartedAt}:${awayStartedAt?.getTime() || 0}:${returnCandidateAt?.getTime() || 0}:${returnActivityStartedAt?.getTime() || 0}:${Math.floor(instant.wall.getTime() / 60000)}`;
     if (forecastKey !== forecastCacheKey) {
-      const forecastTimer = liveBreak ? { ...timer.state, isSleeping: false, observedSegmentStartedAt: liveBreakStart } : timer.state;
-      forecastCache = forecast(plan, actualWithLiveAway, forecastTimer, instant.wall, events);
-      if (liveBreak) forecastCache = forecastCache.flatMap(block => {
-        if (!block.active || block.kind !== 'break' || ms(block.start) >= ms(liveBreak.end)) return [block];
-        return ms(block.end) > ms(liveBreak.end) ? [{ ...block, start: liveBreak.end }] : [];
-      });
-      if (dayEndedAt) forecastCache = forecastCache.filter(block => block.actual);
-      if (liveAway?.inferred || (liveBreak && timer.state.isDue)) {
-        forecastCache = forecastCache.filter(block => !block.forecast || block.kind === 'meeting');
-      }
+      forecastCache = scheduler.schedule(plan, { actual: actualWithLiveAway, timer: timer.state, now: instant.wall, events, ended: Boolean(dayEndedAt) });
       forecastCacheKey = forecastKey;
     }
     const endGuide = dayEndGuidance(plan, instant.wall, dayEndedAt, dayEndSnoozedUntil, timer.state.phase === 'focus' && !liveAway?.inferred);
@@ -1096,9 +1086,9 @@ function createCore({ dbPath, statusPath, profile = 'personal', development = fa
       case 'edit-block': case 'edit-block-start': case 'edit-block-duration': {
         if (!currentPlan) break;
         const input = value || {}, blocks = plannedBlocks, index = Number(input.index);
-        let updated = null;
-        if (name === 'edit-block' && ['focus', 'break'].includes(input.kind) && blocks[index]?.kind !== 'meeting') { updated = blocks.map(item => ({ ...item })); updated[index].kind = input.kind; }
-        else updated = editBlock(blocks, index, name === 'edit-block-duration' ? { durationMinutes: input.minutes ?? input.durationMinutes } : { start: input.start });
+        const change = name === 'edit-block' ? { kind: input.kind }
+          : name === 'edit-block-duration' ? { durationMinutes: input.minutes ?? input.durationMinutes } : { start: input.start };
+        const updated = scheduler.editBlock(blocks, index, change);
         if (updated) savePlan({ ...currentPlan, customBlocks: updated }); else message = 'That timing would move a meeting or cross a day boundary.';
         break;
       }

@@ -5,6 +5,8 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const files = [
   'electron/main.js', 'electron/preload.js', 'electron/core/index.js',
+  'electron/core/scheduler.js', 'electron/core/planning.js', 'electron/core/guidance.js',
+  'electron/core/time.js', 'electron/core/rest.js',
   'electron/restart.js',
   'electron/renderer/index.html', 'electron/renderer/app.js', 'electron/renderer/app-source.js',
   'electron/renderer/game.js', 'electron/renderer/game/index.js',
