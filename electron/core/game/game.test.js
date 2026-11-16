@@ -246,6 +246,7 @@ test('a check-in is ready after a break or a day end, never when focus ends, and
   const first = h.state().checkIn;
   assert.equal(first.number, 1);
   assert.equal(first.choice.kind, 'job', 'the first check-in gives Pip a job');
+  assert.equal(first.nextUp, null, 'a job card has no next-build line');
   assert.equal(first.choice.helperName, 'Pip');
   assert.deepEqual(first.choice.options.map(o => o.job).sort(), ['stone', 'wood']);
   assert.deepEqual(first.collected, { wood: 21, stone: 15, planks: 0, soil: 30, saplings: 20, starlight: 1 });
@@ -267,7 +268,7 @@ test('a check-in is ready after a break or a day end, never when focus ends, and
   assert.ok(state.checkIn, 'ready after the day ends');
   assert.equal(state.checkIn.collected.wood, 7.56, 'Pip the Woodcutter adds 8%');
   assert.deepEqual(state.checkIn.choice.options.map(o => o.blueprint), ['flowers'], 'one affordable option is still offered');
-  assert.equal(state.checkIn.nextUp, null);
+  assert.equal(state.checkIn.nextUp, 'Another build needs wood from about 1 more focus session.', 'a single offer says what saving leads to');
   const before = state.onHand.wood + state.checkIn.collected.wood;
   const saved = h.checkIn(null);
   assert.equal(saved.payload.built, null, 'saving collects without buying');
@@ -649,7 +650,7 @@ test('"next up" counts the land points still missing', () => {
   build('garden');
   const typical = { focusMinutes: 60, breakMinutes: 10 };
   // Room 1.2 after the garden. A Flower bed needs 2 more land points (one 10-minute break); a pad needs 9.
-  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Your next build needs more room — about 1 more break away.');
+  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical), 'Your next build needs more room from about 1 more break.');
   assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 9);
   state.landProgress = 9;
   assert.equal(play.landPointsNeeded(R.DEFAULT_BLUEPRINTS.find(b => b.id === 'nursery'), state, R.DEFAULT_RULES), 9, 'progress is minutes, counted by the caller');
@@ -657,9 +658,12 @@ test('"next up" counts the land points still missing', () => {
   state.onHand.saplings = 0;
   state.onHand.starlight = 10;
   const hint = play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical);
-  assert.match(hint, /more room, wood, and water/);
-  assert.match(hint, /more break.*more focus session/);
+  assert.equal(hint, 'Your next build needs wood from about 2 more focus sessions, and water from about 1 more break.',
+    'the 9 banked minutes already cover the room, so no break is needed for it');
   assert.doesNotMatch(hint, /Flower|Lighthouse|saplings/, 'only constraints, in familiar resource names');
+  state.landProgress = 0;
+  assert.equal(play.teaser(state, R.DEFAULT_RULES, R.DEFAULT_BLUEPRINTS, typical, 'Another build'),
+    'Another build needs wood from about 2 more focus sessions, and more room and water from about 1 more break.');
 });
 
 test('version-1 records still read: land × 7, a cottage is a house, islands get places, chain links become rope bridges', () => {
@@ -863,6 +867,8 @@ test('a rope bridge option names both islands, and building it saves both ends a
     choice: { kind: 'build', options: offer.map(o => ({ blueprint: o.bp.id, island: o.island, price: o.price, ...(o.link ? { link: o.link } : {}) })) } };
   const env = { rules: R.DEFAULT_RULES, blueprints: R.DEFAULT_BLUEPRINTS, typical: { focusMinutes: 60, breakMinutes: 10 } };
   const view = play.viewState(state, { grants: [], newestGameSequence: 1 }, { draft, work: state }, env);
+  assert.ok(offer.length > 1);
+  assert.equal(view.checkIn.nextUp, null, 'a card with several offers has no next-build line');
   const shown = view.checkIn.choice.options.find(o => o.blueprint === 'bridge');
   assert.deepEqual(Object.keys(shown), ['blueprint', 'name', 'kind', 'does', 'price', 'island']);
   assert.equal(shown.does, 'A rope bridge from Home island to Mossy Hollow.');

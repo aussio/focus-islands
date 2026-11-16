@@ -66,7 +66,7 @@ The page gets the game state as `status.game` in the once-a-second status. The c
   helpers: [{ id, name, job, island }], // job: wood | stone | planks | soil | saplings | null
   wonders: [blueprint ids],
   checkIn: null | { number, token, collected, newLand: [{ island, amount }],
-    arrivals: [text], moments: [text], surprise: text | null, nextUp: text | null,
+    arrivals: [text], moments: [text], surprise: text | null, nextUp: text | null,  // nextUp: no choice or a single build offer
     choice: null
       | { kind: 'job', helper, helperName, options: [{ job, name, doing }] }
       | { kind: 'build', options: [{ blueprint, name, kind, does, price, island }] } },
@@ -226,7 +226,8 @@ The rules can't see where islands float, so a small fixed table in `electron/cor
   - This way every island fills up alike, and a young island gets the next things until it runs out of room.
   - Room ÷ land was tried first. It counts the coast, which takes most of a small young island (about 63% of 40 points), so a new island looked full while nearly empty. By day 180 the newest island had only 1 or 2 buildings besides flower beds, and month 3 rose to 6.3 choices a week.
   - The house rule counts each island's own houses and rooms, so a new island can always start its first house.
-- `teaser` counts the land points still missing, not spots, when it says "about N more breaks".
+- `teaser` counts the land points still missing, not spots, when it says "more room from about N more breaks".
+- The "next build" line says what the nearest unaffordable build is missing and whether focus sessions or breaks bring it, for example "Your next build needs planks from about 2 more focus sessions, and more room from about 1 more break." Cards with nothing to build show it next to Collect. Under a single build offer it starts "Another build needs", so the player can weigh building now against saving. Cards with 2 or 3 offers and job cards leave it out.
 - The arrival line "A Cottage would give them a home" becomes "A new house or room would give them a home."
 
 ### Pacing

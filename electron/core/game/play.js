@@ -398,9 +398,11 @@ function islandForJob(state, job, blueprints) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// "Next up": a gentle line for check-ins with no choice, so an empty check-in still feels like progress.
+// "Next up": a short line for check-ins with no choice, so an empty check-in still feels like progress,
+// and under a single build offer ("Another build needs ..."), so the player can weigh building now
+// against saving. It says what is missing and whether focus sessions or breaks bring it.
 
-function teaser(state, rules, blueprints, typical) {
+function teaser(state, rules, blueprints, typical, lead = 'Your next build') {
   const focusMinutes = Math.min(typical.focusMinutes, rules.focusMinutesCountedPerSession);
   const breakRest = R.restValue(typical.breakMinutes, rules);
   const perBreak = { soil: breakRest * rules.soilPerRestMinute * boost(state, rules, 'soil'),
@@ -412,37 +414,33 @@ function teaser(state, rules, blueprints, typical) {
   for (const bp of blueprints) {
     if (bp.kind === 'wonder' || !available(bp, state, rules, blueprints)) continue;
     const price = R.priceOf(bp, state, rules);
-    let breaks = 0, sessions = 0, impossible = false, needsRoom = false;
-    const missing = [];
+    let breaks = 0, sessions = 0, impossible = false;
+    const fromFocus = [], fromBreaks = [];
     for (const r of Object.keys(price)) {
       const short = price[r] - (state.onHand[r] || 0);
       if (short <= EPSILON) continue;
-      missing.push(r === 'saplings' ? 'water' : r);
-      if (perBreak[r]) breaks = Math.max(breaks, Math.ceil(short / perBreak[r]));
-      else if (perSession[r]) sessions = Math.max(sessions, Math.ceil(short / perSession[r]));
+      const name = r === 'saplings' ? 'water' : r;
+      if (perBreak[r]) { fromBreaks.push(name); breaks = Math.max(breaks, Math.ceil(short / perBreak[r])); }
+      else if (perSession[r]) { fromFocus.push(name); sessions = Math.max(sessions, Math.ceil(short / perSession[r])); }
       else impossible = true;
     }
     if (placeFor(bp, state, rules) === null) {
       // It needs more land first: count the land points still missing, in rest minutes.
       const points = landPointsNeeded(bp, state, rules);
       if (points === null) continue;
-      needsRoom = true;
-      breaks = Math.max(breaks, Math.ceil((points * rules.restMinutesPerLand - state.landProgress) / Math.max(1, breakRest)));
+      const landBreaks = Math.ceil((points * rules.restMinutesPerLand - state.landProgress) / Math.max(1, breakRest));
+      if (landBreaks > 0) { fromBreaks.unshift('more room'); breaks = Math.max(breaks, landBreaks); }
     }
     if (impossible || (!breaks && !sessions)) continue;
-    if (!best || breaks + sessions < best.breaks + best.sessions) best = { breaks, sessions, needsRoom, missing };
-  }
-  const lines = [];
-  if (best) {
-    const parts = [];
-    if (best.breaks) parts.push(plural(best.breaks, 'more break'));
-    if (best.sessions) parts.push(plural(best.sessions, 'more focus session'));
-    const needs = [...(best.needsRoom ? ['more room'] : []), ...best.missing];
-    const needsText = needs.length < 3 ? needs.join(' and ') : `${needs.slice(0, -1).join(', ')}, and ${needs.at(-1)}`;
-    lines.push(`Your next build needs ${needsText} — about ${parts.join(' and ')} away.`);
+    if (!best || breaks + sessions < best.breaks + best.sessions) best = { breaks, sessions, fromFocus, fromBreaks };
   }
   // Explain the constraint without revealing undiscovered buildings or milestones.
-  return lines.length ? lines.join(' ') : null;
+  if (!best) return null;
+  const list = words => (words.length < 3 ? words.join(' and ') : `${words.slice(0, -1).join(', ')}, and ${words.at(-1)}`);
+  const parts = [];
+  if (best.sessions) parts.push(`${list(best.fromFocus)} from about ${plural(best.sessions, 'more focus session')}`);
+  if (best.breaks) parts.push(`${list(best.fromBreaks)} from about ${plural(best.breaks, 'more break')}`);
+  return `${lead} needs ${parts.join(', and ')}.`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -853,7 +851,8 @@ function viewState(state, facts, prepared, env) {
     checkIn = { number: draft.number, token: draft.token, collected: { ...draft.collected },
       newLand: draft.newLand.map(n => ({ ...n })), arrivals: draft.arrivals.slice(), moments: draft.moments.slice(),
       surprise: draft.surprise ? draft.surprise.text : null,
-      nextUp: draft.choice ? null : teaser(work, rules, blueprints, typical),
+      nextUp: !draft.choice || (draft.choice.kind === 'build' && draft.choice.options.length === 1)
+        ? teaser(work, rules, blueprints, typical, draft.choice ? 'Another build' : undefined) : null,
       choice: viewChoice(draft.choice, work, blueprints) };
   }
   // What today's check-ins collected, surprise gifts included. Spending isn't taken off.
