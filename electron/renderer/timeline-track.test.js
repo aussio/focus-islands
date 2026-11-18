@@ -62,3 +62,22 @@ test('both tracks show a break immediately after a meeting instead of a tiny foc
     assert.ok(!markup.includes('0 sec so far'));
   }
 });
+
+test('meetings show their name in the tooltip and on the day path block, falling back to "Meeting"', () => {
+  const blocks = [
+    { kind: 'meeting', start: at(10), end: at(40), title: '  Design <sync>  ' },
+    { kind: 'meeting', start: at(45), end: at(50) },
+    { kind: 'focus', start: at(0), end: at(10) },
+  ];
+  const path = draw(blocks), history = draw(blocks, { compact: true });
+  const tooltipNames = markup => [...markup.matchAll(/class="timeline-tooltip-name">([^<]*)</g)].map(match => match[1]);
+  const labels = markup => [...markup.matchAll(/class="timeline-segment-label" aria-hidden="true">([^<]*)</g)].map(match => match[1]);
+  for (const markup of [path, history]) {
+    assert.deepEqual(tooltipNames(markup), ['Design &lt;sync&gt;', 'Meeting']);
+    assert.ok(markup.includes('aria-label="Design &lt;sync&gt;, 30 min, '));
+    assert.ok(markup.includes('<strong>30 min</strong>'));
+  }
+  assert.deepEqual(labels(path), ['Design &lt;sync&gt;', 'Meeting']);
+  assert.deepEqual(labels(history), []);
+  assert.ok(!draw([blocks[2]]).includes('timeline-tooltip-name'));
+});

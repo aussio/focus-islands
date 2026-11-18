@@ -103,10 +103,13 @@ assert dragged_response["ui"]["previewVisible"]
 dragged = dragged_response["status"]
 assert dragged["profile"] == "testing" and not dragged["appActive"]
 assert len(dragged["dayPlans"][dragged["todayKey"]]["current"]["meetings"]) == 0
+# A new meeting opens with its name box ready, so the name can be typed right away.
+assert call("ui-read", "#meeting-name")["ui"]["value"] == "Meeting"
+status("ui-fill", {"selector": "#meeting-name", "text": "Design sync"})
 status("ui-click", "#close-meetings")
 time.sleep(0.9)
 meeting_plan = status()
-assert len(meeting_plan["dayPlans"][meeting_plan["todayKey"]]["current"]["meetings"]) == 1
+assert [item["title"] for item in meeting_plan["dayPlans"][meeting_plan["todayKey"]]["current"]["meetings"]] == ["Design sync"]
 assert all(block["kind"] != "free" for block in meeting_plan["plannedTimeline"] + meeting_plan["forecastTimeline"])
 status("ui-click", "#open-meetings")
 resize = call("ui-drag", {"selector": "#meeting-calendar [data-meeting-id]", "fromY": 34, "toY": 52})

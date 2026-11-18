@@ -53,9 +53,12 @@ export function timelineTrack({ blocks, start, end, now, breakMinutes, compact =
     const duration = timelineDuration(lastedUntil - from) + (running ? ' so far' : '');
     const range = `${clock(from)}–${clock(running ? lastedUntil : until)}`;
     const note = light ? 'Not counted as a real break' : block.smoothed ? 'Includes short interruptions' : '';
+    // Meetings carry the name the user typed; the path also prints it on the block when it fits.
+    const name = kind === 'meeting' ? String(block.title ?? '').trim() || 'Meeting' : '';
+    const onBlock = name && !compact ? `<span class="timeline-segment-label" aria-hidden="true">${html(name)}</span>` : '';
     const midpoint = (percent(from) + percent(until)) / 2;
     const edge = midpoint < 15 ? 'start' : midpoint > 85 ? 'end' : 'middle';
-    return `<span tabindex="0" aria-label="${html(`${duration}, ${range}${note ? `, ${note}` : ''}`)}" data-tooltip-edge="${edge}" class="timeline-segment ${segmentClass} ${html(kind)}${block.actual ? ' is-actual' : ''}${block.active ? ' is-active' : ''}${light ? ' is-light' : ''}" style="left:${percent(from)}%;width:${percent(until) - percent(from)}%"><span class="timeline-tooltip" aria-hidden="true"><strong>${html(duration)}</strong><small>${html(range)}</small>${note ? `<small>${html(note)}</small>` : ''}</span></span>`;
+    return `<span tabindex="0" aria-label="${html(`${name ? `${name}, ` : ''}${duration}, ${range}${note ? `, ${note}` : ''}`)}" data-tooltip-edge="${edge}" class="timeline-segment ${segmentClass} ${html(kind)}${block.actual ? ' is-actual' : ''}${block.active ? ' is-active' : ''}${light ? ' is-light' : ''}" style="left:${percent(from)}%;width:${percent(until) - percent(from)}%">${onBlock}<span class="timeline-tooltip" aria-hidden="true">${name ? `<span class="timeline-tooltip-name">${html(name)}</span>` : ''}<strong>${html(duration)}</strong><small>${html(range)}</small>${note ? `<small>${html(note)}</small>` : ''}</span></span>`;
   }).join('');
   const background = progress ? `<span class="path-progress" title="Elapsed time without recorded activity is untracked" style="width:${position}%"></span>` : '';
   const cursor = marker ? `<span class="timeline-marker ${compact ? 'history-now' : 'path-marker'}" style="left:${position}%" title="Now · ${html(clock(now))}"></span>` : '';

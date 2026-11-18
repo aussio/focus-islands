@@ -653,7 +653,7 @@ function settings() {
 }
 function meetingDialog() {
   const view = selectedPlan(), meetings = view.plan.meetings || [], meeting = meetings.find(x => x.id === state().selectedMeeting);
-  const selected = meeting ? `<input class="text-input" id="meeting-name" aria-label="Meeting name" value="${html(state().meetingDraft || meeting.title)}"><span class="muted">${clock(meeting.start)}–${clock(meeting.end || date(meeting.start).getTime() + meeting.duration * 60000)}</span><button class="button" id="delete-meeting">Delete</button>` : '<span class="muted">Select a meeting to rename it. Right-click a block to delete it.</span>';
+  const selected = meeting ? `<input class="text-input" id="meeting-name" aria-label="Meeting name" placeholder="Meeting name" value="${html(state().meetingDraft || meeting.title)}"><span class="muted">${clock(meeting.start)}–${clock(meeting.end || date(meeting.start).getTime() + meeting.duration * 60000)}</span><button class="button" id="delete-meeting">Delete</button>` : '<span class="muted">Select a meeting to rename it. Right-click a block to delete it.</span>';
   document.getElementById('dialog-root').innerHTML = `<div class="modal-backdrop" id="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-label="Meetings"><div class="modal-top"><div><h2>Meetings</h2><p>Drag empty space to add. Drag a block to move it. Drag its edges to resize. Snaps to 15 minutes.</p></div><button class="button" id="close-meetings" aria-label="Close calendar">×</button></div><div class="selection">${selected}</div>${calendar(meetings.map(m => ({ ...m, kind: 'Meeting' })), view.plan.start, view.plan.end, true)}</section></div>`;
 }
 function returnDialog() {
@@ -903,7 +903,14 @@ function meetingDrop(event) {
     last === Math.round((date(drag.meeting.end) - geo.start) / 900000)) { selectMeeting(drag.meeting.id); return; }
   const start = new Date(geo.start.getTime() + first * 900000).toISOString();
   const end = new Date(geo.start.getTime() + last * 900000).toISOString();
-  upsertMeeting({ id: drag.meeting?.id, title: drag.meeting?.title || 'Meeting', start, end });
+  if (drag.meeting) { upsertMeeting({ id: drag.meeting.id, title: drag.meeting.title || 'Meeting', start, end }); return; }
+  // A new meeting opens with its name selected, so typing names it right away.
+  const id = `draft-${Date.now()}`;
+  state().setUI({ selectedMeeting: id, meetingDraft: '' });
+  upsertMeeting({ id, title: 'Meeting', start, end });
+  const name = document.getElementById('meeting-name');
+  name?.focus();
+  name?.select();
 }
 document.addEventListener('click', event => {
   const profileMenu = document.querySelector('.profile-menu[open]');
@@ -1000,6 +1007,7 @@ document.addEventListener('input', event => {
   if (event.target.id === 'meeting-name') state().setUI({ meetingDraft: event.target.value });
 });
 document.addEventListener('keydown', event => {
+  if (event.key === 'Enter' && event.target.id === 'meeting-name') { event.preventDefault(); event.target.blur(); return; }
   if (event.key === 'Escape' && state().meetingEditor) closeMeetings();
   if (event.key === 'Escape') document.querySelector('.profile-menu[open]')?.removeAttribute('open');
   if (event.key === 'Enter' && event.target.id === 'today-reflection-input') { event.preventDefault(); document.getElementById('save-today-reflection')?.click(); }

@@ -315,6 +315,12 @@ body{background:#f6f8f4}
 .timeline-segment:is(:hover,:focus,.is-inspected) .timeline-tooltip{display:block}
 .timeline-segment[data-tooltip-edge="start"] .timeline-tooltip{left:0;transform:none}
 .timeline-segment[data-tooltip-edge="end"] .timeline-tooltip{left:auto;right:0;transform:none}
+.timeline-tooltip{width:max-content;max-width:240px}
+.timeline-tooltip-name{display:block;white-space:normal;overflow-wrap:anywhere;font-size:11px;font-weight:750;line-height:1.35;color:#18372b}
+/* Meeting names on the day path: cut short with an ellipsis, and hidden when the block is too narrow to read. */
+.path-segment.meeting{container-type:inline-size}
+.timeline-segment-label{display:block;padding:0 5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:9.5px;font-weight:650;line-height:15px;letter-spacing:.1px;color:#fbfdf8;pointer-events:none}
+@container (max-width:38px){.timeline-segment-label{display:none}}
 .timeline-marker{pointer-events:none}
 
 /* Compact navigation and a content-sized session card over the island. */
