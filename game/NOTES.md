@@ -1,6 +1,6 @@
 # Game notes
 
-Notes for the game side of Focus Islands: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. No game code exists on `main` yet. Today's acorns, shop, and pixel garden are placeholders that the game replaces, starting fresh with nothing carried over.
+Notes for the game side of Focus Islands: an idle game where the only income comes from real focus and real breaks, with rewards for following the day's plan closely. The game replaced the old acorns, shop, and pixel garden, and it started fresh with nothing carried over.
 
 ## Prototypes (kept on a separate branch)
 
@@ -39,11 +39,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - Helpers are tiny and in scale with buildings and trees, like a small colony at work.
 - Art direction: bright, saturated colours that are easy to read, with a softer, more crafted, artistic feel. Rounded or bevelled shapes, chunky and simple, and less busy than the references.
 - Look-test feedback: the "clay" style felt the most artistic, and the blocky style was the most readable. Neither looked right on its own.
-- **Chosen look:** the Townscaper-like style (D in the art prototype). It has bright, colourful houses with white trim and sharp roofs, angular grey-lilac rocks, faceted trees, stepping-stone paths, and rope bridges. The ground has a soft rounded edge, and the underside is faceted with hanging roots. In break mood there is a dusk sky with stars, glowing windows, and a campfire. Keep the colours and brightness, and keep shapes crisp: small bevels, not puffy. Clay shapes don't fit the grid, so they're out. `D-grown-focus.png` and `D-grown-break.png` on the prototype branch show the target.
-- Known gaps in the prototype look:
-  - the grown island is mostly empty lawn
-  - diagonal coastlines look stair-stepped
-  - window details are hard to see at the app's size
+- **Chosen look:** the Townscaper-like style (D in the art prototype). It has bright, colourful houses with white trim and sharp roofs, angular grey-lilac rocks, faceted trees, and rope bridges. The ground has a soft rounded edge, and the underside is faceted with hanging roots. In break mood there is a dusk sky with stars, glowing windows, and a campfire. Keep the colours and brightness, and keep shapes crisp: small bevels, not puffy. Clay shapes don't fit the grid, so they're out. `D-grown-focus.png` and `D-grown-break.png` on the prototype branch show the target. Decision 5 below later replaced its square grid and stepping-stone paths.
 - References (on the prototype branch, in `game/prototypes/art-references/`):
   - a cozy room diorama (too busy)
   - a stylized island city
@@ -55,11 +51,11 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - Islands grow, and they connect to each other with bridges.
 - Helpers walk set paths or find simple routes to work spots. This is simulated, not player-driven.
 - Adding helpers, resource types, building types, and islands must stay easy.
-- Planned approach:
-  - Each island is a square grid of cells stored as data.
-  - The ground is drawn from that grid, using rounded tile pieces chosen by their neighbours (the way Townscaper does it), so edges look soft rather than blocky.
-  - Buildings, trees, and rocks sit on cells, each with a footprint and a work spot.
-  - Helpers find routes along walkable cells and bridges.
+- How it works:
+  - Each island has its own uneven grid stored as data (decision 5).
+  - The ground is drawn from that grid, so edges look soft rather than blocky.
+  - Buildings, trees, and rocks sit on grid points, and helpers work at the walkable points next to them.
+  - Helpers find routes along walkable points and bridges.
   - Changing the map means changing the data. The drawing is rebuilt from it at check-ins.
 - An art style is a good fit only if it can be built from modular pieces like this. Hand-sculpted, organic shapes are hard to grow and connect.
 
@@ -101,11 +97,7 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - Helpers have names.
 - A check-in with no choice shows whether more room or materials are needed, with an approximate wait and without revealing undiscovered content.
 
-**Still open (decide after trying prototypes):**
-
-- The setting and characters: sky islands with little helpers, or something else.
-- How Starlight is measured from the plan.
-- What decorating and personalizing looks like (colors, set decoration spots, names, outfits).
+**Still open:** what decorating and personalizing looks like (colors, set decoration spots, names, outfits).
 
 ## Decisions made (by the user)
 
@@ -122,7 +114,6 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
    - **Settled by two look prototypes** on the branch `prototype/town-grid`:
      - `bent/`: square grid, bent drawing, joined paths;
      - `wonky/`: the full town, with a growth film from day 1 to day 180.
-   - **Next step:** this replaces the square-grid layout and ground drawing built in stages 1 to 5.
 6. **The view follows the action.** It frames the island where helpers are busiest, close enough to see them, with other islands peeking in at the edges. It moves only at a check-in, and slowly.
 7. **Homes are a choice whenever they fit.** A new house, a room or a floor can be one of the 2 or 3 build options at any check-in where there's room, not only when a helper needs a bed. Blocks cover at most 30% of an island.
 8. **Bridges form a network, and some are fancy.**
