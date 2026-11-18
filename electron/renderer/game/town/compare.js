@@ -1,4 +1,4 @@
-// Checks the promises between two worlds, a state and a later one (game/BUILD_PLAN.md, "Promises").
+// Checks the promises between two worlds, a state and a later one.
 // Plain code: no DOM.
 //
 //   compareTowns(before, after) => [problems]   plain sentences; empty when nothing moved that shouldn't

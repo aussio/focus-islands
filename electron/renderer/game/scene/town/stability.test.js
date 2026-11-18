@@ -1,4 +1,4 @@
-// The drawing check (game/BUILD_PLAN.md, "Gallery, tour and checks"): the town drawing changes only near
+// The drawing check: the town drawing changes only near
 // what changed. Ported from the grid prototype's wonky/check.mjs, for every island and bridge.
 //
 // Between two states:

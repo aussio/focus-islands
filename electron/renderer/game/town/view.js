@@ -1,4 +1,4 @@
-// Where the view looks (game/BUILD_PLAN.md, "Where the view looks"). Plain code: no DOM.
+// Where the view looks. Plain code: no DOM.
 //
 //   viewOf(islands, things, helpers) => { island, points }
 //     islands: [{ id, plaza, newest: { checkIn, points } | null }] in the world's order

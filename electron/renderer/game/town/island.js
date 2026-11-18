@@ -1,4 +1,4 @@
-// The per-island replay (game/BUILD_PLAN.md, "Replaying an island" and "The start of each island").
+// The per-island replay.
 // Plain code: no DOM, no Three.js. Houses, pads, lanes and decoration live in houses.js, pads.js,
 // lanes.js and nature.js; bridge feet use sky.js.
 //

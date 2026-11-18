@@ -1,6 +1,6 @@
 # Working on the game layer
 
-The game turns focus and break facts into a growing set of sky islands. The agreed design, its guardrails, and the research sources are in [NOTES.md](NOTES.md). Read its "Game direction" section before changing how the game plays. Before building, read the parts of [BUILD_PLAN.md](BUILD_PLAN.md) that cover your change: "How the pieces fit" for where code lives, plus the section for the area you touch (saved records, town rules, layout, scene, or gallery and checks).
+The game turns focus and break facts into a growing set of sky islands. The agreed design, its guardrails, and the research sources are in [NOTES.md](NOTES.md). Read its "Game direction" and "Decisions made (by the user)" sections before changing how the game plays.
 
 The live scene stays calm: helpers move about and look busy, and the islands change only at check-ins.
 

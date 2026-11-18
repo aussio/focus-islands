@@ -1,4 +1,4 @@
-// The town layout on real rules (game/BUILD_PLAN.md, "What gets tested": town.test.js).
+// The town layout on real rules.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';

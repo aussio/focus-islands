@@ -222,7 +222,7 @@ const DEFAULT_RULES = Object.freeze({
 // the gift (placeFor in play.js; room-check.js checks it the same way). roomMargin: extra points included
 // in ground beyond the footprint's usual charge, as headroom for later buildings; no extra land is set
 // aside on the map. Only the Farmyard has one: its cells footprint costs 7, plus a margin of 1. That
-// margin and its planks price keep it to about an Orchard's timing (see BUILD_PLAN "Pacing").
+// margin and its planks price keep it to about an Orchard's timing.
 const DEFAULT_BLUEPRINTS = deepFreeze([
   { id: 'house', name: 'Little house', kind: 'homes', tier: 1, again: true, ground: 3, blocks: 2, storeys: 2, weight: 1, step: 0.25, cost: { wood: 40, stone: 20, soil: 20, saplings: 10 }, does: 'A new house of two rooms, with beds for 2 more helpers.' },
   { id: 'room', name: 'Extra room', kind: 'homes', tier: 1, again: true, ground: 1, blocks: 1, storeys: 1, weight: 3, step: 0.06, cost: { wood: 20, stone: 12, soil: 10, saplings: 5 }, does: 'One more room on a house, with a bed for 1 more helper.' },

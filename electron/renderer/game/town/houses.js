@@ -1,4 +1,4 @@
-// Block houses (game/BUILD_PLAN.md, "Houses"). Plain code: no DOM, no Three.js.
+// Block houses. Plain code: no DOM, no Three.js.
 //
 //   newHouse(isle, id, blocks) => points | null   a new house of 1 or 2 blocks, with its door and lane
 //   addRoom(isle, id) => points | null            one more block on the house that most needs it

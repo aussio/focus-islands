@@ -1,4 +1,4 @@
-// Checks a world against the layout rules in game/BUILD_PLAN.md ("What gets tested"). Plain code: no DOM.
+// Checks a world against the layout rules. Plain code: no DOM.
 //
 //   checkTown(world) => [problems]   plain sentences; empty when all is well
 //

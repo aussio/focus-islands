@@ -1,5 +1,5 @@
-// Special buildings on pads, flower beds and lanterns (game/BUILD_PLAN.md, "Pads for special
-// buildings"). Plain code: no DOM, no Three.js.
+// Special buildings on pads, flower beds and lanterns.
+// Plain code: no DOM, no Three.js.
 //
 //   placeBuilding(isle, id, kind) => points | null
 //   footOptions(grid, foot, land, ok) => [{ points, at, cells, sides }]   every way a footprint fits

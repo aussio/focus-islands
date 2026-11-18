@@ -1,4 +1,4 @@
-// Checks the town grid, land growth and the sample towns (game/BUILD_PLAN.md, "What gets tested").
+// Checks the town grid, land growth and the sample towns.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gridFor, buildGrid, canFill, roll, GRID_RINGS } from './grid.js';

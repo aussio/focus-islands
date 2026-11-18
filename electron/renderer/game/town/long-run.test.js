@@ -1,5 +1,5 @@
-// The layout on the real rules for 180 made-up days (game/BUILD_PLAN.md, "What gets tested":
-// long-run.test.js). Every day for the steady planner, every 7th day and day 180 for everyone else.
+// The layout on the real rules for 180 made-up days.
+// Every day for the steady planner, every 7th day and day 180 for everyone else.
 // For each snapshot: an empty checkTown. For each pair of neighbouring snapshots: an empty compareTowns.
 // And the layout should never need to borrow land.
 import test from 'node:test';
@@ -34,7 +34,7 @@ test('every snapshot passes checkTown, and neighbouring snapshots keep every pro
 });
 
 // Borrowed land means the rules let a building in that the layout couldn't fit. The layout and the
-// rules' room sum are tuned together (BUILD_PLAN.md, "To retune together").
+// rules' room sum are tuned together.
 test('the layout never borrows land', () => {
   const borrowed = runs.flatMap(({ person, snapshots }) => snapshots.at(-1).world.islands.filter(i => i.borrowed).map(i => `${person} ${i.id} ${i.borrowed}`));
   assert.deepEqual(borrowed, []);

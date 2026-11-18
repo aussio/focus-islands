@@ -107,6 +107,35 @@ Inspired by Minecraft Skyblock (start tiny, end huge) and Tower Wizard (workers 
 - How Starlight is measured from the plan.
 - What decorating and personalizing looks like (colors, set decoration spots, names, outfits).
 
+## Decisions made (by the user)
+
+1. **Acorns go.** They were a placeholder. Remove acorn earning, the shop, the acorn counter on Today, the acorn total in History, and the reward preview in Settings. Previously earned acorns are thrown away and don't carry over. Their old records stay in the saved history, because records are never deleted, but nothing reads or shows them.
+2. **Fresh start.** The game starts on the day it's turned on, so the island starts tiny. Past weeks don't count.
+3. **The island replaces the pixel garden on Today.** Delete the placeholder garden (`garden-scene.js` and its styles).
+4. **Anything that interrupts waits until you're back from a break.** That includes the check-in, choices, and celebrations. Ending focus is exactly when you should be stepping away, and break growth is only known once the break is over. The check-in waits on Today until you open the window. Collecting is one tap on a small card, because that tap is the "cash in" moment.
+5. **The islands become a Townscaper-style town.**
+   - **Grid:** each island gets its own uneven grid, made from triangles joined into four-sided cells. It is seeded from the island id and sized for the island's largest size, so growth only fills more cells.
+   - **Houses:** houses grow block by block and join their neighbours.
+   - **Special buildings:** the sawmill, windmill, wonders and the rest sit on small flat pads.
+   - **Paths:** joined lanes, not stepping stones.
+   - **Change stays local:** only pieces right next to a change reshape, and nothing farther away moves.
+   - **Settled by two look prototypes** on the branch `prototype/town-grid`:
+     - `bent/`: square grid, bent drawing, joined paths;
+     - `wonky/`: the full town, with a growth film from day 1 to day 180.
+   - **Next step:** this replaces the square-grid layout and ground drawing built in stages 1 to 5.
+6. **The view follows the action.** It frames the island where helpers are busiest, close enough to see them, with other islands peeking in at the edges. It moves only at a check-in, and slowly.
+7. **Homes are a choice whenever they fit.** A new house, a room or a floor can be one of the 2 or 3 build options at any check-in where there's room, not only when a helper needs a bed. Blocks cover at most 30% of an island.
+8. **Bridges form a network, and some are fancy.**
+   - An island can have more than one bridge. A new island's first bridge joins its nearest island that is already joined: often home, not always.
+   - Later rope bridges join neighbouring islands that aren't directly joined yet, so routes form loops. Bridges never cross each other or pass over another island.
+   - Fancy bridges arrive as surprises: a stone arch, a water slide, cloud steps, a flower arch, and a rare rainbow. A surprise either adds a fancy bridge between two neighbours that aren't joined, or turns a rope bridge into a fancy one. An upgrade changes only the look; the bridge's ends never move.
+   - The rope bridge stays the one you build.
+   - Helpers walk every type. The water slide works both ways: they slide down it and climb the steps beside it.
+9. **Islands differ in size and float at different heights.** "Lack of uniformity is pleasing to the eye."
+   - Home is always the largest, because it's the oldest. Older islands are generally bigger, and each island has its own appetite for growth, so sizes vary. Every island still keeps growing a little.
+   - Each island floats at its own height: home in the middle, others a little above or below. Bridges slope between them, and a water slide always runs downhill.
+10. **Pretty first, fast later.** Make the town look nice now. Don't simplify models or merge pieces to meet the speed budgets; that work comes later, once the look is settled.
+
 ## Patterns to follow
 
 These come from Simon Willison's 2026 posts on building games with AI.

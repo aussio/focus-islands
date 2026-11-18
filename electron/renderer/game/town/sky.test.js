@@ -1,4 +1,4 @@
-// Islands and bridges in a full sky (game/BUILD_PLAN.md, "What gets tested": sky.test.js).
+// Islands and bridges in a full sky.
 // It reads the sky table from the rules (electron/core/game/sky.js), fills all three rings at random
 // sizes and land, and joins every neighbour pair the table allows, in a random order.
 import test from 'node:test';

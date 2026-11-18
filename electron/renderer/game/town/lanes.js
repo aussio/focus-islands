@@ -1,4 +1,4 @@
-// Lanes and step counts on one island's grid (game/BUILD_PLAN.md, "Lanes"). Plain code: no DOM.
+// Lanes and step counts on one island's grid. Plain code: no DOM.
 //
 //   stepsFrom(grid, starts, ok) => Int32Array   steps from the nearest start through points that pass ok (-1: no way)
 //   laneChain(isle, from) => [p, ...] | null    the free points that join `from` to the lanes, from first

@@ -1,6 +1,6 @@
 # Working on Focus Islands
 
-Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) when changing state ownership. Game changes also require [game/AGENTS.md](game/AGENTS.md) and the sections of [game/BUILD_PLAN.md](game/BUILD_PLAN.md) that cover the change; it is too long to read whole, so list its headings with `grep -n '^#'`.
+Local macOS companion for real breaks. Read [STATE_PLAN.md](STATE_PLAN.md) when changing state ownership. Game changes also require [game/AGENTS.md](game/AGENTS.md).
 
 ## Run safely
 

@@ -1,4 +1,4 @@
-// The town layout: turns the game state into a world (see shape.js and game/BUILD_PLAN.md, "Layout").
+// The town layout: turns the game state into a world (see shape.js).
 // Plain code: no DOM, no Three.js.
 //
 //   buildTown(game) => world   the same state always gives a deep-equal world, with the same grids

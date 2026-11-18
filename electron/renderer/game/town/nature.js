@@ -1,4 +1,4 @@
-// Natural decoration (game/BUILD_PLAN.md, "Natural things"). Plain code: no DOM, no Three.js.
+// Natural decoration. Plain code: no DOM, no Three.js.
 //
 //   decorate(isle) => [thing]   flowers, bushes, mushrooms, rocks, crystals and big coast trees
 //

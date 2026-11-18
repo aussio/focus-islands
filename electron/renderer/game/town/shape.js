@@ -1,6 +1,5 @@
 // The world shape the town layout hands to the scene (version 2), and small helpers for it.
-// The full description, and the promises between check-ins, are in game/BUILD_PLAN.md
-// ("Shapes passed between the pieces"). Plain code: no DOM, no Three.js.
+// Plain code: no DOM, no Three.js.
 //
 // {
 //   islands: [{ id, kind, size,

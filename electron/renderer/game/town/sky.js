@@ -1,4 +1,4 @@
-// Islands in the sky and bridges (game/BUILD_PLAN.md, "Islands in the sky and bridges"). Plain code:
+// Islands in the sky and bridges. Plain code:
 // no DOM, no Three.js. Used by the layout (index.js), the sample towns and the checks.
 //
 //   placeIslands(list) => [{ at, distance }]   where each island's grid middle floats; only ever outward
