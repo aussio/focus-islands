@@ -12,10 +12,11 @@
 //   length; on a water slide, sliding down costs 0.5 × and climbing the stair 1.5 ×. Cloud steps are hops;
 //   the slide is sit down, slide, splash, stand up; the stair is a climb.
 // - Routes over land get their corners rounded (smoothRoute).
-// - focus: work at the nearest job spot (kinds.js JOB_SPOTS), on the helper's own island first; carry to
-//   a pile on the job's island, else a house door there, and only then the nearest pile elsewhere by
-//   route. break and away: sit by a fire, fish off a coast, stroll or nap. done: sleep. No job: sit
-//   against the island's first tree, or nap beside it.
+// - focus: work at the nearest job spot (kinds.js JOB_SPOTS), on the helper's own island first, but a
+//   spot another helper already uses costs more than a trip to another island, so helpers spread out
+//   over bridges. Carry to the nearest pile by route, across bridges if needed, else a house door on the
+//   job's island. break and away: sit by a fire, fish off a coast, stroll or nap. done: sleep. No job:
+//   sit against the island's first tree, or nap beside it.
 // - Work spots are walkable points next to the thing; the helper stands up to 0.45 of a step toward it.
 // - The same model always gives the same plans: every choice is by cost, then point number.
 import { JOB_SPOTS, KINDS, MODEL_SCALE } from '../../kinds.js';
@@ -288,6 +289,12 @@ function standPoint(island, q, thing, reach) {
   return worldOf(island, [qx + (target[0] - qx) / d * move, qz + (target[1] - qz) / d * move]);
 }
 
+// Extra cost of a job spot on another island, and of each helper already working a spot. A shared spot
+// costs more than another island, so a second helper on a tree walks over a bridge to a free one. Only
+// the drawing changes: resources come from the rules, never from where helpers walk.
+const OTHER_ISLAND = 60;
+const SHARED_SPOT = 100;
+
 function planWork(P, helper, index) {
   const { G, model } = P;
   const spec = WORK[helper.job];
@@ -300,7 +307,7 @@ function planWork(P, helper, index) {
     const island = islandById(model, t.island);
     const spots = workSpots(P, island, t).filter(s => Number.isFinite(reach[s.n]));
     const best = spots.length ? Math.min(...spots.map(s => reach[s.n])) : Infinity;
-    return { t, island, spots, score: (t.island === home.id ? 0 : 60) + kinds.indexOf(t.kind) * 4 + best + (P.claimed.get(t.id) ?? 0) * 25 };
+    return { t, island, spots, score: (t.island === home.id ? 0 : OTHER_ISLAND) + kinds.indexOf(t.kind) * 4 + best + (P.claimed.get(t.id) ?? 0) * SHARED_SPOT };
   }).filter(c => c.spots.length).sort((a, b) => a.score - b.score || (a.t.id < b.t.id ? -1 : 1));
   for (const { t: target, island, spots } of candidates) {
     const spot = spots.find(s => P.free(s.n)) ?? spots[0];
@@ -331,9 +338,9 @@ function planWork(P, helper, index) {
   return null;
 }
 
-// Where to carry from node n (on the job's island): a pile on that island first, then a house door on
-// that island, and only then the nearest pile elsewhere by route. No long trips across bridges just to
-// drop a log when there is somewhere close. { n, at, face, what } or null.
+// Where to carry from node n (on the job's island): the nearest pile by route, across bridges if needed,
+// so a helper working away from the store carries home over the bridge. With no pile in reach, a house
+// door on the job's island. { n, at, face, what } or null.
 function dropFor(P, n, island) {
   const { G, model } = P;
   const found = search(G, [n]).cost;
@@ -351,8 +358,8 @@ function dropFor(P, n, island) {
     }
     return best;
   };
-  const home = pileOn(piles.filter(t => t.island === island.id));
-  if (home) return home;
+  const pile = pileOn(piles);
+  if (pile) return pile;
   let best = null;
   for (const door of island.doors ?? []) {
     const m = G.node(island, door.outside), c = found[m];
@@ -360,7 +367,7 @@ function dropFor(P, n, island) {
     const [ox, oz] = island.grid.points[door.outside], [bx, bz] = island.grid.points[door.point];
     best = { c, n: m, at: worldOf(island, [ox + (bx - ox) * 0.3, oz + (bz - oz) * 0.3]), face: flat(worldOf(island, [bx, bz])), what: `door:${door.house}` };
   }
-  return best ?? pileOn(piles.filter(t => t.island !== island.id));
+  return best;
 }
 
 const sitLoop = (at, y, face, index, seat) => timeline([

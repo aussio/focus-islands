@@ -169,11 +169,11 @@ test('helpers walk only on open land, and lanes are cheaper', () => {
   assert.ok(lanes > 0, 'the village has lane steps');
 });
 
-test('workers stand next to their job and carry: own island pile, then own island door, then a pile elsewhere', () => {
+test('workers stand next to their job, spread over free spots, and carry to the nearest pile, across bridges if needed', () => {
   const model = many();
   const plans = planHelpers(model, 'focus');
   const piles = model.things.filter(t => t.kind === 'pile');
-  const seen = { pile: 0, door: 0, away: 0 };
+  let away = 0;
   for (const [i, plan] of plans.entries()) {
     if (!plan.job) continue;
     const thing = model.things.find(t => t.id === plan.target);
@@ -182,24 +182,23 @@ test('workers stand next to their job and carry: own island pile, then own islan
     const [x, z] = [island.at[0] + thing.at[0], island.at[1] + thing.at[1]];
     assert.ok(Math.hypot(work.to[0] - x, work.to[1] - z) < 1.6, `helper ${i} works beside ${thing.id}`);
     assert.ok(Math.abs(work.yTo - island.lift) < 1e-6, `helper ${i} works at the island's height`);
-    const doors = (island.doors ?? []).map(d => `door:${d.house}`);
-    if (piles.some(t => t.island === island.id)) {
-      assert.equal(piles.find(t => t.id === plan.carriesTo)?.island, island.id, `helper ${i} carries to the pile on its job's island`);
-      seen.pile++;
-    } else if (doors.length) {
-      assert.ok(doors.includes(plan.carriesTo), `helper ${i} carries to a door on its job's island, not across a bridge`);
-      seen.door++;
-    } else {
-      assert.ok(piles.some(t => t.id === plan.carriesTo && t.island !== island.id), `helper ${i} carries to a pile elsewhere`);
-      seen.away++;
-    }
+    const pile = piles.find(t => t.id === plan.carriesTo);
+    assert.ok(pile, `helper ${i} carries to a pile, not a door, while one is in reach`);
+    if (pile.island !== island.id) away++;
   }
-  assert.ok(seen.pile + seen.door + seen.away >= 3, 'several workers');
-  assert.ok(seen.pile > 0 && seen.door > 0, `the sample shows a home pile and a door drop (${JSON.stringify(seen)})`);
-  // With no pile anywhere, a worker on the home island carries to a house door there.
+  assert.ok(away > 0, 'some helper carries over a bridge to a pile on another island');
+  // Two wood helpers on an island with one tree: the second walks to a free tree elsewhere.
+  const home = model.islands[0];
+  const trees = model.things.filter(t => t.kind === 'tree');
+  const one = { ...model, things: model.things.filter(t => t.kind !== 'tree' || t.island !== home.id || t === trees.find(u => u.island === home.id)),
+    helpers: [{ id: 'a', name: 'A', job: 'wood', island: home.id, index: 0 }, { id: 'b', name: 'B', job: 'wood', island: home.id, index: 1 }] };
+  const [a, b] = planHelpers(one, 'focus').map(p => one.things.find(t => t.id === p.target));
+  assert.equal(a.island, home.id, 'the first works at home');
+  assert.notEqual(b.id, a.id, 'the second does not share the tree');
+  // With no pile anywhere, a worker carries to a house door on the job's island.
   const noPile = { ...model, things: model.things.filter(t => t.kind !== 'pile') };
-  const home = model.helpers.findIndex(h => h.island === model.islands[0].id && h.job === 'wood');
-  assert.ok(planHelpers(noPile, 'focus')[home].carriesTo?.startsWith('door:'), 'no pile: to the door');
+  const wood = model.helpers.findIndex(h => h.island === home.id && h.job === 'wood');
+  assert.ok(planHelpers(noPile, 'focus')[wood].carriesTo?.startsWith('door:'), 'no pile: to the door');
 });
 
 test('bridges: every type fits any feet, inside the triangle budget', () => {
